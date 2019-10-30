@@ -1,7 +1,9 @@
 import numpy as np
 
-from opesciboundary import Boundary
-from devito import Grid, Function
+from opesciboundary import Boundary, plot_boundary
+from devito import (Grid, Function, TimeFunction, SubDomainSet, Eq, solve, Operator,
+                    Coefficient, Substitutions, Dimension)
+from devito.tools import as_list, as_tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -44,35 +46,90 @@ boundary_obj = Boundary(grid, boundary_func, iboundary_func)
 
 stencil_data = boundary_obj.stencil()
 
-print(stencil_data)
+stencil_data = stencil_data.sort_values(by=['Node'])
 
-# Plot of 'nodes' where the stencil is modified
-# relative to the boundary
-xg = np.linspace(0,Lx,Nx)
-yg = xg
+x_set = [i[0] for i in stencil_data['Node'].values]
+y_set = [i[1] for i in stencil_data['Node'].values]
 
-nodes = stencil_data["Node"].values
-nnodes = len(stencil_data.index)
+n_domains = len(set(x_set))
 
-xn = np.zeros(nnodes)
-yn = np.zeros(nnodes)
+class IB(SubDomainSet):
+    name = 'ib'
 
-for j in range(0,nnodes):
-    b = np.asarray(nodes[j])*[dx,dy]
-    xn[j] = b[0]
-    yn[j] = b[1]
+bounds_xm = np.zeros((n_domains,), dtype=np.int32)
+bounds_xM = np.zeros((n_domains,), dtype=np.int32)
+bounds_ym = np.zeros((n_domains,), dtype=np.int32)
+bounds_yM = np.zeros((n_domains,), dtype=np.int32)
 
-yb = boundary_func(xg)
+for j in range(0, n_domains):
+    indices = [i for i, x in enumerate(x_set) if x == j]
+    bounds_xm[j] = j
+    bounds_xM[j] = n_domains-1-j
+    bounds_ym[j] = y_set[min(indices)]
+    bounds_yM[j] = n_domains-1-y_set[max(indices)]
 
-fig = plt.figure(figsize=(14, 7))
-ax1 = fig.add_subplot(111)
-ax1.plot(xg,yb,'-b')
-ax1.plot(xn,yn,'.r')
-ax1.axis([0, Lx, 0, Ly])
-ax1.set_xlabel('$x$')
-ax1.set_ylabel('$y$')
-ax1.minorticks_on()
-ax1.set_xticks(xg, minor=True)
-ax1.grid(which='major', linestyle='-', linewidth='0.5', color='green')
-ax1.grid(which='minor', linestyle=':', linewidth='0.5', color='black')
-plt.show()
+bounds = (bounds_xm, bounds_xM, bounds_ym, bounds_yM)
+
+ib = IB(N=n_domains, bounds=bounds)
+
+grid = Grid(shape=(Nx,Ny), extent=(Lx,Ly), subdomains=(ib, ))
+x, y = grid.dimensions
+
+so = 4
+f = TimeFunction(name='f', grid=grid, space_order=5, coefficients='symbolic')
+
+""" ********************* TESTING ******************* """
+
+s = Dimension(name='s')
+ncoeffs = so+1
+
+wshape = as_list(n_domains)
+wshape = list(grid.shape)
+wshape.append(ncoeffs)
+wshape = as_tuple(wshape)
+
+wdims = as_list(grid.subdomains['ib'].implicit_dimension)
+wdims.extend(as_list(grid.subdomains['ib'].dimensions))
+wdims.append(s)
+wdims = as_tuple(wdims)
+
+#w = Function(name='w', dimensions=wdims, shape=wshape)
+#w.data[:, :, 0] = -0.5/grid.spacing[0]
+#w.data[:, :, 1] = 0.0
+#w.data[:, :, 2] = 0.5/grid.spacing[0]
+
+#f_x_coeffs = Coefficient(1, f0, x, w)
+
+#subs = Substitutions(f_x_coeffs)
+
+
+
+""" ************************************************* """
+
+#stencil = Eq(f.forward, solve(Eq(f.dt, 1, coefficients=subs), f.forward),
+             #subdomain=grid.subdomains['ib'])
+
+#op = Operator(stencil)
+#op(time_m=0, time_M=9, dt=1)
+
+from IPython import embed; embed()
+
+## Plot of 'nodes' where the stencil is modified
+## relative to the boundary
+#xg = np.linspace(0,Lx,Nx)
+#yg = xg
+
+#nodes = stencil_data["Node"].values
+#nnodes = len(stencil_data.index)
+
+#xn = np.zeros(nnodes)
+#yn = np.zeros(nnodes)
+
+#for j in range(0,nnodes):
+    #b = np.asarray(nodes[j])*[dx,dy]
+    #xn[j] = b[0]
+    #yn[j] = b[1]
+
+#yb = boundary_func(xg)
+
+#plot_boundary(xg, yb, xn, yn, Lx, Ly)
