@@ -11,8 +11,8 @@ In order to install Opesciboundary:
 
 ```
 source activate devito
-git clone https://github.com/opesci/opescibench.git
-cd opescibench
+git clone https://github.com/opesci/opesciboundary.git
+cd opesciboundary
 pip install -e .
 ```
 

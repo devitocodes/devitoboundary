@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: opesciboundary
-Version: 0.2.dev5+g97ea2db
+Version: 0.1.dev1+gec16c8c.d20191030
 Summary: Immersed boundary tools for OPESCI codes
 Home-page: http://www.opesci.org/
 Author: Imperial College London
