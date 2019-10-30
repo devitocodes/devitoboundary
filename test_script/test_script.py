@@ -26,6 +26,15 @@ def iboundary_func(*args):
     x1 = 0.5-np.sqrt(0.9-y)
     return x0, x1
 
+def most_frequent(List): 
+    dict = {} 
+    count, itm = 0, '' 
+    for item in reversed(List): 
+        dict[item] = dict.get(item, 0) + 1
+        if dict[item] >= count : 
+            count, itm = dict[item], item 
+    return count, itm
+
 # Set up the Devito grid
 Lx = 1.
 Ly = 1.
@@ -84,7 +93,7 @@ s = Dimension(name='s')
 ncoeffs = so+1
 
 wshape = as_list(n_domains)
-wshape = list(grid.shape)
+wshape.extend([1, most_frequent(x_set)[0]])
 wshape.append(ncoeffs)
 wshape = as_tuple(wshape)
 
@@ -93,14 +102,15 @@ wdims.extend(as_list(grid.subdomains['ib'].dimensions))
 wdims.append(s)
 wdims = as_tuple(wdims)
 
-#w = Function(name='w', dimensions=wdims, shape=wshape)
-#w.data[:, :, 0] = -0.5/grid.spacing[0]
-#w.data[:, :, 1] = 0.0
-#w.data[:, :, 2] = 0.5/grid.spacing[0]
+w = Function(name='w', dimensions=wdims, shape=wshape)
 
-#f_x_coeffs = Coefficient(1, f0, x, w)
+# Fill out the weights here ...
+# ...
 
-#subs = Substitutions(f_x_coeffs)
+#f_xx_coeffs = Coefficient(2, f, x, wx)
+#f_yy_coeffs = Coefficient(2, f, y, wy)
+
+#subs = Substitutions(f_xx_coeffs, f_yy_coeffs)
 
 
 
