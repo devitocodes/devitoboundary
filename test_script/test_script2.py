@@ -73,6 +73,7 @@ bounds_ym = np.zeros((n_domains,), dtype=np.int32)
 bounds_yM = np.zeros((n_domains,), dtype=np.int32)
 
 pad = []
+maxy = []
 for j in range(0, n_domains):
 
     indices = [i for i, x in enumerate(x_set) if x == j]
@@ -87,12 +88,14 @@ for j in range(0, n_domains):
     bounds_ym[j] = y_set[min(indices)]-pad_size
     bounds_yM[j] = n_domains-1-y_set[max(indices)]
 
+    maxy.append(y_set[max(indices)])
+
 bounds = (bounds_xm, bounds_xM, bounds_ym, bounds_yM)
 
 ib = IB(N=n_domains, bounds=bounds)
 
-grid = Grid(shape=(Nx,Ny), extent=(Lx,Ly), subdomains=(ib, ))
-x, y = grid.dimensions
+#grid = Grid(shape=(Nx,Ny), extent=(Lx,Ly), subdomains=(ib, ))
+#x, y = grid.dimensions
 
 so = 4
 f = TimeFunction(name='f', grid=grid, space_order=so, coefficients='symbolic')
@@ -102,35 +105,39 @@ f = TimeFunction(name='f', grid=grid, space_order=so, coefficients='symbolic')
 s = Dimension(name='s')
 ncoeffs = so+1
 
-wshape = as_list(n_domains)
-wshape.extend([1, max_oc])
+wshape = list(grid.shape)
 wshape.append(ncoeffs)
 wshape = as_tuple(wshape)
 
-wdims = as_list(grid.subdomains['ib'].implicit_dimension)
-wdims.extend(as_list(grid.subdomains['ib'].dimensions))
+wdims = list(grid.dimensions)
 wdims.append(s)
 wdims = as_tuple(wdims)
 
 wx = Function(name='wx', dimensions=wdims, shape=wshape)
 wy = Function(name='wy', dimensions=wdims, shape=wshape)
 
-fill_w = np.array([-1./12., 4./3., -5./2., 4./3., -1./12.])
+fill_ws = np.array([-1./12., 4./3., -5./2., 4./3., -1./12.])
+fill_w0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
-# Fill out the weights here ...
-for i in range(0, n_domains):
-    for j in range(pad[i]):
-        wx.data[i,0,j,:] = fill_w[:]/dx**2
-        wy.data[i,0,j,:] = fill_w[:]/dy**2
+## Fill out the weights here ...
+for i in range(grid.shape[0]):
+    j_max = maxy[i]
+    for j in range(grid.shape[0]):
+        if j < j_max:
+            wx.data[i,j,:] = fill_ws[:]/dx**2
+            wy.data[i,j,:] = fill_ws[:]/dy**2
+        else:
+            wx.data[i,j,:] = fill_w0[:]/dx**2
+            wy.data[i,j,:] = fill_w0[:]/dy**2
 
 for index, row in stencil_data.iterrows():
     node = row[0]
     d_xx = row[1]
     d_yy = row[2]
     xx = node[0]
-    yy = node[1] - bounds_ym[xx]
-    wx.data[xx,0,yy,:] = d_xx[:]/dx**2
-    wy.data[xx,0,yy,:] = d_yy[:]/dy**2
+    yy = node[1]
+    wx.data[xx,yy,:] = d_xx[:]/dx**2
+    wy.data[xx,yy,:] = d_yy[:]/dy**2
 
 f_xx_coeffs = Coefficient(2, f, x, wx)
 f_yy_coeffs = Coefficient(2, f, y, wy)
@@ -139,12 +146,13 @@ subs = Substitutions(f_xx_coeffs, f_yy_coeffs)
 
 """ ************************************************* """
 
-expr = Eq(f.dt - f.laplace, 0, coefficients=subs)
+eq = Eq(f.dt + f.dx2, 1, coefficients=subs)
 
-stencil = Eq(f.forward, solve(expr.evaluate, f.forward), subdomain=grid.subdomains['ib'])
+stencil = solve(eq.evaluate, f.forward)
 
-op = Operator(Eq(f.forward, stencil), dle='noop', dse='noop')
-op(time_m=0, time_M=9, dt=1)
+op = Operator(Eq(f.forward, stencil))
+
+op(time_m=0, time_M=9, dt=0.01)
 
 from IPython import embed; embed()
 

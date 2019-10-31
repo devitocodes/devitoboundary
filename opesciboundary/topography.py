@@ -34,7 +34,7 @@ class Boundary(object):
         x_b = const : 1d.
         y_b = f(x), x_b = f^-1(y_b) : 2d.
         """
-        # FIX ME: Add support for boundaries specified in text files.
+        # FIXME: Add support for boundaries specified in text files.
         if not callable(BoundaryFunction):
             raise NotImplementedError
         
@@ -237,43 +237,43 @@ class Boundary(object):
         # Stencils:
         def w1(eta):
             w = np.zeros(self.method_order+1)
-            w[0] = 1/12
-            w[1] = -4/3
-            w[2] = (29+eta*(93+58*eta))/(12*(1+eta)*(1+2*eta))
-            w[3] = -(5+7*eta)/(3*(1+2*eta))
+            w[0] = -1./12.
+            w[1] = 4./3.
+            w[2] = -(29+eta*(93+58*eta))/(12*(1+eta)*(1+2*eta))
+            w[3] = (5+7*eta)/(3*(1+2*eta))
             w[4] = 0
             return w
         def w2(eta):
             w = np.zeros(self.method_order+1)
-            w[0] = 1/12
-            w[1] = -(8+3*eta*(3+eta))/((2+eta)*(3+2*eta))
-            w[2] = (29+eta*(49+22*eta))/(4*(1+eta)*(3+2*eta))
-            w[3] = -4/3
+            w[0] = -1/12
+            w[1] = (8+3*eta*(3+eta))/((2+eta)*(3+2*eta))
+            w[2] = -(29+eta*(49+22*eta))/(4*(1+eta)*(3+2*eta))
+            w[3] = 4/3
             w[4] = 0
             return w
         def w3(eta):
             w = np.zeros(self.method_order+1)
-            w[0] = 1/12
-            w[1] = -(2+eta*(21+eta))/(3*(1+eta)*(1+2*eta))
-            w[2] = (6+eta*(79+2*eta))/(12*eta*(1+2*eta))
+            w[0] = -1/12
+            w[1] = (2+eta*(21+eta))/(3*(1+eta)*(1+2*eta))
+            w[2] = -(6+eta*(79+2*eta))/(12*eta*(1+2*eta))
             w[3] = 0
             w[4] = 0
             return w
         def w4(eta):
             w = np.zeros(self.method_order+1)
-            w[0] = (eta*(10*eta-7))/(2*(2+eta)*(3+2*eta))
-            w[1] = -(2*eta*(2+5*eta))/((1+eta)*(3+2*eta))
-            w[2] = 5/2
+            w[0] = -(eta*(10*eta-7))/(2*(2+eta)*(3+2*eta))
+            w[1] = (2*eta*(2+5*eta))/((1+eta)*(3+2*eta))
+            w[2] = -5/2
             w[3] = 0
             w[4] = 0
             return w
         def wn(eta):
             w = np.zeros(self.method_order+1)
-            w[0] = 1/12
-            w[1] = -4/3
-            w[2] = 5/2
-            w[3] = -4/3
-            w[4] = 1/12
+            w[0] = -1./12.
+            w[1] = 4./3.
+            w[2] = -5./2.
+            w[3] = 4./3.
+            w[4] = -1./12.
             return w
         
         D_xx_list = ()
