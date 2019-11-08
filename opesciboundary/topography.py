@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from scipy.optimize import brentq
+
 __all__ = ['Boundary']
 
 
@@ -17,7 +19,6 @@ class Boundary():
     """
 
     def __init__(self, grid, boundary_func,
-                 inv_boundary_func=None,
                  method_order=4):
         self._method_order = method_order
 
@@ -26,7 +27,7 @@ class Boundary():
         self._extent = np.asarray(grid.extent)
         self._spacing = grid.spacing
 
-        if not callable(boundary_func):
+        if not callable(boundary_func): # Want to redo this so it interpolates
             raise NotImplementedError
 
         # Create primary node list
@@ -38,8 +39,7 @@ class Boundary():
         else:
             raise NotImplementedError
 
-        #self._eta_list(boundary_func, inv_boundary_func,
-        #               shape, extent, spacing)
+        self._eta_list(boundary_func)
 
     @property
     def method_order(self):
@@ -174,34 +174,64 @@ class Boundary():
                     raise FileNotFoundError('No filepath specifed for saving.')
             plt.show()
 
-#    def _eta_list(self, boundary_func, inv_boundary_func,
-#                  shape, extent, spacing):
-#        """
-#        Generates relevant values of eta for all nodes where stencils are
-#        to be modified.
-#        """
-#
-#        p_nodes = self._primary_nodes
-#        node_list = self._node_list
-#
-#        x_coords = np.linspace(0, extent[0], shape[0])
-#        # eta in the positive x direction
-#        xr_list = ()
-#
-#        # Check if we're dealing with a 1D case
-#        if shape.size == 1:
-#            for node in node_list:
-#                xr_list += ((boundary_func() - x_coords[node])/spacing[0],)
-#        # Check if we're dealing with a 2D case
-#        elif shape.size == 2:
-#            y_coords = np.linspace(0, extent[1], shape[1])
-#            y_list = ()
-#            # In 2D, there is also an eta in the negative x direction
-#            xl_list = ()
-#
-#            for node in node_list:
-#                # For y direction
-#                y_list += ((boundary_func(x_coords[node[0]])
-#                            - y_coords[node[1]])/spacing[1],)
-#                # For xr and xl directions
-#                # Use inverse for now (will use search eventually)
+    def _eta_list(self, boundary_func):
+        """
+        Generates relevant values of eta for all nodes where stencils are
+        to be modified.
+        """
+
+        p_nodes = self._primary_nodes
+        node_list = self._node_list
+
+        x_coords = np.linspace(0, self._extent[0], self._shape[0])
+        # eta in the positive x direction
+        xr_list = ()
+
+        # Check if we're dealing with a 1D case
+        if self._shape.size == 1:
+            for node in node_list:
+                xr_list += ((boundary_func()
+                             - x_coords[node])/self._spacing[0],)
+        # Check if we're dealing with a 2D case
+        elif self._shape.size == 2:
+            y_coords = np.linspace(0, self._extent[1], self._shape[1])
+            y_list = ()
+            # In 2D, there is also an eta in the negative x direction
+            xl_list = ()
+
+            for node in node_list:
+                # For y direction
+                y_list += ((boundary_func(x_coords[node[0]])
+                            - y_coords[node[1]])/self._spacing[1],)
+                # For xr and xl directions
+                def temp_func(temp_x):
+                    temp_y = boundary_func(temp_x) - y_coords[node[1]]
+                    return temp_y
+                # Will this go mental for very rough boundaries?
+                try:
+                    right_pos = brentq(temp_func,
+                                       x_coords[node[0]],
+                                       x_coords[node[0]]
+                                       + self._spacing[0]*self._method_order/2)
+                    xr_list += (right_pos/self._spacing[0]-node[0],)
+                except:
+                    xr_list += (1+self._method_order/2,)
+
+                try:
+                    left_pos = brentq(temp_func,
+                                       x_coords[node[0]]
+                                       - self._spacing[0]*self._method_order/2,
+                                       x_coords[node[0]])
+                    xl_list += (left_pos/self._spacing[0]-node[0],)
+                except:
+                    xl_list += (-1-self._method_order/2,)
+
+            nodes = pd.Series(node_list)
+            exl = pd.Series(xl_list)
+            exr = pd.Series(xr_list)
+            ey = pd.Series(y_list)
+
+            # Put in dataframe
+            eta_list = pd.DataFrame({'Node': nodes, 'etaxl': exl,
+                                    'etaxr': exr, 'etay': ey})
+            print(eta_list)
