@@ -25,3 +25,5 @@ def inv_boundary_func_2(*args):
 
 boundary_obj_1 = Boundary(grid_1, boundary_func_1)
 boundary_obj_2 = Boundary(grid_2, boundary_func_2, inv_boundary_func_2)
+
+boundary_obj_2.show_nodes()
