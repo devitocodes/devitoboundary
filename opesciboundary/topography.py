@@ -93,6 +93,243 @@ class Boundary():
         plane_grad, plane_const
 
 
+    @staticmethod
+    def _above_bool(node, gradient, constant, verts):
+        """
+        Returns True if a point is located above the boundary. Returns
+        False otherwise.
+        """
+        # Points are above
+        loc_above = (node['x']*gradient[:, 0]
+                     + node['y']*gradient[:, 1]
+                     + node['z']*gradient[:, 2]
+                     + constant[:] >= 0)
+
+        for v_c in combinations(range(3), 2):
+            v_3 = np.setdiff1d(range(3), v_c)[0]
+
+            # Points are within boundaries of triangle
+
+            # Use x = my + c instead (for handling edges of type x = c)
+            xy_flip = ((verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) == 0)
+            clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
+            clean_dx[xy_flip] = 1 # Prevents undefined behaviour
+            clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])
+            clean_dy[np.logical_not(xy_flip)] = 1
+
+            # For edges of type y = mx + c
+            m_x = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])/clean_dx
+            c_x = verts[v_c[0]][:, 1] - m_x*verts[v_c[0]][:, 0]
+            # For edges of type x = c
+            m_y = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0])/clean_dy
+            c_y = verts[v_c[0]][:, 0] - m_y*verts[v_c[0]][:, 1]
+
+            v_above = verts[v_3][:, 1] > m_x*verts[v_3][:, 0] + c_x
+            # True if inside of triangle is in +ve y direction from edge or in
+            # -ve x direction if edge is vertical.
+            v_above[xy_flip] = (verts[v_3][xy_flip, 0]
+                                <= m_y[xy_flip]*verts[v_3][xy_flip, 1]
+                                + c_y[xy_flip])
+
+            cond_1 = np.logical_and(node['y'] >= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xy_flip),
+                                                   v_above))
+
+            cond_2 = np.logical_and(node['x'] <= m_y*node['y'] + c_y,
+                                    np.logical_and(xy_flip,
+                                                   v_above))
+
+            cond_3 = np.logical_and(node['y'] <= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xy_flip),
+                                                   np.logical_not(v_above)))
+
+            cond_4 = np.logical_and(node['x'] >= m_y*node['y'] + c_y,
+                                    np.logical_and(xy_flip,
+                                                   np.logical_not(v_above)))
+
+            # Horrible Russian doll to do 'or' of all the above
+            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
+                                       np.logical_or(cond_3, cond_4))
+
+            loc_above = np.logical_and(loc_above, tri_bounds)
+
+        if True in loc_above:
+            return True
+        else:
+            return False
+
+
+    def _z_bool(self, node, gradient, constant, verts, z_eta):
+        """
+        Returns True if a point is located within the z locus.
+        Returns False otherwise. Also modifies the list given as
+        an argument to contain respective eta values.
+        """
+        # Points are below boundary
+        # FIXME: Probably redundant?
+        loc_z = (node['x']*gradient[:, 0]
+                 + node['y']*gradient[:, 1]
+                 + node['z']*gradient[:, 2]
+                 + constant[:] < 0)
+        # Points are above base of locus
+        loc_z_base = (node['x']*gradient[:, 0]
+                      + node['y']*gradient[:, 1]
+                      + (node['z'] + (self._spacing[2]
+                                      *self._method_order/2))*gradient[:, 2]
+                      + constant[:] >= 0)
+
+        loc_z = np.logical_and(loc_z, loc_z_base)
+
+        for v_c in combinations(range(3), 2):
+            v_3 = np.setdiff1d(range(3), v_c)[0]
+
+            # Points are within boundaries of triangle
+
+            # Use x = my + c instead (for handling edges of type x = c)
+            xy_flip = ((verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) == 0)
+            clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
+            clean_dx[xy_flip] = 1 # Prevents undefined behaviour
+            clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])
+            clean_dy[np.logical_not(xy_flip)] = 1
+
+            # For edges of type y = mx + c
+            m_x = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])/clean_dx
+            c_x = verts[v_c[0]][:, 1] - m_x*verts[v_c[0]][:, 0]
+            # For edges of type x = c
+            m_y = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0])/clean_dy
+            c_y = verts[v_c[0]][:, 0] - m_y*verts[v_c[0]][:, 1]
+
+            v_above = verts[v_3][:, 1] > m_x*verts[v_3][:, 0] + c_x
+            # True if inside of triangle is in +ve y direction from edge or in
+            # -ve x direction if edge is vertical.
+            v_above[xy_flip] = (verts[v_3][xy_flip, 0]
+                                <= m_y[xy_flip]*verts[v_3][xy_flip, 1]
+                                + c_y[xy_flip])
+
+            cond_1 = np.logical_and(node['y'] >= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xy_flip),
+                                                   v_above))
+
+            cond_2 = np.logical_and(node['x'] <= m_y*node['y'] + c_y,
+                                    np.logical_and(xy_flip,
+                                                   v_above))
+
+            cond_3 = np.logical_and(node['y'] <= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xy_flip),
+                                                   np.logical_not(v_above)))
+
+            cond_4 = np.logical_and(node['x'] >= m_y*node['y'] + c_y,
+                                    np.logical_and(xy_flip,
+                                                   np.logical_not(v_above)))
+
+            # Horrible Russian doll to do 'or' of all the above
+            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
+                                       np.logical_or(cond_3, cond_4))
+
+            loc_z = np.logical_and(loc_z, tri_bounds)
+
+        if True in loc_z:
+            # Find intersections with line in y direction
+            intersections = (-constant[loc_z] - node['y']*gradient[loc_z, 1] - node['x']*gradient[loc_z, 0])/gradient[loc_z, 2]
+            # Find smallest dy required in positive and negative directions
+
+            z_eta.append(((intersections[intersections > node['z']] - node['z'])/self._spacing[2])[0])
+
+            return True
+        else:
+            return False
+
+
+    def _y_bool(self, node, gradient, constant, y_bools, verts, y_eta):
+        """
+        Returns True if a point is located within the y locus.
+        Returns False otherwise. Also modifies the list given as
+        an argument to contain respective eta values.
+        """
+        # Points are on negative side (inner side) of boundary
+        loc_y = (node['x']*gradient[:, 0]
+                 + node['y']*gradient[:, 1]
+                 + node['z']*gradient[:, 2]
+                 + constant[:] < 0)
+
+        # Points are above base of locus
+        loc_y_base = (node['x']*gradient[:, 0]
+                      + (node['y'] + (y_bools[0]*self._spacing[2]
+                                      *self._method_order/2)
+                                   - (y_bools[1]*self._spacing[2]
+                                                   *self._method_order/2))*gradient[:, 1]
+                      + node['z']*gradient[:, 2]
+                      + constant[:] >= 0)
+
+        loc_y = np.logical_and(loc_y, loc_y_base)
+
+        for v_c in combinations(range(3), 2):
+            v_3 = np.setdiff1d(range(3), v_c)[0]
+
+            # Points are within boundaries of triangle
+
+            # Use x = mz + c instead (for handling edges of type z = c)
+            xz_flip = ((verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) == 0)
+            clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
+            clean_dx[xz_flip] = 1 # Prevents undefined behaviour
+            clean_dz = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])
+            clean_dz[np.logical_not(xz_flip)] = 1
+
+            # For edges of type z = mx + c
+            m_x = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])/clean_dx
+            c_x = verts[v_c[0]][:, 2] - m_x*verts[v_c[0]][:, 0]
+            # For edges of type x = c
+            m_z = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0])/clean_dz
+            c_z = verts[v_c[0]][:, 0] - m_z*verts[v_c[0]][:, 2]
+
+            v_above = verts[v_3][:, 2] > m_x*verts[v_3][:, 0] + c_x
+            # True if inside of triangle is in +ve y direction from edge or in
+            # -ve x direction if edge is vertical.
+            v_above[xz_flip] = (verts[v_3][xz_flip, 0]
+                                <= m_z[xz_flip]*verts[v_3][xz_flip, 2]
+                                + c_z[xz_flip])
+
+            cond_1 = np.logical_and(node['z'] >= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xz_flip),
+                                                   v_above))
+
+            cond_2 = np.logical_and(node['x'] <= m_z*node['z'] + c_z,
+                                    np.logical_and(xz_flip,
+                                                   v_above))
+
+            cond_3 = np.logical_and(node['z'] <= m_x*node['x'] + c_x,
+                                    np.logical_and(np.logical_not(xz_flip),
+                                                   np.logical_not(v_above)))
+
+            cond_4 = np.logical_and(node['x'] >= m_z*node['z'] + c_z,
+                                    np.logical_and(xz_flip,
+                                                   np.logical_not(v_above)))
+
+            # Horrible Russian doll to do 'or' of all the above
+            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
+                                       np.logical_or(cond_3, cond_4))
+
+            loc_y = np.logical_and(loc_y, tri_bounds)
+
+        if True in loc_y:
+            # Find intersections with line in y direction
+            intersections = (-constant[loc_y] - node['z']*gradient[loc_y, 2] - node['x']*gradient[loc_y, 0])/gradient[loc_y, 1]
+            # Find smallest dy required in positive and negative directions
+            try:
+                y_eta[1].append((np.min(intersections[intersections > node['y']]) - node['y'])/self._spacing[1])
+            except:
+                y_eta[1].append(np.nan)
+                pass
+            try:
+                y_eta[0].append((np.max(intersections[intersections < node['y']]) - node['y'])/self._spacing[1])
+            except:
+                y_eta[0].append(np.nan)
+                pass
+            return True
+        else:
+            return False
+
+
     def _construct_loci(self, vertices):
         """
         Constructs a locus on the inner side of the plane. The thickness
@@ -118,167 +355,53 @@ class Boundary():
                                                             self._shape[1]),
                                                 np.linspace(z_min, z_max,
                                                             z_node_count))
+
         block = pd.DataFrame({'x':block_x.flatten(),
                               'y':block_y.flatten(),
-                              'z':block_z.flatten()})
-
-        # ID all points above boundary
-        def above_bool(node, gradient, constant, vert_1, vert_2, vert_3):
-            """
-            Returns True if a point is located above the boundary. Returns
-            False otherwise.
-            """
-            # Points are above
-            loc_above = (node['x']*gradient[:, 0]
-                         + node['y']*gradient[:, 1]
-                         + node['z']*gradient[:, 2]
-                         + constant[:] >= 0)
-
-
-            verts = (vert_1, vert_2, vert_3)
-            for v_c in combinations(range(3), 2):
-                v_3 = np.setdiff1d(range(3), v_c)[0]
-
-                # Points are within boundaries of triangle
-
-                # Use x = my + c instead (for handling edges of type x = c)
-                xy_flip = ((verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) == 0)
-                clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
-                clean_dx[xy_flip] = 1 # Prevents undefined behaviour
-                clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])
-                clean_dy[np.logical_not(xy_flip)] = 1
-
-                # For edges of type y = mx + c
-                m_x = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])/clean_dx
-                c_x = verts[v_c[0]][:, 1] - m_x*verts[v_c[0]][:, 0]
-                # For edges of type x = c
-                m_y = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0])/clean_dy
-                c_y = verts[v_c[0]][:, 0] - m_y*verts[v_c[0]][:, 1]
-
-                v_above = verts[v_3][:, 1] > m_x*verts[v_3][:, 0] + c_x
-                # True if inside of triangle is in +ve y direction from edge or in
-                # -ve x direction if edge is vertical.
-                v_above[xy_flip] = (verts[v_3][xy_flip, 0]
-                                    <= m_y[xy_flip]*verts[v_3][xy_flip, 1]
-                                    + c_y[xy_flip])
-
-                cond_1 = np.logical_and(node['y'] >= m_x*node['x'] + c_x,
-                                        np.logical_and(np.logical_not(xy_flip),
-                                                       v_above))
-
-                cond_2 = np.logical_and(node['x'] <= m_y*node['y'] + c_y,
-                                        np.logical_and(xy_flip,
-                                                       v_above))
-
-                cond_3 = np.logical_and(node['y'] <= m_x*node['x'] + c_x,
-                                        np.logical_and(np.logical_not(xy_flip),
-                                                       np.logical_not(v_above)))
-
-                cond_4 = np.logical_and(node['x'] >= m_y*node['y'] + c_y,
-                                        np.logical_and(xy_flip,
-                                                       np.logical_not(v_above)))
-
-                # Horrible Russian doll to do 'or' of all the above
-                tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                           np.logical_or(cond_3, cond_4))
-
-                loc_above = np.logical_and(loc_above, tri_bounds)
-
-            if True in loc_above:
-                return True
-            else:
-                return False
-
-
-        # ID all points within vertical locus
-        def z_bool(node, gradient, constant, vert_1, vert_2, vert_3):
-            """
-            Returns True if a point is located within the z locus.
-            Returns False otherwise.
-            """
-            # Points are below boundary
-            loc_z = (node['x']*gradient[:, 0]
-                     + node['y']*gradient[:, 1]
-                     + node['z']*gradient[:, 2]
-                     + constant[:] < 0)
-            # Points are above base of locus
-            loc_z_plus = (node['x']*gradient[:, 0]
-                          + node['y']*gradient[:, 1]
-                          + (node['z'] + (self._spacing[2]
-                                          *self._method_order/2))*gradient[:, 2]
-                          + constant[:] >= 0)
-
-            loc_z = np.logical_and(loc_z, loc_z_plus)
-
-            verts = (vert_1, vert_2, vert_3)
-            for v_c in combinations(range(3), 2):
-                v_3 = np.setdiff1d(range(3), v_c)[0]
-
-                # Points are within boundaries of triangle
-
-                # Use x = my + c instead (for handling edges of type x = c)
-                xy_flip = ((verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) == 0)
-                clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
-                clean_dx[xy_flip] = 1 # Prevents undefined behaviour
-                clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])
-                clean_dy[np.logical_not(xy_flip)] = 1
-
-                # For edges of type y = mx + c
-                m_x = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])/clean_dx
-                c_x = verts[v_c[0]][:, 1] - m_x*verts[v_c[0]][:, 0]
-                # For edges of type x = c
-                m_y = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0])/clean_dy
-                c_y = verts[v_c[0]][:, 0] - m_y*verts[v_c[0]][:, 1]
-
-                v_above = verts[v_3][:, 1] > m_x*verts[v_3][:, 0] + c_x
-                # True if inside of triangle is in +ve y direction from edge or in
-                # -ve x direction if edge is vertical.
-                v_above[xy_flip] = (verts[v_3][xy_flip, 0]
-                                    <= m_y[xy_flip]*verts[v_3][xy_flip, 1]
-                                    + c_y[xy_flip])
-
-                cond_1 = np.logical_and(node['y'] >= m_x*node['x'] + c_x,
-                                        np.logical_and(np.logical_not(xy_flip),
-                                                       v_above))
-
-                cond_2 = np.logical_and(node['x'] <= m_y*node['y'] + c_y,
-                                        np.logical_and(xy_flip,
-                                                       v_above))
-
-                cond_3 = np.logical_and(node['y'] <= m_x*node['x'] + c_x,
-                                        np.logical_and(np.logical_not(xy_flip),
-                                                       np.logical_not(v_above)))
-
-                cond_4 = np.logical_and(node['x'] >= m_y*node['y'] + c_y,
-                                        np.logical_and(xy_flip,
-                                                       np.logical_not(v_above)))
-
-                # Horrible Russian doll to do 'or' of all the above
-                tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                           np.logical_or(cond_3, cond_4))
-
-                loc_z = np.logical_and(loc_z, tri_bounds)
-
-            if True in loc_z:
-                # Print index of first true
-                # (for tying to triangle for eta calculation)
-                return True
-            else:
-                return False
-
+                              'z':block_z.flatten()}, columns=['x', 'y',
+                                                               'z', 'x_eta_l',
+                                                               'x_eta_r', 'y_eta_l',
+                                                               'y_eta_r', 'z_eta'])
 
         # Delete all points above boundary
-        block = block.drop(block[block.apply(above_bool, axis=1,
+        block = block.drop(block[block.apply(self._above_bool, axis=1,
                                              args=(plane_grad, plane_const,
-                                                   vertex_1, vertex_2, vertex_3))].index)
+                                                   (vertex_1, vertex_2, vertex_3)))].index)
 
-        # Cut all points in z locus into new DataFrame
-        self._modified_nodes.append(block[block.apply(z_bool, axis=1,
-                                                      args=(plane_grad, plane_const,
-                                                            vertex_1, vertex_2, vertex_3))])
+        # Used to pass indices of polygons outside function
+        z_eta = []
+        y_eta = [[],[]]
+        x_eta = [[],[]]
 
-        # Cut all points in y locus into new DataFrame
-        # Cut all points in x locus into new DataFrame
+        z_locus = block.apply(self._z_bool, axis=1,
+                              args=(plane_grad, plane_const,
+                                    (vertex_1, vertex_2, vertex_3),
+                                    z_eta))
+
+        y_grad_plus = plane_grad[:, 1] > 0
+        y_grad_minus = plane_grad[:, 1] < 0
+
+        y_locus = block.apply(self._y_bool, axis=1,
+                              args=(plane_grad, plane_const,
+                                    (y_grad_plus, y_grad_minus),
+                                    (vertex_1, vertex_2, vertex_3),
+                                    y_eta))
+
+        block.loc[z_locus, 'z_eta'] = z_eta
+        block.loc[y_locus, 'y_eta_l'] = y_eta[0]
+        block.loc[y_locus, 'y_eta_r'] = y_eta[1]
+
+
+        # Append all points in z locus to modified nodes DataFrame
+        self._modified_nodes = self._modified_nodes.append(block[z_locus],
+                                                           ignore_index=True,
+                                                           sort=False)
+
+        # Append all points in y locus to modified nodes DataFrame
+        self._modified_nodes = pd.concat([self._modified_nodes,
+                                          block[y_locus]]).drop_duplicates().reset_index(drop=True)
+        print(self._modified_nodes)
+        # Append all points in x locus to modified nodes DataFrame
 
 
     def _node_id(self):
@@ -287,7 +410,10 @@ class Boundary():
         in either x or y directions.
         """
 
-        self._modified_nodes = pd.DataFrame(columns=['x', 'y', 'z'])
+        self._modified_nodes = pd.DataFrame(columns=['x', 'y',
+                                                     'z', 'x_eta_l',
+                                                     'x_eta_r', 'y_eta_l',
+                                                     'y_eta_r', 'z_eta'])
 
         self._construct_loci(self._mesh)
 
