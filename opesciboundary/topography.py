@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
+from mpl_toolkits.mplot3d import Axes3D
 
 __all__ = ['Boundary']
 
@@ -254,9 +255,9 @@ class Boundary():
 
         # Points are above base of locus
         loc_y_base = (node['x']*gradient[:, 0]
-                      + (node['y'] + (y_bools[0]*self._spacing[2]
+                      + (node['y'] + (y_bools[0]*self._spacing[1]
                                       *self._method_order/2)
-                                   - (y_bools[1]*self._spacing[2]
+                                   - (y_bools[1]*self._spacing[1]
                                                    *self._method_order/2))*gradient[:, 1]
                       + node['z']*gradient[:, 2]
                       + constant[:] >= 0)
@@ -314,7 +315,7 @@ class Boundary():
         if True in loc_y:
             # Find intersections with line in y direction
             intersections = (-constant[loc_y] - node['z']*gradient[loc_y, 2] - node['x']*gradient[loc_y, 0])/gradient[loc_y, 1]
-            # Find smallest dy required in positive and negative directions
+            # Find closest intersection in positive and negative directions
             try:
                 y_eta[1].append((np.min(intersections[intersections > node['y']]) - node['y'])/self._spacing[1])
             except:
@@ -324,6 +325,96 @@ class Boundary():
                 y_eta[0].append((np.max(intersections[intersections < node['y']]) - node['y'])/self._spacing[1])
             except:
                 y_eta[0].append(np.nan)
+                pass
+            return True
+        else:
+            return False
+
+
+    def _x_bool(self, node, gradient, constant, x_bools, verts, x_eta):
+        """
+        Returns True if a point is located within the x locus.
+        Returns False otherwise. Also modifies the list given as
+        an argument to contain respective eta values.
+        """
+        # Points are on negative side (inner side) of boundary
+        loc_x = (node['x']*gradient[:, 0]
+                 + node['y']*gradient[:, 1]
+                 + node['z']*gradient[:, 2]
+                 + constant[:] < 0)
+
+        # Points are above base of locus
+        loc_x_base = ((node['x'] + (x_bools[0]*self._spacing[0]
+                                      *self._method_order/2)
+                                   - (x_bools[1]*self._spacing[0]
+                                                   *self._method_order/2))*gradient[:, 0]
+                      + node['y']*gradient[:, 1]
+                      + node['z']*gradient[:, 2]
+                      + constant[:] >= 0)
+
+        loc_x = np.logical_and(loc_x, loc_x_base)
+
+        for v_c in combinations(range(3), 2):
+            v_3 = np.setdiff1d(range(3), v_c)[0]
+
+            # Points are within boundaries of triangle
+
+            # Use y = mz + c instead (for handling edges of type z = c)
+            yz_flip = ((verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1]) == 0)
+            clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1]) # Zero-free denominator
+            clean_dy[yz_flip] = 1 # Prevents undefined behaviour
+            clean_dz = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])
+            clean_dz[np.logical_not(yz_flip)] = 1
+
+            # For edges of type z = my + c
+            m_y = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])/clean_dy
+            c_y = verts[v_c[0]][:, 2] - m_y*verts[v_c[0]][:, 1]
+            # For edges of type y = c
+            m_z = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1])/clean_dz
+            c_z = verts[v_c[0]][:, 1] - m_z*verts[v_c[0]][:, 2]
+
+            v_above = verts[v_3][:, 2] > m_y*verts[v_3][:, 1] + c_y
+            # True if inside of triangle is in +ve z direction from edge or in
+            # -ve y direction if edge is vertical.
+            v_above[yz_flip] = (verts[v_3][yz_flip, 1]
+                                <= m_z[yz_flip]*verts[v_3][yz_flip, 2]
+                                + c_z[yz_flip])
+
+            cond_1 = np.logical_and(node['z'] >= m_y*node['y'] + c_y,
+                                    np.logical_and(np.logical_not(yz_flip),
+                                                   v_above))
+
+            cond_2 = np.logical_and(node['y'] <= m_z*node['z'] + c_z,
+                                    np.logical_and(yz_flip,
+                                                   v_above))
+
+            cond_3 = np.logical_and(node['z'] <= m_y*node['y'] + c_y,
+                                    np.logical_and(np.logical_not(yz_flip),
+                                                   np.logical_not(v_above)))
+
+            cond_4 = np.logical_and(node['y'] >= m_z*node['z'] + c_z,
+                                    np.logical_and(yz_flip,
+                                                   np.logical_not(v_above)))
+
+            # Horrible Russian doll to do 'or' of all the above
+            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
+                                       np.logical_or(cond_3, cond_4))
+
+            loc_x = np.logical_and(loc_x, tri_bounds)
+
+        if True in loc_x:
+            # Find intersections with line in x direction
+            intersections = (-constant[loc_x] - node['z']*gradient[loc_x, 2] - node['y']*gradient[loc_x, 1])/gradient[loc_x, 0]
+            # Find closest intersection in positive and negative directions
+            try:
+                x_eta[1].append((np.min(intersections[intersections > node['x']]) - node['x'])/self._spacing[0])
+            except:
+                x_eta[1].append(np.nan)
+                pass
+            try:
+                x_eta[0].append((np.max(intersections[intersections < node['x']]) - node['x'])/self._spacing[0])
+            except:
+                x_eta[0].append(np.nan)
                 pass
             return True
         else:
@@ -368,7 +459,7 @@ class Boundary():
                                              args=(plane_grad, plane_const,
                                                    (vertex_1, vertex_2, vertex_3)))].index)
 
-        # Used to pass indices of polygons outside function
+        # Used to pass eta values outside function
         z_eta = []
         y_eta = [[],[]]
         x_eta = [[],[]]
@@ -387,9 +478,22 @@ class Boundary():
                                     (vertex_1, vertex_2, vertex_3),
                                     y_eta))
 
+        x_grad_plus = plane_grad[:, 0] > 0
+        x_grad_minus = plane_grad[:, 0] < 0
+
+        x_locus = block.apply(self._x_bool, axis=1,
+                              args=(plane_grad, plane_const,
+                                    (x_grad_plus, x_grad_minus),
+                                    (vertex_1, vertex_2, vertex_3),
+                                    x_eta))
+
+
         block.loc[z_locus, 'z_eta'] = z_eta
         block.loc[y_locus, 'y_eta_l'] = y_eta[0]
         block.loc[y_locus, 'y_eta_r'] = y_eta[1]
+        block.loc[x_locus, 'x_eta_l'] = x_eta[0]
+        block.loc[x_locus, 'x_eta_r'] = x_eta[1]
+
 
 
         # Append all points in z locus to modified nodes DataFrame
@@ -400,8 +504,10 @@ class Boundary():
         # Append all points in y locus to modified nodes DataFrame
         self._modified_nodes = pd.concat([self._modified_nodes,
                                           block[y_locus]]).drop_duplicates().reset_index(drop=True)
-        print(self._modified_nodes)
+
         # Append all points in x locus to modified nodes DataFrame
+        self._modified_nodes = pd.concat([self._modified_nodes,
+                                          block[x_locus]]).drop_duplicates().reset_index(drop=True)
 
 
     def _node_id(self):
@@ -417,4 +523,15 @@ class Boundary():
 
         self._construct_loci(self._mesh)
 
-    # def _plot_nodes(self)
+    def plot_nodes(self, save=False, save_path=None):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_trisurf(self._boundary_data['x'],
+                        self._boundary_data['y'],
+                        self._boundary_data['z'])
+        ax.scatter(self._modified_nodes['x'],
+                   self._modified_nodes['y'],
+                   self._modified_nodes['z'],
+                   marker='^')
+        plt.show()
+

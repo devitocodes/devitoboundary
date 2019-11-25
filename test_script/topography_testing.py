@@ -10,6 +10,7 @@ from scipy.interpolate import interp2d
 
 # Topography config
 SUBSAMPLE = 0.2
+#SUBSAMPLE = 2
 VARIANCE = 0.3
 
 grid = Grid(extent=(1, 1, 1), shape=(11, 11, 11))
@@ -46,6 +47,8 @@ x, y = np.meshgrid(boundary_x, boundary_y)
 boundary_data = pd.DataFrame({'x':x.flatten(), 'y':y.flatten(), 'z':boundary_z.flatten()})
 
 boundary_obj = Boundary(grid, boundary_data)
+
+boundary_obj.plot_nodes()
 
 #fig = plt.figure()
 #ax = fig.add_subplot(111, projection='3d')
