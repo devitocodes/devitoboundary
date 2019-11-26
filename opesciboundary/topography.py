@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 
 from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
-from mpl_toolkits.mplot3d import Axes3D
+from devito import Function, Dimension
+from devito.tools import as_tuple
 
 __all__ = ['Boundary']
 
@@ -23,7 +24,7 @@ class Boundary():
     """
 
     def __init__(self, grid, boundary_data,
-                 method_order=4):
+                 method_order=4): # FIXME: Add deriv_order
 
         self._method_order = method_order
 
@@ -31,12 +32,15 @@ class Boundary():
         self._shape = np.asarray(grid.shape)
         self._extent = np.asarray(grid.extent)
         self._spacing = grid.spacing
+        self._dimensions = grid.dimensions
 
         self._read_in(boundary_data)
 
         self._generate_triangles()
 
         self._node_id()
+
+        self._weight_function(2)
 
     @property
     def method_order(self):
@@ -82,7 +86,6 @@ class Boundary():
         vertex_3 = self._boundary_data.iloc[vertices[:, 2]].to_numpy()
         vector_1 = vertex_2 - vertex_1
         vector_2 = vertex_3 - vertex_2
-        vector_3 = vertex_1 - vertex_3
         plane_grad = np.cross(vector_1, vector_2)
         plane_const = -np.sum(plane_grad*vertex_1, axis=1)
 
@@ -90,7 +93,6 @@ class Boundary():
 
         # Return plane equation, vertices, and vectors of boundaries
         return vertex_1, vertex_2, vertex_3, \
-        vector_1, vector_2, vector_3, \
         plane_grad, plane_const
 
 
@@ -156,8 +158,7 @@ class Boundary():
 
         if True in loc_above:
             return True
-        else:
-            return False
+        return False
 
 
     def _z_bool(self, node, gradient, constant, verts, z_eta):
@@ -231,14 +232,16 @@ class Boundary():
 
         if True in loc_z:
             # Find intersections with line in y direction
-            intersections = (-constant[loc_z] - node['y']*gradient[loc_z, 1] - node['x']*gradient[loc_z, 0])/gradient[loc_z, 2]
+            intersections = (-constant[loc_z]
+                             - node['y']*gradient[loc_z, 1]
+                             - node['x']*gradient[loc_z, 0])/gradient[loc_z, 2]
             # Find smallest dy required in positive and negative directions
 
-            z_eta.append(((intersections[intersections > node['z']] - node['z'])/self._spacing[2])[0])
+            z_eta.append(((intersections[intersections > node['z']]
+                           - node['z'])/self._spacing[2])[0])
 
             return True
-        else:
-            return False
+        return False
 
 
     def _y_bool(self, node, gradient, constant, y_bools, verts, y_eta):
@@ -255,10 +258,11 @@ class Boundary():
 
         # Points are above base of locus
         loc_y_base = (node['x']*gradient[:, 0]
-                      + (node['y'] + (y_bools[0]*self._spacing[1]
-                                      *self._method_order/2)
-                                   - (y_bools[1]*self._spacing[1]
-                                                   *self._method_order/2))*gradient[:, 1]
+                      + (node['y']
+                         + (y_bools[0]*self._spacing[1]
+                            *self._method_order/2)
+                         - (y_bools[1]*self._spacing[1]
+                            *self._method_order/2))*gradient[:, 1]
                       + node['z']*gradient[:, 2]
                       + constant[:] >= 0)
 
@@ -314,21 +318,22 @@ class Boundary():
 
         if True in loc_y:
             # Find intersections with line in y direction
-            intersections = (-constant[loc_y] - node['z']*gradient[loc_y, 2] - node['x']*gradient[loc_y, 0])/gradient[loc_y, 1]
+            intersections = (-constant[loc_y]
+                             - node['z']*gradient[loc_y, 2]
+                             - node['x']*gradient[loc_y, 0])/gradient[loc_y, 1]
             # Find closest intersection in positive and negative directions
             try:
-                y_eta[1].append((np.min(intersections[intersections > node['y']]) - node['y'])/self._spacing[1])
-            except:
+                y_eta[1].append((np.min(intersections[intersections > node['y']])
+                                 - node['y'])/self._spacing[1])
+            except ValueError:
                 y_eta[1].append(np.nan)
-                pass
             try:
-                y_eta[0].append((np.max(intersections[intersections < node['y']]) - node['y'])/self._spacing[1])
-            except:
+                y_eta[0].append((np.max(intersections[intersections < node['y']])
+                                 - node['y'])/self._spacing[1])
+            except ValueError:
                 y_eta[0].append(np.nan)
-                pass
             return True
-        else:
-            return False
+        return False
 
 
     def _x_bool(self, node, gradient, constant, x_bools, verts, x_eta):
@@ -344,10 +349,11 @@ class Boundary():
                  + constant[:] < 0)
 
         # Points are above base of locus
-        loc_x_base = ((node['x'] + (x_bools[0]*self._spacing[0]
-                                      *self._method_order/2)
-                                   - (x_bools[1]*self._spacing[0]
-                                                   *self._method_order/2))*gradient[:, 0]
+        loc_x_base = ((node['x']
+                       + (x_bools[0]*self._spacing[0]
+                          *self._method_order/2)
+                       - (x_bools[1]*self._spacing[0]
+                          *self._method_order/2))*gradient[:, 0]
                       + node['y']*gradient[:, 1]
                       + node['z']*gradient[:, 2]
                       + constant[:] >= 0)
@@ -404,21 +410,22 @@ class Boundary():
 
         if True in loc_x:
             # Find intersections with line in x direction
-            intersections = (-constant[loc_x] - node['z']*gradient[loc_x, 2] - node['y']*gradient[loc_x, 1])/gradient[loc_x, 0]
+            intersections = (-constant[loc_x]
+                             - node['z']*gradient[loc_x, 2]
+                             - node['y']*gradient[loc_x, 1])/gradient[loc_x, 0]
             # Find closest intersection in positive and negative directions
             try:
-                x_eta[1].append((np.min(intersections[intersections > node['x']]) - node['x'])/self._spacing[0])
-            except:
+                x_eta[1].append((np.min(intersections[intersections > node['x']])
+                                 - node['x'])/self._spacing[0])
+            except ValueError:
                 x_eta[1].append(np.nan)
-                pass
             try:
-                x_eta[0].append((np.max(intersections[intersections < node['x']]) - node['x'])/self._spacing[0])
-            except:
+                x_eta[0].append((np.max(intersections[intersections < node['x']])
+                                 - node['x'])/self._spacing[0])
+            except ValueError:
                 x_eta[0].append(np.nan)
-                pass
             return True
-        else:
-            return False
+        return False
 
 
     def _construct_loci(self, vertices):
@@ -429,7 +436,6 @@ class Boundary():
         """
 
         vertex_1, vertex_2, vertex_3, \
-        vector_1, vector_2, vector_3, \
         plane_grad, plane_const = self._construct_plane(vertices)
 
         # Create block of possible points (will carve these out)
@@ -461,8 +467,8 @@ class Boundary():
 
         # Used to pass eta values outside function
         z_eta = []
-        y_eta = [[],[]]
-        x_eta = [[],[]]
+        y_eta = [[], []]
+        x_eta = [[], []]
 
         z_locus = block.apply(self._z_bool, axis=1,
                               args=(plane_grad, plane_const,
@@ -503,11 +509,13 @@ class Boundary():
 
         # Append all points in y locus to modified nodes DataFrame
         self._modified_nodes = pd.concat([self._modified_nodes,
-                                          block[y_locus]]).drop_duplicates().reset_index(drop=True)
+                                          block[y_locus]],
+                                         sort=False).drop_duplicates().reset_index(drop=True)
 
         # Append all points in x locus to modified nodes DataFrame
         self._modified_nodes = pd.concat([self._modified_nodes,
-                                          block[x_locus]]).drop_duplicates().reset_index(drop=True)
+                                          block[x_locus]],
+                                         sort=False).drop_duplicates().reset_index(drop=True)
 
 
     def _node_id(self):
@@ -523,15 +531,206 @@ class Boundary():
 
         self._construct_loci(self._mesh)
 
-    def plot_nodes(self, save=False, save_path=None):
+    def plot_nodes(self): # FIXME: Add option to save figure
+        """
+        Plots the boundary surface and the nodes identified as needing modification
+        to their weights.
+        """
+
         fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.plot_trisurf(self._boundary_data['x'],
-                        self._boundary_data['y'],
-                        self._boundary_data['z'])
-        ax.scatter(self._modified_nodes['x'],
-                   self._modified_nodes['y'],
-                   self._modified_nodes['z'],
-                   marker='^')
+        plot_axes = fig.add_subplot(111, projection='3d')
+        plot_axes.plot_trisurf(self._boundary_data['x'],
+                               self._boundary_data['y'],
+                               self._boundary_data['z'])
+        plot_axes.scatter(self._modified_nodes['x'],
+                          self._modified_nodes['y'],
+                          self._modified_nodes['z'],
+                          marker='^', color='g')
         plt.show()
 
+
+    def _generate_coefficients(self, node, deriv_order):
+        """
+        A coefficient generator for immersed boundaries. Uses floating point
+        values to calculate stencil weights.
+        """
+
+        m_size = int(self._method_order/2) # For tidiness
+
+        # Construct standard stencils
+        std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
+        std_coeffs = np.array(std_coeffs)
+
+        # Minor modifications in x direction
+        coeffs_x = std_coeffs.copy()
+        if node['x_eta_r']%1 == 0:
+            coeffs_x[int(node['x_eta_r'])-m_size-1:] = 0
+        if node['x_eta_l']%1 == 0:
+            coeffs_x[:1+m_size-int(node['x_eta_l'])] = 0
+
+        # Minor modifications in y direction
+        coeffs_y = std_coeffs.copy()
+        if node['y_eta_r']%1 == 0:
+            coeffs_y[int(node['y_eta_r'])-m_size-1:] = 0
+        if node['y_eta_l']%1 == 0:
+            coeffs_y[:1+m_size-int(node['x_eta_y'])] = 0
+
+        # Minor modifications in z direction
+        coeffs_z = std_coeffs.copy()
+        if node['z_eta']%1 == 0:
+            coeffs_z[int(node['z_eta'])-m_size-1:] = 0
+
+        # One side outside in x direction
+        if (not np.isnan(node['x_eta_r']) and np.isnan(node['x_eta_l'])) \
+            or (np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+            if (not np.isnan(node['x_eta_r']) and np.isnan(node['x_eta_l'])):
+                xi_x = node['x_eta_r']%1
+                rows_x = int(m_size-node['x_eta_r'])+1 # Rows of extrapolation matrix
+            else: # Stencils will only be flipped at end
+                xi_x = abs(node['x_eta_l'])%1
+                rows_x = int(m_size+node['x_eta_l'])+1 # Rows of extrapolation matrix
+            # If statement for splaying extrapolation
+            if xi_x < 0.5:
+                splay_x = True
+            else:
+                splay_x = False
+            ex_matrix_x = np.zeros((rows_x, m_size))
+            for i in range(rows_x): # Loop over matrix rows
+                lhs = np.zeros((m_size, m_size))
+                rhs = np.zeros(m_size)
+                for j in range(m_size):
+                    for k in range(m_size):
+                        lhs[j, -1-k] = ((-(k+splay_x) - xi_x)**(2*j+1))
+                    rhs[j] = ((i+1) - xi_x)**(2*j+1)
+                ex_matrix_x[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
+
+            # Apply extrapolation matrix to coefficients
+            ex_values = np.dot(ex_matrix_x,
+                               coeffs_x[-rows_x-m_size-splay_x:-rows_x-splay_x])
+            add_coeffs = np.multiply(ex_values, coeffs_x[-rows_x:])
+            coeffs_x[-rows_x-m_size-splay_x:-rows_x-splay_x] += add_coeffs
+            coeffs_x[-rows_x:] = 0
+
+            if (np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+                coeffs_x[:] = coeffs_x[::-1] # Flip for boundaries on left
+
+        # One side outside in y direction
+        if (not np.isnan(node['y_eta_r']) and np.isnan(node['y_eta_l'])) \
+            or (np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
+            if (not np.isnan(node['y_eta_r']) and np.isnan(node['y_eta_l'])):
+                xi_y = node['y_eta_r']%1
+                rows_y = int(m_size-node['y_eta_r'])+1 # Rows of extrapolation matrix
+            else: # Stencils will only be flipped at end
+                xi_y = abs(node['y_eta_l'])%1
+                rows_y = int(m_size+node['y_eta_l'])+1 # Rows of extrapolation matrix
+            # If statement for splaying extrapolation
+            if xi_y < 0.5:
+                splay_y = True
+            else:
+                splay_y = False
+            ex_matrix_y = np.zeros((rows_y, m_size))
+            for i in range(rows_y): # Loop over matrix rows
+                lhs = np.zeros((m_size, m_size))
+                rhs = np.zeros(m_size)
+                for j in range(m_size):
+                    for k in range(m_size):
+                        lhs[j, -1-k] = ((-(k+splay_y) - xi_y)**(2*j+1))
+                    rhs[j] = ((i+1) - xi_y)**(2*j+1)
+                ex_matrix_y[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
+
+            # Apply extrapolation matrix to coefficients
+            ex_values = np.dot(ex_matrix_y,
+                                 coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y])
+            add_coeffs = np.multiply(ex_values, coeffs_y[-rows_y:])
+            coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y] += add_coeffs
+            coeffs_y[-rows_y:] = 0
+
+            if (np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
+                coeffs_y[:] = coeffs_y[::-1] # Flip for boundaries on left
+
+        # Only one side can be outside in z direction
+        if not np.isnan(node['z_eta']):
+            xi_z = node['z_eta']%1
+            rows_z = int(m_size-node['z_eta'])+1 # rows of extrapolation matrix
+            # If statement for splaying extrapolation
+            if xi_z < 0.5:
+                splay_z = True
+            else:
+                splay_z = False
+            ex_matrix_z = np.zeros((rows_z, m_size))
+            for i in range(rows_z): # Loop over matrix rows
+                lhs = np.zeros((m_size, m_size))
+                rhs = np.zeros(m_size)
+                for j in range(m_size):
+                    for k in range(m_size):
+                        lhs[j, -1-k] = ((-(k+splay_z) - xi_z)**(2*j+1))
+                    rhs[j] = ((i+1) - xi_z)**(2*j+1)
+                ex_matrix_z[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
+
+            # Apply extrapolation matrix to coefficients
+            ex_values = np.dot(ex_matrix_z,
+                                 coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z])
+            add_coeffs = np.multiply(ex_values, coeffs_z[-rows_z:])
+            coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
+            coeffs_z[-rows_z:] = 0
+
+        # Both sides outside in x direction
+        # FIXME: Want to rearrange to run in decreasing complexity
+        # FIXME: Return to this later
+        if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+            ex_matrix_x = np.zeros((self._method_order+1, self._method_order+1))
+            for i in range(int(node['x_eta_l'])+m_size, int(node['x_eta_r'])+m_size+1):
+                ex_matrix_x[i, i] = 1
+
+        return pd.Series({'x_coeffs':coeffs_x, 'y_coeffs':coeffs_y, 'z_coeffs':coeffs_z})
+
+
+    def _construct_stencils(self, deriv_order):
+        """
+        Constructs stencils for a set of identified nodes.
+        """
+
+        self._modified_nodes[['x_coeffs', 'y_coeffs', 'z_coeffs']] \
+        = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
+
+
+    def _weight_function(self, deriv_order):
+        """
+        Creates three Devito functions containing weights needed for
+        immersed boundary method. Each function contains weights for one
+        dimension.
+        """
+
+        self._construct_stencils(deriv_order)
+
+        # Create weight function
+        s_dim = Dimension(name='s')
+        ncoeffs = self._method_order+1
+
+        wshape = list(self._shape)
+        wshape.append(ncoeffs)
+        wshape = as_tuple(wshape)
+
+        wdims = list(self._dimensions)
+        wdims.append(s_dim)
+        wdims = as_tuple(wdims)
+
+        self.w_x = Function(name='w_x', dimensions=wdims, shape=wshape)
+        self.w_y = Function(name='w_y', dimensions=wdims, shape=wshape)
+        self.w_z = Function(name='w_z', dimensions=wdims, shape=wshape)
+
+        # Oh god this is an abomination
+        self.w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                      :] = np.vstack(self._modified_nodes['x_coeffs'].values)
+
+        self.w_y.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                      :] = np.vstack(self._modified_nodes['y_coeffs'].values)
+
+        self.w_z.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                      :] = np.vstack(self._modified_nodes['z_coeffs'].values)
