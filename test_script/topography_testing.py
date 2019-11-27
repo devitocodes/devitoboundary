@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 from opesciboundary import Boundary
-from devito import Grid
+from devito import Grid, TimeFunction
 from scipy.interpolate import interp2d
 
 # Topography config
@@ -14,6 +14,8 @@ SUBSAMPLE = 0.2
 VARIANCE = 0.3
 
 grid = Grid(extent=(1, 1, 1), shape=(11, 11, 11))
+function = TimeFunction(name='test_function', grid=grid, time_order=2,
+                        space_order=4, coefficients='symbolic')
 
 # Randomly generated surface
 seed_z = np.random.rand(grid.shape[0], grid.shape[1])
@@ -46,7 +48,7 @@ x, y = np.meshgrid(boundary_x, boundary_y)
 
 boundary_data = pd.DataFrame({'x':x.flatten(), 'y':y.flatten(), 'z':boundary_z.flatten()})
 
-boundary_obj = Boundary(grid, boundary_data)
+boundary_obj = Boundary(function, boundary_data, 2)
 
 boundary_obj.plot_nodes()
 

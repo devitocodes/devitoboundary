@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
-from devito import Function, Dimension
+from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
 
 __all__ = ['Boundary']
@@ -23,16 +23,16 @@ class Boundary():
     immersed boundary method on a given domain.
     """
 
-    def __init__(self, grid, boundary_data,
-                 method_order=4): # FIXME: Add deriv_order
+    def __init__(self, function, boundary_data, deriv_order,
+                 method_order=4):
 
         self._method_order = method_order
 
         # Derive useful properties from grid
-        self._shape = np.asarray(grid.shape)
-        self._extent = np.asarray(grid.extent)
-        self._spacing = grid.spacing
-        self._dimensions = grid.dimensions
+        self._shape = np.asarray(function.grid.shape)
+        self._extent = np.asarray(function.grid.extent)
+        self._spacing = function.grid.spacing
+        self._dimensions = function.grid.dimensions
 
         self._read_in(boundary_data)
 
@@ -40,7 +40,7 @@ class Boundary():
 
         self._node_id()
 
-        self._weight_function(2)
+        self._weight_function(function, deriv_order)
 
     @property
     def method_order(self):
@@ -640,7 +640,7 @@ class Boundary():
 
             # Apply extrapolation matrix to coefficients
             ex_values = np.dot(ex_matrix_y,
-                                 coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y])
+                               coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y])
             add_coeffs = np.multiply(ex_values, coeffs_y[-rows_y:])
             coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y] += add_coeffs
             coeffs_y[-rows_y:] = 0
@@ -669,7 +669,7 @@ class Boundary():
 
             # Apply extrapolation matrix to coefficients
             ex_values = np.dot(ex_matrix_z,
-                                 coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z])
+                               coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z])
             add_coeffs = np.multiply(ex_values, coeffs_z[-rows_z:])
             coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
             coeffs_z[-rows_z:] = 0
@@ -677,10 +677,14 @@ class Boundary():
         # Both sides outside in x direction
         # FIXME: Want to rearrange to run in decreasing complexity
         # FIXME: Return to this later
-        if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
-            ex_matrix_x = np.zeros((self._method_order+1, self._method_order+1))
-            for i in range(int(node['x_eta_l'])+m_size, int(node['x_eta_r'])+m_size+1):
-                ex_matrix_x[i, i] = 1
+        #if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+        #    raise NotImplementedError("Stencil extends outside boundary on both sides at (%.1f,%.1f%.1f)" % (node['x'], node['y'], node['z']))
+            #ex_matrix_x = np.zeros((self._method_order+1, self._method_order+1))
+            #for i in range(int(node['x_eta_l'])+m_size, int(node['x_eta_r'])+m_size+1):
+                #ex_matrix_x[i, i] = 1
+
+        #if (not np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
+        #    raise NotImplementedError("Stencil extends outside boundary on both sides at (%.1f,%.1f%.1f)" % (node['x'], node['y'], node['z']))
 
         return pd.Series({'x_coeffs':coeffs_x, 'y_coeffs':coeffs_y, 'z_coeffs':coeffs_z})
 
@@ -694,7 +698,7 @@ class Boundary():
         = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
 
 
-    def _weight_function(self, deriv_order):
+    def _weight_function(self, function, deriv_order):
         """
         Creates three Devito functions containing weights needed for
         immersed boundary method. Each function contains weights for one
@@ -715,22 +719,35 @@ class Boundary():
         wdims.append(s_dim)
         wdims = as_tuple(wdims)
 
-        self.w_x = Function(name='w_x', dimensions=wdims, shape=wshape)
-        self.w_y = Function(name='w_y', dimensions=wdims, shape=wshape)
-        self.w_z = Function(name='w_z', dimensions=wdims, shape=wshape)
+        self._w_x = Function(name='w_x', dimensions=wdims, shape=wshape)
+        self._w_y = Function(name='w_y', dimensions=wdims, shape=wshape)
+        self._w_z = Function(name='w_z', dimensions=wdims, shape=wshape)
 
         # Oh god this is an abomination
-        self.w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
-                      :] = np.vstack(self._modified_nodes['x_coeffs'].values)
+        self._w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = np.vstack(self._modified_nodes['x_coeffs'].values)
 
-        self.w_y.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
-                      :] = np.vstack(self._modified_nodes['y_coeffs'].values)
+        self._w_y.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = np.vstack(self._modified_nodes['y_coeffs'].values)
 
-        self.w_z.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                      np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                      np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
-                      :] = np.vstack(self._modified_nodes['z_coeffs'].values)
+        self._w_z.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = np.vstack(self._modified_nodes['z_coeffs'].values)
+
+        # FIXME: Wants to spit out a list of subdomains too
+        self.subs_x = Substitutions(Coefficient(deriv_order, function,
+                                                function.grid.dimensions[0],
+                                                self._w_x))
+
+        self.subs_y = Substitutions(Coefficient(deriv_order, function,
+                                                function.grid.dimensions[1],
+                                                self._w_y))
+
+        self.subs_z = Substitutions(Coefficient(deriv_order, function,
+                                                function.grid.dimensions[2],
+                                                self._w_z))
