@@ -3,6 +3,10 @@ A module for implementation of topography in Devito via use of
 the immersed boundary method.
 """
 
+# FIXME: Rework search to be more efficient, exploiting structured grid
+# FIXME: Z axis currently inverted
+# FIXME: Doesn't understand pmls
+
 from itertools import combinations
 
 import numpy as np
@@ -13,6 +17,7 @@ from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
 from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
+from mpl_toolkits.mplot3d import axes3d, Axes3D
 
 __all__ = ['Boundary']
 
@@ -23,10 +28,9 @@ class Boundary():
     immersed boundary method on a given domain.
     """
 
-    def __init__(self, function, boundary_data, deriv_order,
-                 method_order=4):
+    def __init__(self, function, boundary_data, deriv_order):
 
-        self._method_order = method_order
+        self._method_order = function.space_order
 
         # Derive useful properties from grid
         self._shape = np.asarray(function.grid.shape)
@@ -55,8 +59,9 @@ class Boundary():
         A function to read in topography data, and output as a pandas
         dataframe.
         """
-
+        print("Read in started")
         self._boundary_data = boundary_data
+        print("Read in complete")
 
 
     # def add_topography(self, boundary_data):
@@ -69,9 +74,16 @@ class Boundary():
         triangulation. The surface of the mesh generated will be used
         to represent the boundary.
         """
-
+        print("Mesh generation started")
         # Note that triangulation is 2D using x and y values
         self._mesh = Delaunay(self._boundary_data.iloc[:, 0:2]).simplices
+        # If z values of all points are <= 0 then remove
+        SQUASH_BELOW_ZERO = False
+        if SQUASH_BELOW_ZERO:
+            self._mesh = self._mesh[np.logical_and(np.logical_and(self._boundary_data.iloc[self._mesh[:, 0]].to_numpy()[:, 2] > 0,
+                                                                  self._boundary_data.iloc[self._mesh[:, 1]].to_numpy()[:, 2] > 0),
+                                                   self._boundary_data.iloc[self._mesh[:, 2]].to_numpy()[:, 2] > 0)]
+        print("Mesh generation complete")
 
 
     def _construct_plane(self, vertices):
@@ -79,7 +91,7 @@ class Boundary():
         Finds the equation of the plane defined by the triangle, along
         with its boundaries.
         """
-
+        print("Plane parameterization started")
         # Find equation of plane
         vertex_1 = self._boundary_data.iloc[vertices[:, 0]].to_numpy()
         vertex_2 = self._boundary_data.iloc[vertices[:, 1]].to_numpy()
@@ -89,8 +101,7 @@ class Boundary():
         plane_grad = np.cross(vector_1, vector_2)
         plane_const = -np.sum(plane_grad*vertex_1, axis=1)
 
-
-
+        print("Plane parameterization complete")
         # Return plane equation, vertices, and vectors of boundaries
         return vertex_1, vertex_2, vertex_3, \
         plane_grad, plane_const
@@ -102,11 +113,12 @@ class Boundary():
         Returns True if a point is located above the boundary. Returns
         False otherwise.
         """
+
         # Points are above
         loc_above = (node['x']*gradient[:, 0]
-                     + node['y']*gradient[:, 1]
-                     + node['z']*gradient[:, 2]
-                     + constant[:] >= 0)
+                          + node['y']*gradient[:, 1]
+                          + node['z']*gradient[:, 2]
+                          + constant[:] >= 0)
 
         for v_c in combinations(range(3), 2):
             v_3 = np.setdiff1d(range(3), v_c)[0]
@@ -168,7 +180,6 @@ class Boundary():
         an argument to contain respective eta values.
         """
         # Points are below boundary
-        # FIXME: Probably redundant?
         loc_z = (node['x']*gradient[:, 0]
                  + node['y']*gradient[:, 1]
                  + node['z']*gradient[:, 2]
@@ -278,7 +289,8 @@ class Boundary():
             clean_dx = (verts[v_c[0]][:, 0] - verts[v_c[1]][:, 0]) # Zero-free denominator
             clean_dx[xz_flip] = 1 # Prevents undefined behaviour
             clean_dz = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])
-            clean_dz[np.logical_not(xz_flip)] = 1
+            clean_dz[(verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2]) == 0] = 1
+            #clean_dz[np.logical_not(xz_flip)] = 1
 
             # For edges of type z = mx + c
             m_x = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])/clean_dx
@@ -370,7 +382,8 @@ class Boundary():
             clean_dy = (verts[v_c[0]][:, 1] - verts[v_c[1]][:, 1]) # Zero-free denominator
             clean_dy[yz_flip] = 1 # Prevents undefined behaviour
             clean_dz = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])
-            clean_dz[np.logical_not(yz_flip)] = 1
+            clean_dz[(verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2]) == 0] = 1
+            #clean_dz[np.logical_not(yz_flip)] = 1
 
             # For edges of type z = my + c
             m_y = (verts[v_c[0]][:, 2] - verts[v_c[1]][:, 2])/clean_dy
@@ -460,6 +473,7 @@ class Boundary():
                                                                'x_eta_r', 'y_eta_l',
                                                                'y_eta_r', 'z_eta'])
 
+
         # Delete all points above boundary
         block = block.drop(block[block.apply(self._above_bool, axis=1,
                                              args=(plane_grad, plane_const,
@@ -523,15 +537,16 @@ class Boundary():
         Generates a list of nodes where stencils will require modification
         in either x or y directions.
         """
-
+        print("Node ID started")
         self._modified_nodes = pd.DataFrame(columns=['x', 'y',
                                                      'z', 'x_eta_l',
                                                      'x_eta_r', 'y_eta_l',
                                                      'y_eta_r', 'z_eta'])
 
         self._construct_loci(self._mesh)
+        print("Node ID complete")
 
-    def plot_nodes(self): # FIXME: Add option to save figure
+    def plot_nodes(self, show_boundary=True, save=False, save_path=None):
         """
         Plots the boundary surface and the nodes identified as needing modification
         to their weights.
@@ -539,13 +554,21 @@ class Boundary():
 
         fig = plt.figure()
         plot_axes = fig.add_subplot(111, projection='3d')
-        plot_axes.plot_trisurf(self._boundary_data['x'],
-                               self._boundary_data['y'],
-                               self._boundary_data['z'])
+        if show_boundary:
+            # Uses high contrast colours
+            plot_axes.plot_trisurf(self._boundary_data['x'],
+                                   self._boundary_data['y'],
+                                   self._boundary_data['z'],
+                                   color='aquamarine')
         plot_axes.scatter(self._modified_nodes['x'],
                           self._modified_nodes['y'],
                           self._modified_nodes['z'],
-                          marker='^', color='g')
+                          marker='^', color='orangered')
+        if save:
+            if save_path is not None:
+                plt.savefig(save_path)
+            else:
+                raise OSError("Invalid filepath.")
         plt.show()
 
 
@@ -559,7 +582,7 @@ class Boundary():
 
         # Construct standard stencils
         std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
-        std_coeffs = np.array(std_coeffs)
+        std_coeffs = np.array(std_coeffs, dtype=np.float64)
 
         # Minor modifications in x direction
         coeffs_x = std_coeffs.copy()
@@ -573,7 +596,7 @@ class Boundary():
         if node['y_eta_r']%1 == 0:
             coeffs_y[int(node['y_eta_r'])-m_size-1:] = 0
         if node['y_eta_l']%1 == 0:
-            coeffs_y[:1+m_size-int(node['x_eta_y'])] = 0
+            coeffs_y[:1+m_size-int(node['y_eta_l'])] = 0
 
         # Minor modifications in z direction
         coeffs_z = std_coeffs.copy()
@@ -605,9 +628,9 @@ class Boundary():
                 ex_matrix_x[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
 
             # Apply extrapolation matrix to coefficients
-            ex_values = np.dot(ex_matrix_x,
-                               coeffs_x[-rows_x-m_size-splay_x:-rows_x-splay_x])
-            add_coeffs = np.multiply(ex_values, coeffs_x[-rows_x:])
+            add_coeffs = np.zeros(m_size)
+            for i in range(m_size):
+                add_coeffs[i] = np.dot(ex_matrix_x[:, i], coeffs_x[-rows_x:])
             coeffs_x[-rows_x-m_size-splay_x:-rows_x-splay_x] += add_coeffs
             coeffs_x[-rows_x:] = 0
 
@@ -639,9 +662,9 @@ class Boundary():
                 ex_matrix_y[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
 
             # Apply extrapolation matrix to coefficients
-            ex_values = np.dot(ex_matrix_y,
-                               coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y])
-            add_coeffs = np.multiply(ex_values, coeffs_y[-rows_y:])
+            add_coeffs = np.zeros(m_size)
+            for i in range(m_size):
+                add_coeffs[i] = np.dot(ex_matrix_y[:, i], coeffs_y[-rows_y:])
             coeffs_y[-rows_y-m_size-splay_y:-rows_y-splay_y] += add_coeffs
             coeffs_y[-rows_y:] = 0
 
@@ -668,24 +691,32 @@ class Boundary():
                 ex_matrix_z[i] = np.linalg.lstsq(lhs, rhs, rcond=None)[0]
 
             # Apply extrapolation matrix to coefficients
-            ex_values = np.dot(ex_matrix_z,
-                               coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z])
-            add_coeffs = np.multiply(ex_values, coeffs_z[-rows_z:])
+            add_coeffs = np.zeros(m_size)
+            for i in range(m_size):
+                add_coeffs[i] = np.dot(ex_matrix_z[:, i], coeffs_z[-rows_z:])
             coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
             coeffs_z[-rows_z:] = 0
+            #if(node['x']==500 and node['y']==300 and node['z']==200):
+            #    print("Eta value")
+            #    print(node['z_eta'])
+            #    print("Extrapolation matrix")
+            #    print(ex_matrix_z)
+            #    print("Addition to coefficients")
+            #    print(add_coeffs)
+            #    print("Coefficients")
+            #    print(coeffs_z)
 
         # Both sides outside in x direction
-        # FIXME: Want to rearrange to run in decreasing complexity
-        # FIXME: Return to this later
-        #if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
-        #    raise NotImplementedError("Stencil extends outside boundary on both sides at (%.1f,%.1f%.1f)" % (node['x'], node['y'], node['z']))
+        if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+            raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
+                                      % (node['x'], node['y'], node['z']))
             #ex_matrix_x = np.zeros((self._method_order+1, self._method_order+1))
             #for i in range(int(node['x_eta_l'])+m_size, int(node['x_eta_r'])+m_size+1):
                 #ex_matrix_x[i, i] = 1
 
-        #if (not np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
-        #    raise NotImplementedError("Stencil extends outside boundary on both sides at (%.1f,%.1f%.1f)" % (node['x'], node['y'], node['z']))
-
+        if (not np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
+            raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
+                                      % (node['x'], node['y'], node['z']))
         return pd.Series({'x_coeffs':coeffs_x, 'y_coeffs':coeffs_y, 'z_coeffs':coeffs_z})
 
 
@@ -693,9 +724,62 @@ class Boundary():
         """
         Constructs stencils for a set of identified nodes.
         """
-
+        print("Coefficient generation started")
         self._modified_nodes[['x_coeffs', 'y_coeffs', 'z_coeffs']] \
         = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
+        #print(self._modified_nodes.iloc[25, :8])
+        #print(self._modified_nodes.iloc[25, 8])
+        #print(self._modified_nodes.iloc[25, 9])
+        #print(self._modified_nodes.iloc[25, 10])
+        print("Coefficient generation complete")
+
+    def _crap_weight_filler(self, deriv_order): # Temporary
+        """
+        Temporary weight filler for exterior and interior points. Will be
+        made redundant once necessary features are implemented in Devito.
+        """
+
+        # Fill with standard weights
+
+        vertex_1, vertex_2, vertex_3, \
+        plane_grad, plane_const = self._construct_plane(self._mesh)
+
+
+        m_size = int(self._method_order/2) # For tidiness
+
+        # Construct standard stencils
+        std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
+        std_coeffs = np.array(std_coeffs)
+
+        self._w_x.data[:, :, :] = std_coeffs[:]
+        self._w_y.data[:, :, :] = std_coeffs[:]
+        self._w_z.data[:, :, :] = std_coeffs[:]
+
+        # Fill zero weights
+        block_x, block_y, block_z = np.meshgrid(np.linspace(0, self._extent[0],
+                                                            self._shape[0]),
+                                                np.linspace(0, self._extent[1],
+                                                            self._shape[1]),
+                                                np.linspace(0, self._extent[2],
+                                                            self._shape[2]))
+
+        block = pd.DataFrame({'x':block_x.flatten(),
+                              'y':block_y.flatten(),
+                              'z':block_z.flatten()})
+
+        block = block[block.apply(self._above_bool, axis=1,
+                                  args=(plane_grad, plane_const,
+                                        (vertex_1, vertex_2, vertex_3)))]
+
+        self._w_x.data[np.round_(block['x']/self._spacing[0]).astype('int'),
+                       np.round_(block['y']/self._spacing[1]).astype('int'),
+                       np.round_(block['z']/self._spacing[2]).astype('int'), :] = 0
+        self._w_y.data[np.round_(block['x']/self._spacing[0]).astype('int'),
+                       np.round_(block['y']/self._spacing[1]).astype('int'),
+                       np.round_(block['z']/self._spacing[2]).astype('int'), :] = 0
+        self._w_z.data[np.round_(block['x']/self._spacing[0]).astype('int'),
+                       np.round_(block['y']/self._spacing[1]).astype('int'),
+                       np.round_(block['z']/self._spacing[2]).astype('int'), :] = 0
 
 
     def _weight_function(self, function, deriv_order):
@@ -704,7 +788,7 @@ class Boundary():
         immersed boundary method. Each function contains weights for one
         dimension.
         """
-
+        print("Coefficient assignment started")
         self._construct_stencils(deriv_order)
 
         # Create weight function
@@ -723,7 +807,10 @@ class Boundary():
         self._w_y = Function(name='w_y', dimensions=wdims, shape=wshape)
         self._w_z = Function(name='w_z', dimensions=wdims, shape=wshape)
 
-        # Oh god this is an abomination
+        ############# Temporary #############
+        self._crap_weight_filler(deriv_order)
+        ############# Temporary #############
+
         self._w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
                        np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
                        np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
@@ -739,15 +826,15 @@ class Boundary():
                        np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
                        :] = np.vstack(self._modified_nodes['z_coeffs'].values)
 
-        # FIXME: Wants to spit out a list of subdomains too
-        self.subs_x = Substitutions(Coefficient(deriv_order, function,
-                                                function.grid.dimensions[0],
-                                                self._w_x))
+        self.subs = Substitutions(Coefficient(deriv_order, function,
+                                              function.grid.dimensions[0],
+                                              self._w_x),
+                                  Coefficient(deriv_order, function,
+                                              function.grid.dimensions[1],
+                                              self._w_y),
+                                  Coefficient(deriv_order, function,
+                                              function.grid.dimensions[2],
+                                              self._w_z))
 
-        self.subs_y = Substitutions(Coefficient(deriv_order, function,
-                                                function.grid.dimensions[1],
-                                                self._w_y))
 
-        self.subs_z = Substitutions(Coefficient(deriv_order, function,
-                                                function.grid.dimensions[2],
-                                                self._w_z))
+        print("Coefficient assignment complete")
