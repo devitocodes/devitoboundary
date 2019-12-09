@@ -27,7 +27,7 @@ class Boundary():
     immersed boundary method on a given domain.
     """
 
-    def __init__(self, function, boundary_data, deriv_order, pmls):
+    def __init__(self, function, boundary_data, deriv_order, pmls=0):
 
         self._method_order = function.space_order
 
@@ -722,7 +722,6 @@ class Boundary():
         self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
         self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
         self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
-        print(self._modified_nodes)
 
 
     def _node_id(self):
@@ -889,8 +888,6 @@ class Boundary():
             add_coeffs = np.zeros(m_size)
             for i in range(m_size):
                 add_coeffs[i] = np.dot(ex_matrix_z[:, i], coeffs_z[-rows_z:])
-            #print(node['x'], node['y'], node['z'], np.shape(coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z]), np.shape(add_coeffs))
-            #print(self._modified_nodes[np.logical_and(self._modified_nodes['x']==node['x'], np.logical_and(self._modified_nodes['y']==node['y'], self._modified_nodes['z']==node['z']))])
             coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
             coeffs_z[-rows_z:] = 0
             coeffs_z[:] = coeffs_z[::-1] # Flip for boundaries on left
@@ -941,7 +938,20 @@ class Boundary():
 
         # Fill zero weights
         above_nodes = self._above_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        print(above_nodes)
+        self._w_x.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = 0
+
+        self._w_y.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = 0
+
+        self._w_z.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+                       :] = 0
 
 
     def _weight_function(self, function, deriv_order):

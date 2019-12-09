@@ -18,7 +18,7 @@ grid = Grid(extent=(1000, 1000, 1000), shape=(101, 101, 101)) # Probably way too
 VP = 1.2
 
 t0 = 0.  # Simulation starts a t=0
-tn = 200.  # Simulation last 1 second (1000 ms)
+tn = 65.  # Simulation last 1 second (1000 ms)
 dt = 0.2*grid.spacing[0]/(100*VP)  # Time step from model grid spacing
 
 steps = int((t0+tn)/dt)+2
@@ -36,9 +36,15 @@ def dome_func(x, y):
     dome_z[dome_z > 0.8*grid.extent[2]] = 0.8*grid.extent[2]
     return dome_z
 
+def inv_dome_func(x, y):
+    dome_z = np.sqrt(np.power(x-(grid.extent[0]/2), 2)
+                     + np.power(y-(grid.extent[1]/2), 2)) #- 0.5*grid.extent[2]
+    dome_z[dome_z < 0.296*grid.extent[2]] = 0.296*grid.extent[2]
+    return dome_z
+
 mesh_x, mesh_y = np.meshgrid(boundary_x, boundary_y)
 
-boundary_z = dome_func(mesh_x, mesh_y)
+boundary_z = inv_dome_func(mesh_x, mesh_y)
 
 boundary_data = pd.DataFrame({'x':mesh_x.flatten(), 'y':mesh_y.flatten(), 'z':boundary_z.flatten()})
 
@@ -54,16 +60,8 @@ src = RickerSource(name='src', grid=grid, f0=f0,
 
 # First, position source centrally in all dimensions, then set depth
 src.coordinates.data[0, :] = 500
-src.coordinates.data[0, -1] = 250
+src.coordinates.data[0, -1] = 800
 
-std_coeffs = finite_diff_weights(2, range(-2, 3), 0)[-1][-1]
-std_coeffs = np.array(std_coeffs)
-
-x, y, z = grid.dimensions
-x_coeffs = Coefficient(2, u, x, std_coeffs)
-y_coeffs = Coefficient(2, u, y, std_coeffs)
-z_coeffs = Coefficient(2, u, z, std_coeffs)
-subs = Substitutions(x_coeffs, y_coeffs, z_coeffs)
 
 # We can now write the PDE
 pde = (1/VP)*u.dt2-u.laplace
@@ -74,6 +72,10 @@ src_term = src.inject(field=u.forward, expr=src*VP*dt**2)
 op = Operator([Eq(u.forward, stencil)] + src_term)
 op.apply(dt=dt)
 
-plt.imshow(np.swapaxes(u.data[-1,:,20,:], 0, 1), origin="upper")
+plt.imshow(np.swapaxes(u.data[-1,:,int(grid.shape[1]/2),:], 0, 1),
+           origin="upper", extent=[0, grid.extent[0], grid.extent[1], 0],
+           vmin=-0.0025, vmax=0.0025)
 plt.colorbar()
+plt.xlabel("x (m)")
+plt.ylabel("z (m)")
 plt.show()
