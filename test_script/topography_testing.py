@@ -9,11 +9,12 @@ from devito import Grid, TimeFunction
 from scipy.interpolate import interp2d
 
 # Topography config
-SUBSAMPLE = 0.2
-#SUBSAMPLE = 2
+#SUBSAMPLE = 0.2
+SUBSAMPLE = 2
+#SUBSAMPLE = 5
 VARIANCE = 0.3
 
-grid = Grid(extent=(1000, 1000, 1000), shape=(11, 11, 11))
+grid = Grid(extent=(1000, 1000, 1000), shape=(21, 21, 21))
 function = TimeFunction(name='test_function', grid=grid, time_order=2,
                         space_order=4, coefficients='symbolic')
 
@@ -48,14 +49,21 @@ def dome_func(x, y):
     dome_z[dome_z > 0.25*grid.extent[2]] = 0.25*grid.extent[2]
     return dome_z
 
+def inv_dome_func(x, y):
+    dome_z = np.sqrt(np.power(x-(grid.extent[0]/2), 2)
+                     + np.power(y-(grid.extent[1]/2), 2)) #- 0.5*grid.extent[2]
+    dome_z[dome_z < 0.296*grid.extent[2]] = 0.296*grid.extent[2]
+    return dome_z
+
 #boundary_z = boundary_func(boundary_x, boundary_y)
 
 x, y = np.meshgrid(boundary_x, boundary_y)
 
-boundary_z = dome_func(x, y)
+#boundary_z = dome_func(x, y)
+boundary_z = inv_dome_func(x, y)
 
 boundary_data = pd.DataFrame({'x':x.flatten(), 'y':y.flatten(), 'z':boundary_z.flatten()})
 
-boundary_obj = Boundary(function, boundary_data, 2)
+boundary_obj = Boundary(function, boundary_data, 2, 0)
 
-boundary_obj.plot_nodes()
+boundary_obj.plot_nodes(show_boundary=True)
