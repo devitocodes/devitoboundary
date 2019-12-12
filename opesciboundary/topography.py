@@ -444,14 +444,14 @@ class Boundary():
 
         for i in range(len(x_min)):
             # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace(x_min_index[i]*self._spacing[0],
-                                                 x_max_index[i]*self._spacing[0],
+            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
+                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
                                                  x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace(y_min_index[i]*self._spacing[1],
-                                                 y_max_index[i]*self._spacing[1],
+                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
+                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
                                                  y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace(z_min_index*self._spacing[2],
-                                                 z_max_index[i]*self._spacing[2],
+                                     np.linspace((z_min_index - self._pmls)*self._spacing[2],
+                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
                                                  z_max_index[i] - z_min_index + 1))
             # Apply revamped _z_bool() for masking
             mask = self._above_bool(locus_mesh, gradients[i], constants[i], vertices[i])
@@ -498,8 +498,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.amin(vertices[:,2,:], 1)
-        z_max = np.amax(vertices[:,2,:], 1) + 0.5*self._method_order*self._spacing[2]
+        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:,2,:], 1) + 0.5*self._method_order*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
 
@@ -508,14 +508,14 @@ class Boundary():
 
         for i in range(len(x_min)):
             # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace(x_min_index[i]*self._spacing[0],
-                                                 x_max_index[i]*self._spacing[0],
+            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
+                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
                                                  x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace(y_min_index[i]*self._spacing[1],
-                                                 y_max_index[i]*self._spacing[1],
+                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
+                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
                                                  y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace(z_min_index[i]*self._spacing[2],
-                                                 z_max_index[i]*self._spacing[2],
+                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
+                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
                                                  z_max_index[i] - z_min_index[i] + 1))
             # Apply revamped _z_bool() for masking
             mask = self._z_bool(locus_mesh, gradients[i], constants[i], vertices[i])
@@ -557,8 +557,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.amin(vertices[:,2,:], 1)
-        z_max = np.amax(vertices[:,2,:], 1)
+        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
         valid_locus = z_max_index >= z_min_index
@@ -588,14 +588,14 @@ class Boundary():
 
         for i in range(len(x_min)):
             # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace(x_min_index[i]*self._spacing[0],
-                                                 x_max_index[i]*self._spacing[0],
+            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
+                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
                                                  x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace(y_min_index[i]*self._spacing[1],
-                                                 y_max_index[i]*self._spacing[1],
+                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
+                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
                                                  y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace(z_min_index[i]*self._spacing[2],
-                                                 z_max_index[i]*self._spacing[2],
+                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
+                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
                                                  z_max_index[i] - z_min_index[i] + 1))
             # Apply revamped _z_bool() for masking
             mask = self._y_bool(locus_mesh, gradients[i], constants[i],
@@ -644,8 +644,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.amin(vertices[:,2,:], 1)
-        z_max = np.amax(vertices[:,2,:], 1)
+        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
         valid_locus = z_max_index >= z_min_index
@@ -675,14 +675,14 @@ class Boundary():
 
         for i in range(len(x_min)):
             # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace(x_min_index[i]*self._spacing[0],
-                                                 x_max_index[i]*self._spacing[0],
+            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
+                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
                                                  x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace(y_min_index[i]*self._spacing[1],
-                                                 y_max_index[i]*self._spacing[1],
+                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
+                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
                                                  y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace(z_min_index[i]*self._spacing[2],
-                                                 z_max_index[i]*self._spacing[2],
+                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
+                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
                                                  z_max_index[i] - z_min_index[i] + 1))
             # Apply revamped _z_bool() for masking
             mask = self._x_bool(locus_mesh, gradients[i], constants[i],
@@ -706,22 +706,22 @@ class Boundary():
         return x_locus_data
 
 
-    def _construct_loci(self, vertices): # Could be merged with _node_id()
-        """
-        Constructs a locus on the inner side of the plane. The thickness
-        of the locus is equal to M/2 grid spacings where M is the order
-        of the FD method.
-        """
-
-        vertex_1, vertex_2, vertex_3, \
-        plane_grad, plane_const = self._construct_plane(vertices)
-
-        z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        x_nodes = self._x_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
-        self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
-        self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
+#    def _construct_loci(self, vertices): # Could be merged with _node_id()
+#        """
+#        Constructs a locus on the inner side of the plane. The thickness
+#        of the locus is equal to M/2 grid spacings where M is the order
+#        of the FD method.
+#        """
+#
+#        vertex_1, vertex_2, vertex_3, \
+#        plane_grad, plane_const = self._construct_plane(vertices)
+#
+#        z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+#        y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+#        x_nodes = self._x_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+#        self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
+#        self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
+#        self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
 
 
     def _node_id(self):
@@ -732,7 +732,18 @@ class Boundary():
 
         self._modified_nodes = pd.DataFrame(columns=['x', 'y', 'z'])
 
-        self._construct_loci(self._mesh)
+        #self._construct_loci(self._mesh)
+
+        vertex_1, vertex_2, vertex_3, \
+        plane_grad, plane_const = self._construct_plane(self._mesh)
+
+        z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+        y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+        x_nodes = self._x_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
+        self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
+        self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
+        self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
+
 
     def plot_nodes(self, show_boundary=True, save=False, save_path=None):
         """
@@ -746,16 +757,16 @@ class Boundary():
             # Uses high contrast colours
             plot_axes.plot_trisurf(self._boundary_data['x'],
                                    self._boundary_data['y'],
-                                   self._boundary_data['z'],
+                                   self._boundary_data['z'] - self._pmls*self._spacing[2],
                                    color='aquamarine')
-        plot_axes.scatter(self._modified_nodes['x'],
-                          self._modified_nodes['y'],
-                          self._modified_nodes['z'],
-                          marker='^', color='orangered')
+        #plot_axes.scatter(self._modified_nodes['x'],
+        #                  self._modified_nodes['y'],
+        #                  self._modified_nodes['z'] - self._pmls*self._spacing[2],
+        #                  marker='^', color='orangered')
         plot_axes.set_xlabel("x")
         plot_axes.set_ylabel("y")
         plot_axes.set_zlabel("z")
-        plot_axes.set_zlim(0, self._extent[2], False)
+        plot_axes.set_zlim(-1*self._pmls*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2], False)
         plot_axes.invert_zaxis()
         if save:
             if save_path is not None:
@@ -781,7 +792,7 @@ class Boundary():
         coeffs_x = std_coeffs.copy()
         if node['x_eta_r']%1 == 0:
             coeffs_x[int(node['x_eta_r'])-m_size-1:] = 0
-        if node['x_eta_l']%1 == 0:
+        if node['x_eta_l']%1 == 0: # This % may be problematic
             coeffs_x[:1+m_size-int(node['x_eta_l'])] = 0
 
         # Minor modifications in y direction
@@ -794,8 +805,10 @@ class Boundary():
         # Minor modifications in z direction
         coeffs_z = std_coeffs.copy()
         if node['z_eta']%1 == 0:
-            coeffs_z[int(node['z_eta'])-m_size-1:] = 0
-            coeffs_z[:] = coeffs_z[::-1]
+            print("It's fucking up here")
+            #coeffs_z[int(node['z_eta'])-m_size-1:] = 0
+            #coeffs_z[:] = coeffs_z[::-1]
+            coeffs_y[:1+m_size-int(node['z_eta'])] = 0
 
         # One side outside in x direction
         if (not np.isnan(node['x_eta_r']) and np.isnan(node['x_eta_l'])) \
@@ -867,7 +880,7 @@ class Boundary():
 
         # Only one side can be outside in z direction
         if not np.isnan(node['z_eta']):
-            xi_z = abs(node['z_eta']%1)
+            xi_z = abs(node['z_eta'])%1
             rows_z = int(m_size+node['z_eta'])+1 # rows of extrapolation matrix
             # If statement for splaying extrapolation
             if xi_z < 0.5:
@@ -888,6 +901,10 @@ class Boundary():
             add_coeffs = np.zeros(m_size)
             for i in range(m_size):
                 add_coeffs[i] = np.dot(ex_matrix_z[:, i], coeffs_z[-rows_z:])
+            if len(coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z]) != len(add_coeffs):
+                print(node['x'], node['y'], node['z'])
+                print(coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z])
+                print(add_coeffs)
             coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
             coeffs_z[-rows_z:] = 0
             coeffs_z[:] = coeffs_z[::-1] # Flip for boundaries on left
@@ -938,19 +955,19 @@ class Boundary():
 
         # Fill zero weights
         above_nodes = self._above_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        self._w_x.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_x.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = 0
 
-        self._w_y.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_y.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = 0
 
-        self._w_z.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(above_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(above_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_z.data[np.round_(above_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(above_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(above_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = 0
 
 
@@ -983,19 +1000,19 @@ class Boundary():
         self._crap_weight_filler(deriv_order)
         ############# Temporary #############
 
-        self._w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = np.vstack(self._modified_nodes['x_coeffs'].values)
 
-        self._w_y.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_y.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = np.vstack(self._modified_nodes['y_coeffs'].values)
 
-        self._w_z.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int'),
-                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int'),
-                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int'),
+        self._w_z.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
+                       np.round_(self._modified_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = np.vstack(self._modified_nodes['z_coeffs'].values)
 
         self.subs = Substitutions(Coefficient(deriv_order, function,
