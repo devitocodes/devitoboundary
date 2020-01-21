@@ -3,9 +3,6 @@ A module for implementation of topography in Devito via use of
 the immersed boundary method.
 """
 
-# FIXME: Boundaries that go below zero will break evrything
-# FIXME: Doesn't understand pmls
-
 from itertools import combinations
 
 import numpy as np
@@ -16,7 +13,7 @@ from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
 from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
-from mpl_toolkits.mplot3d import axes3d, Axes3D
+from mpl_toolkits.mplot3d import Axes3D
 
 __all__ = ['Boundary']
 
@@ -55,7 +52,6 @@ class Boundary():
 
         return self._method_order
 
-
     def _read_in(self, boundary_data):
         """
         A function to read in topography data, and output as a pandas
@@ -63,11 +59,6 @@ class Boundary():
         """
 
         self._boundary_data = boundary_data
-
-
-    # def add_topography(self, boundary_data):
-    # Function for adding more boundary data
-
 
     def _generate_triangles(self):
         """
@@ -83,7 +74,6 @@ class Boundary():
             self._mesh = self._mesh[np.logical_and(np.logical_and(self._boundary_data.iloc[self._mesh[:, 0]].to_numpy()[:, 2] > 0,
                                                                   self._boundary_data.iloc[self._mesh[:, 1]].to_numpy()[:, 2] > 0),
                                                    self._boundary_data.iloc[self._mesh[:, 2]].to_numpy()[:, 2] > 0)]
-
 
     def _construct_plane(self, vertices):
         """
@@ -101,8 +91,7 @@ class Boundary():
 
         # Return plane equation, vertices, and vectors of boundaries
         return vertex_1, vertex_2, vertex_3, \
-        plane_grad, plane_const
-
+            plane_grad, plane_const
 
     def _above_bool(self, block, gradient, constant, verts):
         """
@@ -122,12 +111,12 @@ class Boundary():
 
             # Use x = my + c instead (for handling edges of type x = c)
             xy_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]]) # Zero-free denominator
+            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
             clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])
             if xy_flip:
-                clean_dx = 1 # Prevents undefined behaviour
+                clean_dx = 1  # Prevents undefined behaviour
             else:
-                clean_dy = 1 # Could be turned into try-except?
+                clean_dy = 1  # Could be turned into try-except?
 
             # For edges of type y = mx + c
             m_x = (verts[1, v_c[0]] - verts[1, v_c[1]])/clean_dx
@@ -168,7 +157,6 @@ class Boundary():
 
         return loc_a
 
-
     def _z_bool(self, block, gradient, constant, verts):
         """
         Returns True if a point is located within the z locus.
@@ -185,7 +173,7 @@ class Boundary():
         loc_z_base = (block[0]*gradient[0]
                       + block[1]*gradient[1]
                       + (block[2] - (self._spacing[2]
-                                      *self._method_order/2))*gradient[2]
+                                     * self._method_order/2))*gradient[2]
                       + constant <= 0)
 
         loc_z = np.logical_and(loc_z, loc_z_base)
@@ -197,12 +185,12 @@ class Boundary():
 
             # Use x = my + c instead (for handling edges of type x = c)
             xy_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]]) # Zero-free denominator
+            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
             clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])
             if xy_flip:
-                clean_dx = 1 # Prevents undefined behaviour
+                clean_dx = 1  # Prevents undefined behaviour
             else:
-                clean_dy = 1 # Could be turned into try-except?
+                clean_dy = 1  # Could be turned into try-except?
 
             # For edges of type y = mx + c
             m_x = (verts[1, v_c[0]] - verts[1, v_c[1]])/clean_dx
@@ -243,7 +231,6 @@ class Boundary():
 
         return loc_z
 
-
     def _y_bool(self, block, gradient, constant, verts, grad_pos, grad_neg):
         """
         Returns True if a point is located within the y locus.
@@ -261,9 +248,9 @@ class Boundary():
         loc_y_base = (block[0]*gradient[0]
                       + (block[1]
                          + (grad_neg*self._spacing[1]
-                            *self._method_order/2)
+                            * self._method_order/2)
                          - (grad_pos*self._spacing[1]
-                            *self._method_order/2))*gradient[1]
+                            * self._method_order/2))*gradient[1]
                       + block[2]*gradient[2]
                       + constant <= 0)
 
@@ -276,12 +263,12 @@ class Boundary():
 
             # Use x = mz + c instead (for handling edges of type x = c)
             xz_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]]) # Zero-free denominator
+            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
             clean_dz = (verts[2, v_c[0]] - verts[2, v_c[1]])
             if xz_flip:
-                clean_dx = 1 # Prevents undefined behaviour
+                clean_dx = 1  # Prevents undefined behaviour
             if verts[2, v_c[0]] - verts[2, v_c[1]] == 0:
-                clean_dz = 1 # Could be turned into try-except?
+                clean_dz = 1  # Could be turned into try-except?
 
             # For edges of type z = mx + c
             m_x = (verts[2, v_c[0]] - verts[2, v_c[1]])/clean_dx
@@ -321,7 +308,6 @@ class Boundary():
             loc_y = np.logical_and(loc_y, tri_bounds)
         return loc_y
 
-
     def _x_bool(self, block, gradient, constant, verts, grad_pos, grad_neg):
         """
         Returns True if a point is located within the x locus.
@@ -338,9 +324,9 @@ class Boundary():
         # Points are above base of locus (-ve z direction from locus base)
         loc_x_base = ((block[0]
                        + (grad_neg*self._spacing[0]
-                          *self._method_order/2)
+                          * self._method_order/2)
                        - (grad_pos*self._spacing[0]
-                          *self._method_order/2))*gradient[0]
+                          * self._method_order/2))*gradient[0]
                       + block[1]*gradient[1]
                       + block[2]*gradient[2]
                       + constant <= 0)
@@ -354,12 +340,12 @@ class Boundary():
 
             # Use y = mz + c instead (for handling edges of type y = c)
             yz_flip = ((verts[1, v_c[0]] - verts[1, v_c[1]]) == 0)
-            clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]]) # Zero-free denominator
+            clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])  # Zero-free denominator
             clean_dz = (verts[2, v_c[0]] - verts[2, v_c[1]])
             if yz_flip:
-                clean_dy = 1 # Prevents undefined behaviour
+                clean_dy = 1  # Prevents undefined behaviour
             if verts[2, v_c[0]] - verts[2, v_c[1]] == 0:
-                clean_dz = 1 # Could be turned into try-eycept?
+                clean_dz = 1  # Could be turned into try-eycept?
 
             # For edges of type z = my + c
             m_y = (verts[2, v_c[0]] - verts[2, v_c[1]])/clean_dy
@@ -405,11 +391,11 @@ class Boundary():
         values.
         """
 
-        x_min = np.amin(vertices[:,0,:], 1)
-        x_max = np.amax(vertices[:,0,:], 1)
+        x_min = np.amin(vertices[:, 0, :], 1)
+        x_max = np.amax(vertices[:, 0, :], 1)
         x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
         x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index) # Locus actually contains gridlines
+        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
         x_min = x_min[valid_locus]
         x_max = x_max[valid_locus]
         x_min_index = x_min_index[valid_locus]
@@ -418,8 +404,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        y_min = np.amin(vertices[:,1,:], 1)
-        y_max = np.amax(vertices[:,1,:], 1)
+        y_min = np.amin(vertices[:, 1, :], 1)
+        y_max = np.amax(vertices[:, 1, :], 1)
         y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
         y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
         valid_locus = y_max_index >= y_min_index
@@ -435,7 +421,7 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_max = np.amax(vertices[:,2,:], 1)
+        z_max = np.amax(vertices[:, 2, :], 1)
         z_min_index = self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
 
@@ -461,18 +447,17 @@ class Boundary():
             a_locus_data = a_locus_data.append(add_nodes, ignore_index=True, sort=False)
         return a_locus_data
 
-
     def _z_nodes(self, gradients, constants, vertices):
         """
         Returns all nodes within z locus, along with their corresponding eta
         values.
         """
 
-        x_min = np.amin(vertices[:,0,:], 1)
-        x_max = np.amax(vertices[:,0,:], 1)
+        x_min = np.amin(vertices[:, 0, :], 1)
+        x_max = np.amax(vertices[:, 0, :], 1)
         x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
         x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index) # Locus actually contains gridlines
+        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
         x_min = x_min[valid_locus]
         x_max = x_max[valid_locus]
         x_min_index = x_min_index[valid_locus]
@@ -481,8 +466,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        y_min = np.amin(vertices[:,1,:], 1)
-        y_max = np.amax(vertices[:,1,:], 1)
+        y_min = np.amin(vertices[:, 1, :], 1)
+        y_max = np.amax(vertices[:, 1, :], 1)
         y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
         y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
         valid_locus = y_max_index >= y_min_index
@@ -498,8 +483,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:,2,:], 1) + 0.5*self._method_order*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2])
+        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:, 2, :], 1) + 0.5*self._method_order*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
 
@@ -520,8 +505,8 @@ class Boundary():
             # Apply revamped _z_bool() for masking
             mask = self._z_bool(locus_mesh, gradients[i], constants[i], vertices[i])
             eta = (-(gradients[i, 0]*locus_mesh[0][mask]
-                    + gradients[i, 1]*locus_mesh[1][mask]
-                    + constants[i])/gradients[i, 2] - locus_mesh[2][mask])/self._spacing[2]
+                     + gradients[i, 1]*locus_mesh[1][mask]
+                     + constants[i])/gradients[i, 2] - locus_mesh[2][mask])/self._spacing[2]
             add_nodes = pd.DataFrame({'x': locus_mesh[0][mask],
                                       'y': locus_mesh[1][mask],
                                       'z': locus_mesh[2][mask],
@@ -531,7 +516,6 @@ class Boundary():
                                          sort=False).drop_duplicates().reset_index(drop=True)
         return z_locus_data
 
-
     def _y_nodes(self, gradients, constants, vertices):
         """
         Returns all nodes within y locus, along with their corresponding eta
@@ -539,16 +523,16 @@ class Boundary():
         """
 
         valid_locus = np.logical_not(np.logical_and(vertices[:, 2, 0] == vertices[:, 2, 1],
-                                                    vertices[:, 2, 0] == vertices[:, 2, 2])) # Remove flat polygons
+                                                    vertices[:, 2, 0] == vertices[:, 2, 2]))  # Remove flat polygons
         gradients = gradients[valid_locus]
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        x_min = np.amin(vertices[:,0,:], 1)
-        x_max = np.amax(vertices[:,0,:], 1)
+        x_min = np.amin(vertices[:, 0, :], 1)
+        x_max = np.amax(vertices[:, 0, :], 1)
         x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
         x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index) # Locus actually contains gridlines
+        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
         x_min = x_min[valid_locus]
         x_max = x_max[valid_locus]
         x_min_index = x_min_index[valid_locus]
@@ -557,8 +541,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
         valid_locus = z_max_index >= z_min_index
@@ -577,8 +561,8 @@ class Boundary():
         grad_positive = gradients[:, 1] > 0
         grad_negative = gradients[:, 1] < 0
 
-        y_min = np.amin(vertices[:,1,:], 1) - grad_negative*0.5*self._method_order*self._spacing[1] # These may want to be more cleverly calculated for very rough surfaces
-        y_max = np.amax(vertices[:,1,:], 1) + grad_positive*0.5*self._method_order*self._spacing[1] # Wants to be flipped depending on gradient
+        y_min = np.amin(vertices[:, 1, :], 1) - grad_negative*0.5*self._method_order*self._spacing[1]  # These may want to be more cleverly calculated for very rough surfaces
+        y_max = np.amax(vertices[:, 1, :], 1) + grad_positive*0.5*self._method_order*self._spacing[1]  # Wants to be flipped depending on gradient
         y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
         y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
 
@@ -601,8 +585,8 @@ class Boundary():
             mask = self._y_bool(locus_mesh, gradients[i], constants[i],
                                 vertices[i], grad_positive[i], grad_negative[i])
             eta_r = (-(gradients[i, 0]*locus_mesh[0][mask]
-                      + gradients[i, 2]*locus_mesh[2][mask]
-                      + constants[i])/gradients[i, 1] - locus_mesh[1][mask])/self._spacing[1]
+                       + gradients[i, 2]*locus_mesh[2][mask]
+                       + constants[i])/gradients[i, 1] - locus_mesh[1][mask])/self._spacing[1]
             # Split eta into -ve (left) and +ve (right) values
             eta_l = eta_r.copy()
             eta_r[eta_r < 0] = np.nan
@@ -618,7 +602,6 @@ class Boundary():
                                          sort=False).drop_duplicates().reset_index(drop=True)
         return y_locus_data
 
-
     def _x_nodes(self, gradients, constants, vertices):
         """
         Returns all nodes within x locus, along with their corresponding eta
@@ -626,16 +609,16 @@ class Boundary():
         """
 
         valid_locus = np.logical_not(np.logical_and(vertices[:, 2, 0] == vertices[:, 2, 1],
-                                                    vertices[:, 2, 0] == vertices[:, 2, 2])) # Remove flat polygons
+                                                    vertices[:, 2, 0] == vertices[:, 2, 2]))  # Remove flat polygons
         gradients = gradients[valid_locus]
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        y_min = np.amin(vertices[:,1,:], 1)
-        y_max = np.amax(vertices[:,1,:], 1)
+        y_min = np.amin(vertices[:, 1, :], 1)
+        y_max = np.amax(vertices[:, 1, :], 1)
         y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
         y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
-        valid_locus = (y_max_index >= y_min_index) # Locus actually contains gridlines
+        valid_locus = (y_max_index >= y_min_index)  # Locus actually contains gridlines
         y_min = y_min[valid_locus]
         y_max = y_max[valid_locus]
         y_min_index = y_min_index[valid_locus]
@@ -644,8 +627,8 @@ class Boundary():
         constants = constants[valid_locus]
         vertices = vertices[valid_locus]
 
-        z_min = np.minimum(np.amin(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:,2,:], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
+        z_max = np.minimum(np.amax(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
         z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
         z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
         valid_locus = z_max_index >= z_min_index
@@ -664,8 +647,8 @@ class Boundary():
         grad_positive = gradients[:, 0] > 0
         grad_negative = gradients[:, 0] < 0
 
-        x_min = np.amin(vertices[:,0,:], 1) - grad_negative*0.5*self._method_order*self._spacing[0] # These may want to be more cleverly calculated for very rough surfaces
-        x_max = np.amax(vertices[:,0,:], 1) + grad_positive*0.5*self._method_order*self._spacing[0] # Wants to be flipped depending on gradient
+        x_min = np.amin(vertices[:, 0, :], 1) - grad_negative*0.5*self._method_order*self._spacing[0]  # These may want to be more cleverly calculated for very rough surfaces
+        x_max = np.amax(vertices[:, 0, :], 1) + grad_positive*0.5*self._method_order*self._spacing[0]  # Wants to be flipped depending on gradient
         x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
         x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
 
@@ -688,8 +671,8 @@ class Boundary():
             mask = self._x_bool(locus_mesh, gradients[i], constants[i],
                                 vertices[i], grad_positive[i], grad_negative[i])
             eta_r = (-(gradients[i, 1]*locus_mesh[1][mask]
-                      + gradients[i, 2]*locus_mesh[2][mask]
-                      + constants[i])/gradients[i, 0] - locus_mesh[0][mask])/self._spacing[0]
+                       + gradients[i, 2]*locus_mesh[2][mask]
+                       + constants[i])/gradients[i, 0] - locus_mesh[0][mask])/self._spacing[0]
             # Split eta into -ve (left) and +ve (right) values
             eta_l = eta_r.copy()
             eta_r[eta_r < 0] = np.nan
@@ -705,25 +688,6 @@ class Boundary():
                                          sort=False).drop_duplicates().reset_index(drop=True)
         return x_locus_data
 
-
-#    def _construct_loci(self, vertices): # Could be merged with _node_id()
-#        """
-#        Constructs a locus on the inner side of the plane. The thickness
-#        of the locus is equal to M/2 grid spacings where M is the order
-#        of the FD method.
-#        """
-#
-#        vertex_1, vertex_2, vertex_3, \
-#        plane_grad, plane_const = self._construct_plane(vertices)
-#
-#        z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-#        y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-#        x_nodes = self._x_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-#        self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
-#        self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
-#        self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
-
-
     def _node_id(self):
         """
         Generates a list of nodes where stencils will require modification
@@ -732,10 +696,8 @@ class Boundary():
 
         self._modified_nodes = pd.DataFrame(columns=['x', 'y', 'z'])
 
-        #self._construct_loci(self._mesh)
-
         vertex_1, vertex_2, vertex_3, \
-        plane_grad, plane_const = self._construct_plane(self._mesh)
+            plane_grad, plane_const = self._construct_plane(self._mesh)
 
         z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
         y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
@@ -744,8 +706,7 @@ class Boundary():
         self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
         self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
 
-
-    def plot_nodes(self, show_boundary=True, save=False, save_path=None):
+    def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """
         Plots the boundary surface and the nodes identified as needing modification
         to their weights.
@@ -754,15 +715,15 @@ class Boundary():
         fig = plt.figure()
         plot_axes = fig.add_subplot(111, projection='3d')
         if show_boundary:
-            # Uses high contrast colours
             plot_axes.plot_trisurf(self._boundary_data['x'],
                                    self._boundary_data['y'],
                                    self._boundary_data['z'] - self._pmls*self._spacing[2],
                                    color='aquamarine')
-        #plot_axes.scatter(self._modified_nodes['x'],
-        #                  self._modified_nodes['y'],
-        #                  self._modified_nodes['z'] - self._pmls*self._spacing[2],
-        #                  marker='^', color='orangered')
+        if show_nodes:
+            plot_axes.scatter(self._modified_nodes['x'],
+                              self._modified_nodes['y'],
+                              self._modified_nodes['z'] - self._pmls*self._spacing[2],
+                              marker='^', color='orangered')
         plot_axes.set_xlabel("x")
         plot_axes.set_ylabel("y")
         plot_axes.set_zlabel("z")
@@ -775,14 +736,13 @@ class Boundary():
                 raise OSError("Invalid filepath.")
         plt.show()
 
-
     def _generate_coefficients(self, node, deriv_order):
         """
         A coefficient generator for immersed boundaries. Uses floating point
         values to calculate stencil weights.
         """
 
-        m_size = int(self._method_order/2) # For tidiness
+        m_size = int(self._method_order/2)  # For tidiness
 
         # Construct standard stencils
         std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
@@ -790,42 +750,39 @@ class Boundary():
 
         # Minor modifications in x direction
         coeffs_x = std_coeffs.copy()
-        if node['x_eta_r']%1 == 0:
+        if node['x_eta_r'] % 1 == 0:
             coeffs_x[int(node['x_eta_r'])-m_size-1:] = 0
-        if node['x_eta_l']%1 == 0: # This % may be problematic
+        if node['x_eta_l'] % 1 == 0:  # This % may be problematic
             coeffs_x[:1+m_size-int(node['x_eta_l'])] = 0
 
         # Minor modifications in y direction
         coeffs_y = std_coeffs.copy()
-        if node['y_eta_r']%1 == 0:
+        if node['y_eta_r'] % 1 == 0:
             coeffs_y[int(node['y_eta_r'])-m_size-1:] = 0
-        if node['y_eta_l']%1 == 0:
+        if node['y_eta_l'] % 1 == 0:
             coeffs_y[:1+m_size-int(node['y_eta_l'])] = 0
 
         # Minor modifications in z direction
         coeffs_z = std_coeffs.copy()
-        if node['z_eta']%1 == 0:
-            print("It's fucking up here")
-            #coeffs_z[int(node['z_eta'])-m_size-1:] = 0
-            #coeffs_z[:] = coeffs_z[::-1]
+        if node['z_eta'] % 1 == 0:
             coeffs_y[:1+m_size-int(node['z_eta'])] = 0
 
         # One side outside in x direction
         if (not np.isnan(node['x_eta_r']) and np.isnan(node['x_eta_l'])) \
-            or (np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
+                or (np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
             if (not np.isnan(node['x_eta_r']) and np.isnan(node['x_eta_l'])):
-                xi_x = node['x_eta_r']%1
-                rows_x = int(m_size-node['x_eta_r'])+1 # Rows of extrapolation matrix
-            else: # Stencils will only be flipped at end
-                xi_x = abs(node['x_eta_l'])%1
-                rows_x = int(m_size+node['x_eta_l'])+1 # Rows of extrapolation matrix
+                xi_x = node['x_eta_r'] % 1
+                rows_x = int(m_size-node['x_eta_r'])+1  # Rows of extrapolation matrix
+            else:  # Stencils will only be flipped at end
+                xi_x = abs(node['x_eta_l']) % 1
+                rows_x = int(m_size+node['x_eta_l'])+1  # Rows of extrapolation matrix
             # If statement for splaying extrapolation
             if xi_x < 0.5:
                 splay_x = True
             else:
                 splay_x = False
             ex_matrix_x = np.zeros((rows_x, m_size))
-            for i in range(rows_x): # Loop over matrix rows
+            for i in range(rows_x):  # Loop over matrix rows
                 lhs = np.zeros((m_size, m_size))
                 rhs = np.zeros(m_size)
                 for j in range(m_size):
@@ -842,24 +799,24 @@ class Boundary():
             coeffs_x[-rows_x:] = 0
 
             if (np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
-                coeffs_x[:] = coeffs_x[::-1] # Flip for boundaries on left
+                coeffs_x[:] = coeffs_x[::-1]  # Flip for boundaries on left
 
         # One side outside in y direction
         if (not np.isnan(node['y_eta_r']) and np.isnan(node['y_eta_l'])) \
-            or (np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
+                or (np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
             if (not np.isnan(node['y_eta_r']) and np.isnan(node['y_eta_l'])):
-                xi_y = node['y_eta_r']%1
-                rows_y = int(m_size-node['y_eta_r'])+1 # Rows of extrapolation matrix
-            else: # Stencils will only be flipped at end
-                xi_y = abs(node['y_eta_l'])%1
-                rows_y = int(m_size+node['y_eta_l'])+1 # Rows of extrapolation matrix
+                xi_y = node['y_eta_r'] % 1
+                rows_y = int(m_size-node['y_eta_r'])+1  # Rows of extrapolation matrix
+            else:  # Stencils will only be flipped at end
+                xi_y = abs(node['y_eta_l']) % 1
+                rows_y = int(m_size+node['y_eta_l'])+1  # Rows of extrapolation matrix
             # If statement for splaying extrapolation
             if xi_y < 0.5:
                 splay_y = True
             else:
                 splay_y = False
             ex_matrix_y = np.zeros((rows_y, m_size))
-            for i in range(rows_y): # Loop over matrix rows
+            for i in range(rows_y):  # Loop over matrix rows
                 lhs = np.zeros((m_size, m_size))
                 rhs = np.zeros(m_size)
                 for j in range(m_size):
@@ -876,19 +833,19 @@ class Boundary():
             coeffs_y[-rows_y:] = 0
 
             if (np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
-                coeffs_y[:] = coeffs_y[::-1] # Flip for boundaries on left
+                coeffs_y[:] = coeffs_y[::-1]  # Flip for boundaries on left
 
         # Only one side can be outside in z direction
         if not np.isnan(node['z_eta']):
-            xi_z = abs(node['z_eta'])%1
-            rows_z = int(m_size+node['z_eta'])+1 # rows of extrapolation matrix
+            xi_z = abs(node['z_eta']) % 1
+            rows_z = int(m_size+node['z_eta'])+1  # rows of extrapolation matrix
             # If statement for splaying extrapolation
             if xi_z < 0.5:
                 splay_z = True
             else:
                 splay_z = False
             ex_matrix_z = np.zeros((rows_z, m_size))
-            for i in range(rows_z): # Loop over matrix rows
+            for i in range(rows_z):  # Loop over matrix rows
                 lhs = np.zeros((m_size, m_size))
                 rhs = np.zeros(m_size)
                 for j in range(m_size):
@@ -907,21 +864,17 @@ class Boundary():
                 print(add_coeffs)
             coeffs_z[-rows_z-m_size-splay_z:-rows_z-splay_z] += add_coeffs
             coeffs_z[-rows_z:] = 0
-            coeffs_z[:] = coeffs_z[::-1] # Flip for boundaries on left
+            coeffs_z[:] = coeffs_z[::-1]  # Flip for boundaries on left
 
         # Both sides outside in x direction
         if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
             raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
                                       % (node['x'], node['y'], node['z']))
-            #ex_matrix_x = np.zeros((self._method_order+1, self._method_order+1))
-            #for i in range(int(node['x_eta_l'])+m_size, int(node['x_eta_r'])+m_size+1):
-                #ex_matrix_x[i, i] = 1
 
         if (not np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
             raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
                                       % (node['x'], node['y'], node['z']))
-        return pd.Series({'x_coeffs':coeffs_x, 'y_coeffs':coeffs_y, 'z_coeffs':coeffs_z})
-
+        return pd.Series({'x_coeffs': coeffs_x, 'y_coeffs': coeffs_y, 'z_coeffs': coeffs_z})
 
     def _construct_stencils(self, deriv_order):
         """
@@ -929,9 +882,9 @@ class Boundary():
         """
 
         self._modified_nodes[['x_coeffs', 'y_coeffs', 'z_coeffs']] \
-        = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
+            = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
 
-    def _crap_weight_filler(self, deriv_order): # Temporary
+    def _crap_weight_filler(self, deriv_order):  # Temporary
         """
         Temporary weight filler for exterior and interior points. Will be
         made redundant once necessary features are implemented in Devito.
@@ -940,10 +893,9 @@ class Boundary():
         # Fill with standard weights
 
         vertex_1, vertex_2, vertex_3, \
-        plane_grad, plane_const = self._construct_plane(self._mesh)
+            plane_grad, plane_const = self._construct_plane(self._mesh)
 
-
-        m_size = int(self._method_order/2) # For tidiness
+        m_size = int(self._method_order/2)  # For tidiness
 
         # Construct standard stencils
         std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
@@ -970,7 +922,6 @@ class Boundary():
                        np.round_(above_nodes['z']/self._spacing[2]).astype('int') + self._pmls,
                        :] = 0
 
-
     def _weight_function(self, function, deriv_order):
         """
         Creates three Devito functions containing weights needed for
@@ -996,9 +947,9 @@ class Boundary():
         self._w_y = Function(name='w_y', dimensions=wdims, shape=wshape)
         self._w_z = Function(name='w_z', dimensions=wdims, shape=wshape)
 
-        ############# Temporary #############
+        # ########### Temporary ########### #
         self._crap_weight_filler(deriv_order)
-        ############# Temporary #############
+        # ########### Temporary ########### #
 
         self._w_x.data[np.round_(self._modified_nodes['x']/self._spacing[0]).astype('int') + self._pmls,
                        np.round_(self._modified_nodes['y']/self._spacing[1]).astype('int') + self._pmls,
