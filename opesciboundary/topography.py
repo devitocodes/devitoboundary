@@ -15,16 +15,16 @@ from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
 from mpl_toolkits.mplot3d import Axes3D
 
-__all__ = ['Boundary']
+__all__ = ['GenericBoundary', 'Boundary3D', 'Topography3D']
 
 
-class Boundary():
+class GenericBoundary():
     """
-    An object to contain data relevant for implementing the
-    immersed boundary method on a given domain.
+    A generic object to contain data relevant for implementing internal
+    boundaries within a given domain.
     """
 
-    def __init__(self, function, boundary_data, deriv_order, pmls=0):
+    def __init__(self, function, boundary_data):
 
         self._method_order = function.space_order
 
@@ -34,15 +34,8 @@ class Boundary():
         self._spacing = function.grid.spacing
         self._dimensions = function.grid.dimensions
         self.origin = (0, 0)
-        self._pmls = pmls
 
         self._read_in(boundary_data)
-
-        self._generate_triangles()
-
-        self._node_id()
-
-        self._weight_function(function, deriv_order)
 
     @property
     def method_order(self):
@@ -59,6 +52,58 @@ class Boundary():
         """
 
         self._boundary_data = boundary_data
+
+
+class Boundary3D(GenericBoundary):
+    """
+    A generic object to contain data relevant for implementing 3D boundaries
+    within a given domain.
+    """
+
+    def __init__(self, function, boundary_data, pmls=0):
+        GenericBoundary.__init__(self, function, boundary_data)
+
+        self._pmls = pmls
+
+    def plot_boundary(self, invert_z=True, save=False, save_path=None):
+        """
+        Plots the boundary surface as a triangular mesh.
+        """
+
+        fig = plt.figure()
+        plot_axes = fig.add_subplot(111, projection='3d')
+        plot_axes.plot_trisurf(self._boundary_data['x'],
+                               self._boundary_data['y'],
+                               self._boundary_data['z'] - self._pmls*self._spacing[2],
+                               color='aquamarine')
+
+        plot_axes.set_xlabel("x")
+        plot_axes.set_ylabel("y")
+        plot_axes.set_zlabel("z")
+        plot_axes.set_zlim(-1*self._pmls*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2], False)
+        if invert_z:
+            plot_axes.invert_zaxis()
+        if save:
+            if save_path is not None:
+                plt.savefig(save_path)
+            else:
+                raise OSError("Invalid filepath.")
+        plt.show()
+
+
+class Topography3D(Boundary3D):
+    """
+    An object to encapsulate the implementation of surface topography in a 3D
+    domain. Note that concavities will be incorrectly interpreted during
+    boundary generation (BoundarySurface3D should be used in this case).
+    """
+
+    def __init__(self, function, boundary_data, deriv_order, pmls=0):
+        Boundary3D.__init__(self, function, boundary_data, pmls)
+
+        self._generate_triangles()
+        self._node_id()
+        self._weight_function(function, deriv_order)
 
     def _generate_triangles(self):
         """

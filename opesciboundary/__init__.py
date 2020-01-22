@@ -1,6 +1,4 @@
 from opesciboundary.topography import *
-from opesciboundary.stencils import *
-from opesciboundary.plotter import *
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:

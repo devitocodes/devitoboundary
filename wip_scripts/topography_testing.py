@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from opesciboundary import Boundary
+from opesciboundary import Topography3D
 from devito import Grid, TimeFunction
 from scipy.interpolate import interp2d
 
@@ -60,6 +60,6 @@ boundary_z = inv_dome_func(x, y)
 
 boundary_data = pd.DataFrame({'x': x.flatten(), 'y': y.flatten(), 'z': boundary_z.flatten()})
 
-boundary_obj = Boundary(function, boundary_data, 2, 0)
+boundary_obj = Topography3D(function, boundary_data, 2, 0)
 
 boundary_obj.plot_nodes(show_boundary=True)

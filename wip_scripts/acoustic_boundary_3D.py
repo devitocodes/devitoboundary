@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-from opesciboundary import Boundary
+from opesciboundary import Topography3D
 from devito import TimeFunction, Eq, solve, Operator, ConditionalDimension
 from examples.seismic import TimeAxis, RickerSource, Model
 
@@ -62,7 +62,7 @@ boundary_z = inv_dome_func(mesh_x, mesh_y)
 
 boundary_data = pd.DataFrame({'x': mesh_x.flatten(), 'y': mesh_y.flatten(), 'z': boundary_z.flatten()})
 
-boundary_obj = Boundary(u, boundary_data, 2, pmls=PMLS)
+boundary_obj = Topography3D(u, boundary_data, 2, pmls=PMLS)
 
 boundary_obj.plot_nodes(save=True, save_path="images/boundary_plot")
 
