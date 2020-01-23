@@ -3,14 +3,14 @@ try:
 except ImportError:
     from distutils.core import setup
 
-setup(name='opesciboundary',
+setup(name='devitoboundary',
       use_scm_version=True,
       setup_requires=['setuptools_scm'],
-      description="Immersed boundary tools for OPESCI codes",
-      long_descritpion="""opesciboundary is a ....""",
-      url='http://www.opesci.org/',
+      description="Immersed boundary tools for Devito codes",
+      long_descritpion="""Devitoboundary is a ....""",
+      url='http://www.devitoproject.org/',
       author="Imperial College London",
       author_email='opesci@imperial.ac.uk',
       license='MIT',
-      packages=['opesciboundary'],
+      packages=['devitoboundary'],
       install_requires=['numpy', 'simplejson'])

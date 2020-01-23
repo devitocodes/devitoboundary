@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-from opesciboundary import Topography3D
+from devitoboundary import Topography3D
 from devito import TimeFunction, Eq, solve, Operator, ConditionalDimension
 from examples.seismic import TimeAxis, RickerSource, Model
 

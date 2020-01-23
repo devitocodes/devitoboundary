@@ -1,18 +1,18 @@
 ## Set of utilities for ...
 
-Opesciboundary is a set of utilities used for ... Devito.
+Devitoboundary is a set of utilities used for ... Devito.
 In order to download, install and use Devito follow the instructions
-listed [here](https://github.com/opesci/devito).
+listed [here](https://github.com/devitocodes/devito).
 
 
 ## Quickstart
-In order to install Opesciboundary:
+In order to install Devitoboundary:
 *Requirements:* A working Devito installation.
 
 ```
 source activate devito
-git clone https://github.com/opesci/opesciboundary.git
-cd opesciboundary
+git clone https://github.com/devitocodes/devitoboundary.git
+cd devitoboundary
 pip install -e .
 ```
 

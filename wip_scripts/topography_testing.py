@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from opesciboundary import Topography3D
+from devitoboundary import Topography3D
 from devito import Grid, TimeFunction
 from scipy.interpolate import interp2d
 
