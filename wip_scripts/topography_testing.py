@@ -7,10 +7,10 @@ from devito import Grid, TimeFunction
 from scipy.interpolate import interp2d
 
 # Topography config
-SUBSAMPLE = 2
-VARIANCE = 0.3
+SUBSAMPLE = 0.5
+VARIANCE = 0  # .3
 
-grid = Grid(extent=(1000, 1000, 1000), shape=(21, 21, 21))
+grid = Grid(extent=(1000, 1000, 1000), shape=(11, 11, 11))
 function = TimeFunction(name='test_function', grid=grid, time_order=2,
                         space_order=4, coefficients='symbolic')
 
@@ -49,8 +49,8 @@ def dome_func(x, y):
 
 def inv_dome_func(x, y):
     dome_z = np.sqrt(np.power(x-(grid.extent[0]/2), 2)
-                     + np.power(y-(grid.extent[1]/2), 2))
-    dome_z[dome_z < 0.296*grid.extent[2]] = 0.296*grid.extent[2]
+                     + np.power(y-(grid.extent[1]/2), 2)) + 0.06*grid.extent[2]
+    # dome_z[dome_z < 0.296*grid.extent[2]] = 0.296*grid.extent[2]
     return dome_z
 
 

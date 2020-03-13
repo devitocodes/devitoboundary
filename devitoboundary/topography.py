@@ -1,6 +1,6 @@
 """
-A module for implementation of topography in Devito via use of
-the immersed boundary method.
+A module for implementation of topography in Devito via the immersed
+boundary method.
 """
 
 from itertools import combinations
@@ -103,7 +103,8 @@ class Topography3D(Boundary3D):
 
         self._generate_triangles()
         self._node_id()
-        self._weight_function(function, deriv_order)
+        self._construct_stencils(deriv_order)
+        # self._weight_function(function, deriv_order)  # Temporarily disabled
 
     def _generate_triangles(self):
         """
@@ -111,14 +112,8 @@ class Topography3D(Boundary3D):
         triangulation. The surface of the mesh generated will be used
         to represent the boundary.
         """
-        # Note that triangulation is 2D using x and y values
+        # Triangulation is 2D using x and y values
         self._mesh = Delaunay(self._boundary_data.iloc[:, 0:2]).simplices
-        # If z values of all points are <= 0 then remove
-        SQUASH_BELOW_ZERO = False
-        if SQUASH_BELOW_ZERO:
-            self._mesh = self._mesh[np.logical_and(np.logical_and(self._boundary_data.iloc[self._mesh[:, 0]].to_numpy()[:, 2] > 0,
-                                                                  self._boundary_data.iloc[self._mesh[:, 1]].to_numpy()[:, 2] > 0),
-                                                   self._boundary_data.iloc[self._mesh[:, 2]].to_numpy()[:, 2] > 0)]
 
     def _construct_plane(self, vertices):
         """
@@ -134,6 +129,7 @@ class Topography3D(Boundary3D):
         plane_grad = np.cross(vector_1, vector_2)
         plane_const = -np.sum(plane_grad*vertex_1, axis=1)
 
+        print("The first bit is done")
         # Return plane equation, vertices, and vectors of boundaries
         return vertex_1, vertex_2, vertex_3, \
             plane_grad, plane_const
@@ -911,14 +907,16 @@ class Topography3D(Boundary3D):
             coeffs_z[-rows_z:] = 0
             coeffs_z[:] = coeffs_z[::-1]  # Flip for boundaries on left
 
-        # Both sides outside in x direction
+        # Both sides outside in x direction <- This never happens as the locus can be projected outside the boundary
         if (not np.isnan(node['x_eta_r']) and not np.isnan(node['x_eta_l'])):
             raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
                                       % (node['x'], node['y'], node['z']))
 
+        # Both sides outside in y direction
         if (not np.isnan(node['y_eta_r']) and not np.isnan(node['y_eta_l'])):
             raise NotImplementedError("Stencil overlaps boundary on both sides at (%.1f, %.1f, %.1f)"
                                       % (node['x'], node['y'], node['z']))
+
         return pd.Series({'x_coeffs': coeffs_x, 'y_coeffs': coeffs_y, 'z_coeffs': coeffs_z})
 
     def _construct_stencils(self, deriv_order):
@@ -928,6 +926,7 @@ class Topography3D(Boundary3D):
 
         self._modified_nodes[['x_coeffs', 'y_coeffs', 'z_coeffs']] \
             = self._modified_nodes.apply(self._generate_coefficients, axis=1, args=(deriv_order,))
+        # print(self._modified_nodes[self._modified_nodes['z'] == 100][['x', 'y', 'z', 'x_eta_l', 'x_eta_r', 'y_eta_l', 'y_eta_r']])
 
     def _crap_weight_filler(self, deriv_order):  # Temporary
         """
@@ -973,8 +972,6 @@ class Topography3D(Boundary3D):
         immersed boundary method. Each function contains weights for one
         dimension.
         """
-
-        self._construct_stencils(deriv_order)
 
         # Create weight function
         s_dim = Dimension(name='s')
