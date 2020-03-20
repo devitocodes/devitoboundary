@@ -13,7 +13,3 @@ grid = Grid(extent=(20, 20, 20), shape=(11, 11, 11))
 mesh = PolyMesh(data, grid)
 
 qpoint = [4.2, 2.2, 5.3]
-print(mesh.simplices, "\n")
-
-polys = mesh.query_polygons(qpoint, 3)
-print(polys)
