@@ -18,28 +18,31 @@ class BSP_Node:
     ----------
     index : int
         The index of the simplex on whose plane this node splits
-    simplex_list : ndarray
-        The simplices that are children of this node
+    index_list : ndarray
+        The indices of simplices that are children of this node
     parent : BSP_Node
         The parent node of a node
     """
-    def __init__(self, index, simplex_list, parent=None):
+    def __init__(self, index, index_list, parent=None):
         self.parent = parent  # Parent node
+        self.leaf = True
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
         self.index = index  # Index of the simplex/plane used for splitting
-        self.simplex_list = simplex_list
-        del self.simplex_list[self.index]  # Remove the simplex from child list
+        self.index_list = index_list  # Indices of all the simplices at the node
+        self.index_list.remove(self.index)  # Remove the index from child list
 
     def set_children(self, pos_list=None, neg_list=None):
         """Set up child tree nodes"""
+        self.leaf = False
         if pos_list is not None:
-            self.pos = BSP_Node(np.random.randint(0, len(pos_list)),
+            # Set up a new node using a random plane from the subset
+            self.pos = BSP_Node(pos_list[np.random.randint(0, len(pos_list))],
                                 pos_list, parent=self)
         if neg_list is not None:
-            self.neg = BSP_Node(np.random.randint(0, len(neg_list)),
+            self.neg = BSP_Node(neg_list[np.random.randint(0, len(neg_list))],
                                 neg_list, parent=self)
-        del self.simplex_list
+        del self.index_list
 
 
 class BSP_Tree:
@@ -70,10 +73,11 @@ class BSP_Tree:
         self._vertices = vertices.tolist()
         self._equations = equations
         self._values = values
+        self._simplices = simplices.tolist()
 
         # Set up root node of tree
         self._root = BSP_Node(np.random.randint(0, len(simplices)),
-                              simplices.tolist())
+                              list(range(len(simplices))))
 
     @property
     def root(self):
@@ -103,7 +107,7 @@ class BSP_Tree:
 
 class PolyMesh:
     """
-    A polygonal mesh of points. Used to express a non-concave surface
+    A polygonal mesh of points. Used to express a non-concave (2.5D) surface
     in 3D space.
 
     Parameters
