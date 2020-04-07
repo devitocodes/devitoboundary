@@ -184,8 +184,8 @@ class BSP_Tree:
                 # Find the node on its own
 
         print('Simplices at the node: ', node.index_list)
-        # If all points in a simplex >= zero, add to pos list
-        # If all points in a simplex <= zero, then add to neg list
+        # If all points in a simplex > zero, add to pos list
+        # If all points in a simplex < zero, then add to neg list
         # If all points in a simplex == zero, then append to node
 
 
