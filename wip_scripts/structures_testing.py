@@ -1,6 +1,7 @@
 from devito import Grid
 from devitoboundary import PolyMesh
 import numpy as np
+np.seterr(all='raise')
 
 data = [[1, 2, 3], [2, 1, 0], [5, 1, 2],
         [5, 3, 1], [1, 3, 5], [1, 2, 8],
