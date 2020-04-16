@@ -25,7 +25,6 @@ class BSP_Node:
     """
     def __init__(self, index, index_list, parent=None):
         self.parent = parent  # Parent node
-        self.leaf = True
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
         self.index = index  # Index of the simplex/plane used for splitting
@@ -35,7 +34,6 @@ class BSP_Node:
 
     def set_children(self, pos_list, neg_list):
         """Set up child tree nodes"""
-        self.leaf = False
         if len(pos_list) != 0:
             # Set up a new node using a random plane from the subset
             self.pos = BSP_Node(pos_list[np.random.randint(0, len(pos_list))],
@@ -115,25 +113,42 @@ class BSP_Tree:
 
     def _construct(self, node):
         """The recursive tree constructor"""
-        print(node.index_list)
+        # if node.index == self._root.index:
+            # print('\n At the root \n')
+        # print(node.index_list)
         if len(node.index_list) != 0:
+            # print('Current index is', node.index)
             self._split(node)
             if node.pos is not None:
+                # print('Constructing a new subtree and taken positive branch.')
                 self._construct(node.pos)  # Wooooo recursion!!!1!
             elif node.neg is not None:
+                # print('Constructing a new subtree and taken negative branch.')
                 self._construct(node.neg)  # Wooooo recursion!!!1!
             else:
-                print('The leaf was reached because all remaining polygons were at the node. Go up.')
+                # print('A leaf was reached because all remaining polygons were at the node. Go up.')
+                if node.parent.parent is not None:
+                    self._construct(node.parent)  # Wooooo recursion!!!1!
+                else:  # Catch edge case where this occurs at the top of the tree
+                    print('Construction is all done')
+                    # print('Polycount at end was', len(self._simplices))
         else:
-            print('Current index is', node.index)
+            # print('Current index is', node.index)
             try:
                 if node.parent.neg.index == node.index:
-                    print('parent.neg is me. Go up')
+                    # print('parent.neg is me. Go up')
+                    if node.parent.parent is not None:
+                        self._construct(node.parent)  # Wooooo recursion!!!1!
+                    else:
+                        print('Construction is all done')
+                        # print('Polycount at end was', len(self._simplices))
                 else:
-                    print('parent.neg is index', node.parent.neg.index, '. Go up and down negative branch')
+                    # print('parent.neg is index', node.parent.neg.index, '. Go up and down negative branch')
+                    # if node.parent.index == self._root.index:
+                        # print('\n Went over the root in the process \n')
                     self._construct(node.parent.neg)  # Wooooo recursion!!!1!
             except AttributeError:  # parent.neg is None
-                print('parent.neg is a lie. Go up.')
+                # print('parent.neg is a lie. Go up.')
                 self._construct(node.parent)  # Wooooo recursion!!!1!
 
     def _split(self, node):
@@ -275,9 +290,9 @@ class BSP_Tree:
         polygon_negative = np.logical_and(is_all_negative, np.logical_not(polygon_in_plane))
         neg_list.extend(np.array(node.index_list)[polygon_negative].tolist())
 
-        print('Pos list post is', pos_list)
-        print('Neg list post is', neg_list)
-        print('Additional polygons at node', node.plane_indices)
+        # print('Pos list post is', pos_list)
+        # print('Neg list post is', neg_list)
+        # print('Additional polygons at node', node.plane_indices)
 
         # Make children
         node.set_children(pos_list, neg_list)
