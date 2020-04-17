@@ -2,12 +2,12 @@ from devito import Grid
 from devitoboundary import PolyMesh
 import numpy as np
 # from scipy.spatial import KDTree
-from sys import setrecursionlimit
+# from sys import setrecursionlimit
 
 np.seterr(all='raise')
-setrecursionlimit(10000)
+# setrecursionlimit(10000)
 
-SUBSAMPLE = 8
+SUBSAMPLE = 5
 
 grid = Grid(extent=(1000, 1000, 1000), shape=(101, 101, 101))
 

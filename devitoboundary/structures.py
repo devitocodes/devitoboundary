@@ -113,43 +113,14 @@ class BSP_Tree:
 
     def _construct(self, node):
         """The recursive tree constructor"""
-        # if node.index == self._root.index:
-            # print('\n At the root \n')
-        # print(node.index_list)
         if len(node.index_list) != 0:
-            # print('Current index is', node.index)
             self._split(node)
             if node.pos is not None:
-                # print('Constructing a new subtree and taken positive branch.')
+                # print(node.index, 'Constructing a new subtree on the positive branch.')
                 self._construct(node.pos)  # Wooooo recursion!!!1!
-            elif node.neg is not None:
-                # print('Constructing a new subtree and taken negative branch.')
+            if node.neg is not None:
+                # print(node.index, 'Constructing a new subtree on the negative branch.')
                 self._construct(node.neg)  # Wooooo recursion!!!1!
-            else:
-                # print('A leaf was reached because all remaining polygons were at the node. Go up.')
-                if node.parent.parent is not None:
-                    self._construct(node.parent)  # Wooooo recursion!!!1!
-                else:  # Catch edge case where this occurs at the top of the tree
-                    print('Construction is all done')
-                    # print('Polycount at end was', len(self._simplices))
-        else:
-            # print('Current index is', node.index)
-            try:
-                if node.parent.neg.index == node.index:
-                    # print('parent.neg is me. Go up')
-                    if node.parent.parent is not None:
-                        self._construct(node.parent)  # Wooooo recursion!!!1!
-                    else:
-                        print('Construction is all done')
-                        # print('Polycount at end was', len(self._simplices))
-                else:
-                    # print('parent.neg is index', node.parent.neg.index, '. Go up and down negative branch')
-                    # if node.parent.index == self._root.index:
-                        # print('\n Went over the root in the process \n')
-                    self._construct(node.parent.neg)  # Wooooo recursion!!!1!
-            except AttributeError:  # parent.neg is None
-                # print('parent.neg is a lie. Go up.')
-                self._construct(node.parent)  # Wooooo recursion!!!1!
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
