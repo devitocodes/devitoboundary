@@ -80,7 +80,7 @@ class BSP_Tree:
         self._root = BSP_Node(np.random.randint(0, len(simplices)),
                               list(range(len(simplices))))
 
-        self.construct()
+        self.construct(0)  # Only one plane at a leaf
 
     @property
     def root(self):
@@ -107,19 +107,20 @@ class BSP_Tree:
         """The constant of the plane equation"""
         return self._values
 
-    def construct(self):
+    def construct(self, leafsize):
         """Construct the BSP tree"""
-        self._construct(self._root)
+        self._construct(self._root, leafsize)
 
-    def _construct(self, node):
+    def _construct(self, node, leafsize):
         """The recursive tree constructor"""
-        if len(node.index_list) != 0:
+        # if len(node.index_list) != 0:
+        if len(node.index_list) > 10:  # Lets mess around with leaf size
             self._split(node)
             if node.pos is not None:
-                # print(node.index, 'Constructing a new subtree on the positive branch.')
+                print(node.index, 'Constructing a new subtree on the positive branch.')
                 self._construct(node.pos)  # Wooooo recursion!!!1!
             if node.neg is not None:
-                # print(node.index, 'Constructing a new subtree on the negative branch.')
+                print(node.index, 'Constructing a new subtree on the negative branch.')
                 self._construct(node.neg)  # Wooooo recursion!!!1!
 
     def _split(self, node):
