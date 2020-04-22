@@ -28,21 +28,20 @@ class BSP_Node:
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
         self.index = index  # Index of the simplex/plane used for splitting
-        self.plane_indices = []  # Indices of any other simplices that lie in the plane
-        self.index_list = index_list  # Indices of all the simplices at the node
-        self.index_list.remove(self.index)  # Remove the index from child list
+        self.plane_indices = []  # Indices of any other simplices that lie in the plane  # NUMPYISE
+        self.index_list = index_list  # Indices of all the simplices at the node  # NUMPYISE
+        self.index_list.remove(self.index)  # Remove the index from child list  # NUMPYISE
 
     def set_children(self, pos_list, neg_list):
         """Set up child tree nodes"""
         if len(pos_list) != 0:
             # Set up a new node using a random plane from the subset
-            self.pos = BSP_Node(pos_list[np.random.randint(0, len(pos_list))],
+            self.pos = BSP_Node(pos_list[np.random.randint(0, len(pos_list))],  # NUMPYISE
                                 pos_list, parent=self)
         if len(neg_list) != 0:
-            self.neg = BSP_Node(neg_list[np.random.randint(0, len(neg_list))],
+            self.neg = BSP_Node(neg_list[np.random.randint(0, len(neg_list))],  # NUMPYISE
                                 neg_list, parent=self)
-        # del self.index_list  # Maybe do something else here like replace with None
-        self.index_list = []
+        self.index_list = []  # DITCH
 
 
 class BSP_Tree:
@@ -59,8 +58,10 @@ class BSP_Tree:
         Coefficients of the plane equations in form x, y, z
     values : ndarray
         Constants of the plane equations
+    leafsize : positve int
+        Number of polygons at each leaf node (default is one)
     """
-    def __init__(self, vertices, simplices, equations, values):
+    def __init__(self, vertices, simplices, equations, values, leafsize=1):
         assert isinstance(vertices, np.ndarray), \
             "Vertices must be given as an array."
         assert isinstance(simplices, np.ndarray), \
@@ -71,16 +72,17 @@ class BSP_Tree:
             "Values must be given as an array."
 
         # These all need to be made into lists as may need to append polygons
-        self._vertices = vertices.tolist()
-        self._equations = equations.tolist()
-        self._values = values.tolist()
-        self._simplices = simplices.tolist()
+        self._vertices = vertices.tolist()  # NUMPYISE
+        self._equations = equations.tolist()  # NUMPYISE
+        self._values = values.tolist()  # NUMPYISE
+        self._simplices = simplices.tolist()  # NUMPYISE
 
         # Set up root node of tree
         self._root = BSP_Node(np.random.randint(0, len(simplices)),
-                              list(range(len(simplices))))
+                              list(range(len(simplices))))  # NUMPYISE
 
-        self.construct(0)  # Only one plane at a leaf
+        self.construct(leafsize-1)  # Only one plane at a leaf
+        print(simplices.shape)
 
     @property
     def root(self):
@@ -113,160 +115,44 @@ class BSP_Tree:
 
     def _construct(self, node, leafsize):
         """The recursive tree constructor"""
-        # if len(node.index_list) != 0:
-        if len(node.index_list) > 10:  # Lets mess around with leaf size
+        if len(node.index_list) > leafsize:  # Lets mess around with leaf size
+            print('Index list is ', node.index_list)
             self._split(node)
             if node.pos is not None:
                 print(node.index, 'Constructing a new subtree on the positive branch.')
-                self._construct(node.pos)  # Wooooo recursion!!!1!
+                self._construct(node.pos, leafsize)  # Wooooo recursion!!!1!
             if node.neg is not None:
                 print(node.index, 'Constructing a new subtree on the negative branch.')
-                self._construct(node.neg)  # Wooooo recursion!!!1!
+                self._construct(node.neg, leafsize)  # Wooooo recursion!!!1!
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
-        # Initialise pos and neg lists for the split
-        pos_list = []
-        neg_list = []
-
         # Check each point in each simplex
-        node_simplices = np.array(self._simplices)[np.array(node.index_list)]
+        node_simplices = np.array(self._simplices)[np.array(node.index_list)]  # NUMPYISE
         # Get every unique vertex in list
-        node_vertices = np.array(self._vertices)[np.unique(node_simplices)]
+        node_vertices = np.array(self._vertices)[np.unique(node_simplices)]  # NUMPYISE
 
-        # FIXME: These could probably be stored somehow
-        node_equation = np.array(self._equations)[np.array(node.index)]
-        node_value = np.array(self._values)[np.array(node.index)]
+        node_equation = np.array(self._equations)[np.array(node.index)]  # NUMPYISE
+        node_value = np.array(self._values)[np.array(node.index)]  # NUMPYISE
         node_results = node_equation[0]*node_vertices[:, 0] \
             + node_equation[1]*node_vertices[:, 1] \
             + node_equation[2]*node_vertices[:, 2] \
             - node_value
 
         node_sides = np.sign(node_results[np.searchsorted(np.unique(node_simplices), node_simplices)])
-        is_all_positive = np.all(node_sides <= 0, axis=1)
-        is_all_negative = np.all(node_sides >= 0, axis=1)
-
-        # If points in a simplex straddle a plane then split the simplex
-        not_straddle = np.logical_or(is_all_negative, is_all_positive)  # Useful later
-        straddle = np.logical_not(not_straddle)
-
-        # Get the positions of the local indices of the simplices which straddle the plane
-        simplices_to_split = straddle.nonzero()[0]
-        # FIXME: redo with numpy rather than loops
-        for simplex in simplices_to_split:
-            # If one is on the plane
-            if np.any(node_sides[simplex] == 0):
-                # One of the vertices is located on the plane
-                # Only need to find one intersection point in this case
-                # Indices within the simplex of the vertices which don't lie on the plane
-                vertex_positions = node_sides[simplex].nonzero()[0]
-
-                # Find the vertives which are not on the plane
-                non_planar_vertices = np.array(self._vertices)[node_simplices[simplex][vertex_positions]]
-
-                # Gradient of line
-                line_m = non_planar_vertices[0] - non_planar_vertices[1]
-                # Parameter value where line meets plane
-                line_param = (node_value - np.dot(node_equation, non_planar_vertices[1])) \
-                    / np.dot(node_equation, line_m)
-
-                # The vertex that needs adding to split the polygon
-                intersection = line_m*line_param + non_planar_vertices[1]
-                # Figure out index of new vertex
-                new_vertex_index = len(self._vertices)
-                # Append the new vertex to the master vertex list
-                self._vertices.append(intersection)
-                # Figure out the indices of the two new simplices
-                new_simplices_indices = [len(self._simplices), len(self._simplices)+1]
-                # Add the two new simplices to the master simplex list
-                positive_vertex = int(node_simplices[simplex][node_sides[simplex] == 1])
-                plane_vertex = int(node_simplices[simplex][node_sides[simplex] == 0])
-                negative_vertex = int(node_simplices[simplex][node_sides[simplex] == -1])
-
-                new_simplex_1 = [new_vertex_index, positive_vertex, plane_vertex]
-                new_simplex_2 = [new_vertex_index, negative_vertex, plane_vertex]
-
-                self._simplices.extend([new_simplex_1, new_simplex_2])
-                # Add the new simplices to respective pos and neg lists
-                # node.index_list.extend(new_simplices_indices)
-                pos_list.append(new_simplices_indices[0])  # See order of simplex assembly
-                neg_list.append(new_simplices_indices[1])  # See order of simplex assembly
-
-                # Need to append new equations and values for my new simplices
-                new_simplices_equation = self._equations[np.array(node.index_list)[simplex]]
-                self._equations.extend([new_simplices_equation, new_simplices_equation])
-                new_simplices_value = self._values[np.array(node.index_list)[simplex]]
-                self._values.extend([new_simplices_value, new_simplices_value])
-
-            else:
-                # None of the nodes are located on the plane
-                # There will be two intersection points
-                # Find the node on its own
-                _, vertex_positions, counts = np.unique(node_sides[simplex],
-                                                        return_index=True,
-                                                        return_counts=True)
-                # Index within the simplex of the node on its own
-                lonely_pos = vertex_positions[np.where(counts == 1)][0]
-                # Indices within the simplex of the paired nodes
-                popular_pos = np.setdiff1d([0, 1, 2], lonely_pos)
-
-                # The physical positions of these vertices
-                lonely_vertex = np.array(self._vertices)[node_simplices[simplex][lonely_pos]]
-                popular_vertices = np.array(self._vertices)[node_simplices[simplex][popular_pos]]
-
-                # Note that line_m has a slightly different form in this case
-                line_m = popular_vertices - lonely_vertex
-                # Parameter value where line meets plane
-                line_params = (node_value - np.dot(node_equation, lonely_vertex)) \
-                    / np.dot(node_equation, line_m.T)
-
-                # The new vertices that need adding to split the polygon
-                intersection_A = line_m[0]*line_params[0] + lonely_vertex
-                intersection_B = line_m[1]*line_params[1] + lonely_vertex
-                # Figure out indices of new vertices
-                new_vertex_indices = [len(self._vertices), len(self._vertices)+1]
-                # Append the new vertices to the master vertex list
-                self._vertices.extend([intersection_A, intersection_B])
-                # Figure out the indices of the three new simplices
-                new_simplices_indices = [len(self._simplices), len(self._simplices)+1, len(self._simplices)+2]
-                # Add the three new simplices to the master simplex list
-                # The simplex on the "lonely side"
-                new_simplex_1 = [node_simplices[simplex][lonely_pos]] + new_vertex_indices
-                # The other two simplices
-                new_simplex_2 = node_simplices[simplex][popular_pos].tolist() + [new_vertex_indices[0]]
-                new_simplex_3 = [node_simplices[simplex][popular_pos[1]]] + new_vertex_indices
-                self._simplices.extend([new_simplex_1, new_simplex_2, new_simplex_3])
-                # Add the new simplices to respective pos and neg lists
-                # node.index_list.extend(new_simplices_indices)
-                if node_sides[simplex][lonely_pos] == 1:
-                    pos_list.append(new_simplices_indices[0])
-                    neg_list.extend(new_simplices_indices[1:])
-                else:
-                    pos_list.extend(new_simplices_indices[1:])
-                    neg_list.append(new_simplices_indices[0])
-
-                # Need to append new equations and values for my new simplices
-                new_simplices_equation = self._equations[np.array(node.index_list)[simplex]]
-                self._equations.extend([new_simplices_equation, new_simplices_equation, new_simplices_equation])
-                new_simplices_value = self._values[np.array(node.index_list)[simplex]]
-                self._values.extend([new_simplices_value, new_simplices_value, new_simplices_value])
 
         # If all points in a simplex == zero, then append to node
         polygon_in_plane = np.all(node_sides == 0, axis=1)
-        node.plane_indices.extend(np.array(node.index_list)[polygon_in_plane].tolist())
+        node.plane_indices = np.array(node.index_list)[polygon_in_plane].tolist()  # NUMPYISE
 
-        # If all points in a simplex > zero, add to pos list
-        polygon_positive = np.logical_and(is_all_positive, np.logical_not(polygon_in_plane))
-        pos_list.extend(np.array(node.index_list)[polygon_positive].tolist())
-        # If all points in a simplex < zero, then add to neg list
-        polygon_negative = np.logical_and(is_all_negative, np.logical_not(polygon_in_plane))
-        neg_list.extend(np.array(node.index_list)[polygon_negative].tolist())
+        # If any points in a simplex > zero, add to pos list
+        polygon_positive = np.any(node_sides == 1, axis=1)
+        pos_list = np.array(node.index_list)[polygon_positive].tolist()  # NUMPYISE
+        # If any points in a simplex < zero, then add to neg list
+        polygon_negative = np.any(node_sides == -1, axis=1)
+        neg_list = np.array(node.index_list)[polygon_negative].tolist()  # NUMPYISE
 
-        # print('Pos list post is', pos_list)
-        # print('Neg list post is', neg_list)
-        # print('Additional polygons at node', node.plane_indices)
-
-        # Make children
+        # Make child nodes
         node.set_children(pos_list, neg_list)
 
 
