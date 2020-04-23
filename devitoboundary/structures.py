@@ -28,20 +28,19 @@ class BSP_Node:
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
         self.index = index  # Index of the simplex/plane used for splitting
-        self.plane_indices = []  # Indices of any other simplices that lie in the plane  # NUMPYISE
-        self.index_list = index_list  # Indices of all the simplices at the node  # NUMPYISE
-        self.index_list.remove(self.index)  # Remove the index from child list  # NUMPYISE
+        self.plane_indices = np.array([])  # Indices of any other simplices that lie in the plane
+        self.index_list = index_list[index_list != index]
 
     def set_children(self, pos_list, neg_list):
         """Set up child tree nodes"""
         if len(pos_list) != 0:
             # Set up a new node using a random plane from the subset
-            self.pos = BSP_Node(pos_list[np.random.randint(0, len(pos_list))],  # NUMPYISE
+            self.pos = BSP_Node(pos_list[np.random.randint(0, pos_list.shape[0])],
                                 pos_list, parent=self)
         if len(neg_list) != 0:
-            self.neg = BSP_Node(neg_list[np.random.randint(0, len(neg_list))],  # NUMPYISE
+            self.neg = BSP_Node(neg_list[np.random.randint(0, neg_list.shape[0])],
                                 neg_list, parent=self)
-        self.index_list = []  # DITCH
+        self.index_list = np.array([])
 
 
 class BSP_Tree:
@@ -59,7 +58,7 @@ class BSP_Tree:
     values : ndarray
         Constants of the plane equations
     leafsize : positve int
-        Number of polygons at each leaf node (default is one)
+        Number of polygons at each leaf node. Default is one.
     """
     def __init__(self, vertices, simplices, equations, values, leafsize=1):
         assert isinstance(vertices, np.ndarray), \
@@ -71,15 +70,14 @@ class BSP_Tree:
         assert isinstance(values, np.ndarray), \
             "Values must be given as an array."
 
-        # These all need to be made into lists as may need to append polygons
-        self._vertices = vertices.tolist()  # NUMPYISE
-        self._equations = equations.tolist()  # NUMPYISE
-        self._values = values.tolist()  # NUMPYISE
-        self._simplices = simplices.tolist()  # NUMPYISE
+        self._vertices = vertices
+        self._equations = equations
+        self._values = values
+        self._simplices = simplices
 
         # Set up root node of tree
-        self._root = BSP_Node(np.random.randint(0, len(simplices)),
-                              list(range(len(simplices))))  # NUMPYISE
+        self._root = BSP_Node(np.random.randint(0, self._simplices.shape[0]),
+                              np.arange(self._simplices.shape[0]))
 
         self.construct(leafsize-1)  # Only one plane at a leaf
         print(simplices.shape)
@@ -115,7 +113,7 @@ class BSP_Tree:
 
     def _construct(self, node, leafsize):
         """The recursive tree constructor"""
-        if len(node.index_list) > leafsize:  # Lets mess around with leaf size
+        if node.index_list.shape[0] > leafsize:  # Lets mess around with leaf size
             print('Index list is ', node.index_list)
             self._split(node)
             if node.pos is not None:
@@ -128,12 +126,12 @@ class BSP_Tree:
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
         # Check each point in each simplex
-        node_simplices = np.array(self._simplices)[np.array(node.index_list)]  # NUMPYISE
+        node_simplices = self._simplices[node.index_list]
         # Get every unique vertex in list
-        node_vertices = np.array(self._vertices)[np.unique(node_simplices)]  # NUMPYISE
+        node_vertices = self._vertices[np.unique(node_simplices)]
 
-        node_equation = np.array(self._equations)[np.array(node.index)]  # NUMPYISE
-        node_value = np.array(self._values)[np.array(node.index)]  # NUMPYISE
+        node_equation = self._equations[node.index]
+        node_value = self._values[node.index]
         node_results = node_equation[0]*node_vertices[:, 0] \
             + node_equation[1]*node_vertices[:, 1] \
             + node_equation[2]*node_vertices[:, 2] \
@@ -143,14 +141,14 @@ class BSP_Tree:
 
         # If all points in a simplex == zero, then append to node
         polygon_in_plane = np.all(node_sides == 0, axis=1)
-        node.plane_indices = np.array(node.index_list)[polygon_in_plane].tolist()  # NUMPYISE
+        node.plane_indices = node.index_list[polygon_in_plane]
 
         # If any points in a simplex > zero, add to pos list
         polygon_positive = np.any(node_sides == 1, axis=1)
-        pos_list = np.array(node.index_list)[polygon_positive].tolist()  # NUMPYISE
+        pos_list = node.index_list[polygon_positive]
         # If any points in a simplex < zero, then add to neg list
         polygon_negative = np.any(node_sides == -1, axis=1)
-        neg_list = np.array(node.index_list)[polygon_negative].tolist()  # NUMPYISE
+        neg_list = node.index_list[polygon_negative]
 
         # Make child nodes
         node.set_children(pos_list, neg_list)
