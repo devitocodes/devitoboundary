@@ -114,13 +114,13 @@ class BSP_Tree:
     def _construct(self, node, leafsize):
         """The recursive tree constructor"""
         if node.index_list.shape[0] > leafsize:  # Lets mess around with leaf size
-            print('Index list is ', node.index_list)
+            # print('Index list is ', node.index_list)
             self._split(node)
             if node.pos is not None:
-                print(node.index, 'Constructing a new subtree on the positive branch.')
+                # print(node.index, 'Constructing a new subtree on the positive branch.')
                 self._construct(node.pos, leafsize)  # Wooooo recursion!!!1!
             if node.neg is not None:
-                print(node.index, 'Constructing a new subtree on the negative branch.')
+                # print(node.index, 'Constructing a new subtree on the negative branch.')
                 self._construct(node.neg, leafsize)  # Wooooo recursion!!!1!
 
     def _split(self, node):
@@ -157,7 +157,11 @@ class BSP_Tree:
 class PolyMesh:
     """
     A polygonal mesh of points. Used to express a non-concave (2.5D) surface
-    in 3D space.
+    in 3D space. This surface is indexed and can be used to rapidly find all
+    grid nodes within a given axial distance of any facet. It can be queried to
+    return all points which are within the area of effect of the surface and
+    the respective distances to the surface in each axial direction. It is
+    intended for use in impementing variants of the immersed boundary method.
 
     Parameters
     ----------
@@ -277,16 +281,210 @@ class PolyMesh:
         self._tree = BSP_Tree(self._points, self._simplices,
                               self._equations, self._values)
 
-    def query_polygons(self, x, k, distance_upper_bound=np.inf):
+    def query(self, q_points):
         """
-        Traverse the tree of polygons to find polygons from nearest to furthest.
+        Query a set of points to find axial distances to the boundary surface.
+        Distances are returned with units of dx (grid increment).
 
         Parameters
         ----------
-        x : array_like
-            Coordinate of point to query in [x, y, z] form.
+        q_points : array_like
+            Array of points to query grouped as [[x, y, z], [x, y, z], ...]
 
         Returns
         -------
+        z_dist : ndarray
+            Distance to the surface in the z direction for the respective points
+            in q_points. Values of NaN indicate that the surface does not
+            occlude the point in this direction.
+        y_pos_dist : ndarray
+            Distances to the surface in the positive y direction. Same behaviours
+            as z_dist
+        y_neg_dist : ndarray
+            Distances to the surface in the negative y direction. Same behaviours
+            as z_dist
+        x_pos_dist : ndarray
+            Distances to the surface in the positive x direction. Same behaviours
+            as z_dist
+        x_neg_dist : ndarray
+            Distances to the surface in the negative x direction. Same behaviours
+            as z_dist
         """
-        assert self._setup_bool is True, "The mesh has not been set up."
+        self._query_points = np.array(q_points, dtype=np.float32)
+        self._query_points /= self._grid.spacing  # Convert to grid-index space
+
+        # Create an array of indices to actually send through the tree
+        # This means that respective positions can be retained without searching
+        full_indices = np.arange(self._query_points.shape[0])
+
+        # Initialise arrays for axial distances to be stored in
+        self._z_dist = np.empty((self._query_points.shape[0]))
+        self._z_dist[:] = np.nan
+        self._y_pos_dist = np.empty((self._query_points.shape[0]))
+        self._y_pos_dist[:] = np.nan
+        self._y_neg_dist = np.empty((self._query_points.shape[0]))
+        self._y_neg_dist[:] = np.nan
+        self._x_pos_dist = np.empty((self._query_points.shape[0]))
+        self._x_pos_dist[:] = np.nan
+        self._x_neg_dist = np.empty((self._query_points.shape[0]))
+        self._x_neg_dist[:] = np.nan
+
+        # Start the traversal
+        print('Starting query')
+        self._query(self._tree._root, full_indices)
+
+        print('z distances', self._z_dist)
+        print('y pos distances', self._y_pos_dist)
+        print('y neg distances', self._y_neg_dist)
+        print('x pos distances', self._x_pos_dist)
+        print('x neg distances', self._x_neg_dist)
+
+    def _query(self, node, query_indices):
+        """The recursive traversal for querying the tree"""
+        if node.plane_indices.size != 0:
+            print('There are extra indices at this node', node.plane_indices)
+        # Want to find the half spaces of all the query points
+        qp = self._query_points[query_indices]  # Points to find half spaces of
+        node_equation = self._equations[node.index]
+        node_value = self._values[node.index]
+        node_results = node_equation[0]*qp[:, 0] \
+            + node_equation[1]*qp[:, 1] \
+            + node_equation[2]*qp[:, 2] \
+            - node_value
+
+        point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
+        # Need to figure out what to do with points that lie in a plane
+        # Also need to figure out what to do about additonal planes at the node
+
+        # Check near sides
+        # Process the ones where the positive is the near side
+        if node.pos is not None and query_indices[point_spaces == 1].shape[0] != 0:
+            self._query(node.pos, query_indices[point_spaces == 1])
+
+        # Process the ones where the negative is the near side
+        if node.neg is not None and query_indices[point_spaces == -1].shape[0] != 0:
+            self._query(node.neg, query_indices[point_spaces == -1])
+
+        # Z axis
+        # Check occlusion of points with no distances
+        no_z_distance = np.isnan(self._z_dist[query_indices])
+        if np.nonzero(no_z_distance) != 0:  # No point checking if all distances filled
+            z_occluded = self._occludes(self._query_points[query_indices[no_z_distance]],
+                                        node.index, 'z')
+            # Measure distance to occluded points
+            if np.nonzero(z_occluded) != 0:
+                new_z_dists = self._distance(self._query_points[query_indices[no_z_distance][z_occluded]],
+                                             node.index, 'z')
+                self._z_dist[query_indices[no_z_distance][z_occluded]] = new_z_dists
+
+        # Y axis
+        # Check occlusion of points with no distances
+        no_y_distance = np.logical_or(np.isnan(self._y_pos_dist[query_indices]),
+                                      np.isnan(self._y_neg_dist[query_indices]))
+        if np.nonzero(no_y_distance) != 0:  # No point checking if all distances filled
+            y_occluded = self._occludes(self._query_points[query_indices[no_y_distance]],
+                                        node.index, 'y')
+            # Measure distance to occluded points
+            if np.nonzero(y_occluded) != 0:
+                new_y_dists = self._distance(self._query_points[query_indices[no_y_distance][y_occluded]],
+                                             node.index, 'y')
+                self._y_pos_dist[query_indices[no_y_distance][y_occluded][new_y_dists >= 0]] = new_y_dists[new_y_dists >= 0]
+                self._y_neg_dist[query_indices[no_y_distance][y_occluded][new_y_dists <= 0]] = new_y_dists[new_y_dists <= 0]
+
+        # X axis
+        # Check occlusion of points with no distances
+        no_x_distance = np.logical_or(np.isnan(self._x_pos_dist[query_indices]),
+                                      np.isnan(self._x_neg_dist[query_indices]))
+        if np.nonzero(no_x_distance) != 0:  # No point checking if all distances filled
+            x_occluded = self._occludes(self._query_points[query_indices[no_x_distance]],
+                                        node.index, 'x')
+            # Measure distance to occluded points
+            if np.nonzero(x_occluded) != 0:
+                new_x_dists = self._distance(self._query_points[query_indices[no_x_distance][x_occluded]],
+                                             node.index, 'x')
+                self._x_pos_dist[query_indices[no_x_distance][x_occluded][new_x_dists >= 0]] = new_x_dists[new_x_dists >= 0]
+                self._x_neg_dist[query_indices[no_x_distance][x_occluded][new_x_dists <= 0]] = new_x_dists[new_x_dists <= 0]
+
+        # Check far sides
+        # Process the ones where the positive is the near side
+        if node.neg is not None and query_indices[point_spaces == 1].shape[0] != 0:
+            self._query(node.neg, query_indices[point_spaces == 1])
+
+        # Process the ones where the negative is the near side
+        if node.pos is not None and query_indices[point_spaces == -1].shape[0] != 0:
+            self._query(node.pos, query_indices[point_spaces == -1])
+
+    def _occludes(self, pt, simplex, axis):
+        """
+        A function to check whether a set of points are occluded by a simplex
+        on a specified axis.
+        """
+        # FIXME: Make this check for occlusion on an array of simplices
+        # We are fine down to line 428 atm
+
+        vertices = self._points[self._simplices[simplex]]
+        if axis == 'x':
+            # p0, p1, p2 are vertices, p is the array of test points
+            p0, p1, p2 = vertices
+
+            area = -p1[1]*p2[2] + p0[1]*(-p1[2] + p2[2]) + p0[2]*(p1[1] - p2[1]) + p1[2]*p2[1]
+            if area == 0:  # This plane is axially aligned
+                false_array = np.empty((pt.shape[0]), dtype=np.bool)
+                false_array[:] = False
+                return false_array
+            s = (p0[1]*p2[2] - p0[2]*p2[1] + (p2[1] - p0[1])*pt[:, 2] + (p0[2] - p2[2])*pt[:, 1])/area
+            t = (p0[2]*p1[1] - p0[1]*p1[2] + (p0[1] - p1[1])*pt[:, 2] + (p1[2] - p0[2])*pt[:, 1])/area
+
+            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+
+        if axis == 'y':
+            # p0, p1, p2 are vertices, p is the array of test points
+            p0, p1, p2 = vertices
+
+            area = -p1[0]*p2[2] + p0[0]*(-p1[2] + p2[2]) + p0[2]*(p1[0] - p2[0]) + p1[2]*p2[0]
+            if area == 0:  # This plane is axially aligned
+                false_array = np.empty((pt.shape[0]), dtype=np.bool)
+                false_array[:] = False
+                return false_array
+            s = (p0[0]*p2[2] - p0[2]*p2[0] + (p2[0] - p0[0])*pt[:, 2] + (p0[2] - p2[2])*pt[:, 0])/area
+            t = (p0[2]*p1[0] - p0[0]*p1[2] + (p0[0] - p1[0])*pt[:, 2] + (p1[2] - p0[2])*pt[:, 0])/area
+
+            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+
+        if axis == 'z':
+            # p0, p1, p2 are vertices, p is the array of test points
+            p0, p1, p2 = vertices
+
+            area = -p1[0]*p2[1] + p0[0]*(-p1[1] + p2[1]) + p0[1]*(p1[0] - p2[0]) + p1[1]*p2[0]
+            if area == 0:  # This plane is axially aligned
+                false_array = np.empty((pt.shape[0]), dtype=np.bool)
+                false_array[:] = False
+                return false_array
+            s = (p0[0]*p2[1] - p0[1]*p2[0] + (p2[0] - p0[0])*pt[:, 1] + (p0[1] - p2[1])*pt[:, 0])/area
+            t = (p0[1]*p1[0] - p0[0]*p1[1] + (p0[0] - p1[0])*pt[:, 1] + (p1[1] - p0[1])*pt[:, 0])/area
+
+            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+
+    def _distance(self, pt, simplex, axis):
+        """
+        Measures the axial distance between points and a simplex along a specified
+        axis.
+        """
+        A, B, C = self._equations[simplex]
+        D = self._values[simplex]
+        if axis == 'z':
+            dist = (D - A*pt[:, 0] - B*pt[:, 1])/C
+            return pt[:, 2] - dist
+        if axis == 'y':
+            dist = (D - A*pt[:, 0] - C*pt[:, 2])/B
+            return pt[:, 1] - dist
+        if axis == 'x':
+            dist = (D - B*pt[:, 1] - C*pt[:, 2])/A
+            return pt[:, 0] - dist
+
+    @property
+    def lastquery(self):  # Maybe make this return the points too
+        """The distances from the last query of the surface"""
+        distances = (self._z_dist, self._y_pos_dist, self._y_neg_dist,
+                     self._x_pos_dist, self._x_neg_dist)
+        return distances
