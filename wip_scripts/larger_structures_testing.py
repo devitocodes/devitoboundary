@@ -9,7 +9,7 @@ np.seterr(all='raise')
 
 SUBSAMPLE = 5
 
-grid = Grid(extent=(1000, 1000, 1000), shape=(101, 101, 101))
+grid = Grid(extent=(1000, 1000, 1000), shape=(176, 176, 176))
 
 boundary_x = np.linspace(0,
                          grid.extent[0],
