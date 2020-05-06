@@ -23,23 +23,28 @@ class BSP_Node:
     parent : BSP_Node
         The parent node of a node
     """
-    def __init__(self, index, index_list, parent=None):
+    # def __init__(self, index, index_list, parent=None):
+    def __init__(self, index_list, parent=None):
         self.parent = parent  # Parent node
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
-        self.index = index  # Index of the simplex/plane used for splitting
+        # self.index = index  # Index of the simplex/plane used for splitting
+        self.index = None
         self.plane_indices = np.array([])  # Indices of any other simplices that lie in the plane
-        self.index_list = index_list[index_list != index]
+        # self.index_list = index_list[index_list != index]
+        self.index_list = index_list
 
     def set_children(self, pos_list, neg_list):
         """Set up child tree nodes"""
         if len(pos_list) != 0:
             # Set up a new node using a random plane from the subset
-            self.pos = BSP_Node(pos_list[np.random.randint(0, pos_list.shape[0])],
-                                pos_list, parent=self)
+            # self.pos = BSP_Node(pos_list[np.random.randint(0, pos_list.shape[0])],
+            #                     pos_list, parent=self)
+            self.pos = BSP_Node(pos_list, parent=self)
         if len(neg_list) != 0:
-            self.neg = BSP_Node(neg_list[np.random.randint(0, neg_list.shape[0])],
-                                neg_list, parent=self)
+            # self.neg = BSP_Node(neg_list[np.random.randint(0, neg_list.shape[0])],
+            #                     neg_list, parent=self)
+            self.neg = BSP_Node(neg_list, parent=self)
         self.index_list = np.array([])
 
 
@@ -76,11 +81,12 @@ class BSP_Tree:
         self._simplices = simplices
 
         # Set up root node of tree
-        self._root = BSP_Node(np.random.randint(0, self._simplices.shape[0]),
-                              np.arange(self._simplices.shape[0]))
+        # self._root = BSP_Node(np.random.randint(0, self._simplices.shape[0]),
+        #                       np.arange(self._simplices.shape[0]))
+        self._root = BSP_Node(np.arange(self._simplices.shape[0]))
 
         self.construct(leafsize-1)  # Only one plane at a leaf
-        print(simplices.shape)
+        print('The final tree contains %i polygons' % simplices.shape[0])
 
     @property
     def root(self):
@@ -113,7 +119,7 @@ class BSP_Tree:
 
     def _construct(self, node, leafsize):
         """The recursive tree constructor"""
-        if node.index_list.shape[0] > leafsize:  # Lets mess around with leaf size
+        if node.index_list.shape[0] > leafsize:  # FIXME: Remove this
             # print('Index list is ', node.index_list)
             self._split(node)
             if node.pos is not None:
@@ -125,19 +131,109 @@ class BSP_Tree:
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
-        # Check each point in each simplex
-        node_simplices = self._simplices[node.index_list]
-        # Get every unique vertex in list
-        node_vertices = self._vertices[np.unique(node_simplices)]
+        # Generate up to 10 indices to try out for splitting
+        # Can contain duplicates. Always generates 5 indices
+        index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
+        # Find the best index and use that one
+        for i in range(len(index_pile)):
+            trial_index = index_pile[i]
 
-        node_equation = self._equations[node.index]
-        node_value = self._values[node.index]
-        node_results = node_equation[0]*node_vertices[:, 0] \
-            + node_equation[1]*node_vertices[:, 1] \
-            + node_equation[2]*node_vertices[:, 2] \
-            - node_value
+            # Check each point in each simplex (Minus the one at the trial index)
+            trial_node_simplices = self._simplices[node.index_list[node.index_list != trial_index]]
+            # Get every unique vertex in list
+            trial_node_vertices = self._vertices[np.unique(trial_node_simplices)]
 
-        node_sides = np.sign(node_results[np.searchsorted(np.unique(node_simplices), node_simplices)])
+            trial_node_equation = self._equations[trial_index]
+            trial_node_value = self._values[trial_index]
+            trial_node_results = trial_node_equation[0]*trial_node_vertices[:, 0] \
+                + trial_node_equation[1]*trial_node_vertices[:, 1] \
+                + trial_node_equation[2]*trial_node_vertices[:, 2] \
+                - trial_node_value
+
+            trial_node_sides = np.sign(trial_node_results[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
+            # Quality of a split (smaller is better)
+            trial_split_q = np.count_nonzero(trial_straddle)
+            if i == 0:  # Could be moved outside the loop
+                index = trial_index
+                node_simplices = trial_node_simplices
+                node_vertices = trial_node_vertices
+                node_equation = trial_node_equation
+                node_value = trial_node_value
+                node_results = trial_node_results
+                node_sides = trial_node_sides
+                straddle = trial_straddle
+                split_q = trial_split_q
+            elif trial_split_q < split_q:
+                index = trial_index
+                node_simplices = trial_node_simplices
+                node_vertices = trial_node_vertices
+                node_equation = trial_node_equation
+                node_value = trial_node_value
+                node_results = trial_node_results
+                node_sides = trial_node_sides
+                straddle = trial_straddle
+                split_q = trial_split_q
+
+        # Remove from parent list permanently
+        node.index_list = node.index_list[node.index_list != index]
+        # Set node.index to index
+        node.index = index
+
+        if split_q != 0:
+            # print(node_sides[straddle])
+            # Grab all the details of the simplices to split
+            # Two simplex variants
+            # a -> [1, 1, -1]    b -> [1, 0, -1]
+            type_b = np.any(node_sides[straddle] == 0, axis=1)
+            type_a = np.logical_not(type_b)
+            if np.any(type_a):
+                simplices_a = node_simplices[straddle][type_a]
+
+                print('One split')
+                # -ve sum along axis 1 returns the side with a single point
+                lonely_sides = -np.sum(node_sides[straddle][type_a], axis=1)
+                # Split simplices of type a into those with a single node on the positive side
+                simplices_a_pos = simplices_a[lonely_sides == 1]
+                # And those with a single node on the negative side
+                simplices_a_neg = simplices_a[lonely_sides == -1]
+
+                # Get the points in the simplices, isolating the points on their own
+                pos_lp_positions = np.where(node_sides[straddle][type_a][lonely_sides == 1] == 1)
+                neg_ln_positions = np.where(node_sides[straddle][type_a][lonely_sides == -1] == -1)
+                neg_lp_positions = np.where(node_sides[straddle][type_a][lonely_sides == 1] == -1)
+                pos_ln_positions = np.where(node_sides[straddle][type_a][lonely_sides == -1] == 1)
+
+                lonely_vert = np.concatenate((simplices_a_pos[pos_lp_positions], simplices_a_neg[neg_ln_positions]))
+                print('Lonely vertices', self._vertices[lonely_vert])
+                other_vert_1 = np.concatenate((simplices_a_pos[neg_lp_positions][::2], simplices_a_neg[pos_ln_positions][::2]))
+                print('One of the other vertices', self._vertices[other_vert_1])
+                other_vert_2 = np.concatenate((simplices_a_pos[neg_lp_positions][1::2], simplices_a_neg[pos_ln_positions][1::2]))
+                print('The other one', self._vertices[other_vert_2])
+                # Vectors connecting the lonely vertex with the other two
+                vector_1 = self._vertices[other_vert_1] - self._vertices[lonely_vert]
+                vector_2 = self._vertices[other_vert_2] - self._vertices[lonely_vert]
+                print('Vector 1', vector_1)
+                print('Vector 2', vector_2)
+                # FIXME: Occasionally get very small values. Probably due to floating point errors
+                # Also causes div by zero errors
+                line_param_1 = ((node_value - node_equation[0]*self._vertices[lonely_vert][:, 0]
+                                 - node_equation[1]*self._vertices[lonely_vert][:, 1]
+                                 - node_equation[2]*self._vertices[lonely_vert][:, 2])
+                                / (node_equation[0]*vector_1[:, 0]
+                                   + node_equation[1]*vector_1[:, 1]
+                                   + node_equation[2]*vector_1[:, 2]))
+                line_param_2 = ((node_value - node_equation[0]*self._vertices[lonely_vert][:, 0]
+                                 - node_equation[1]*self._vertices[lonely_vert][:, 1]
+                                 - node_equation[2]*self._vertices[lonely_vert][:, 2])
+                                / (node_equation[0]*vector_2[:, 0]
+                                   + node_equation[1]*vector_2[:, 1]
+                                   + node_equation[2]*vector_2[:, 2]))
+                print('Line params', line_param_1, line_param_2)
+                intersect_1 = self._vertices[lonely_vert] + vector_1*np.tile(line_param_1, (3, 1)).T
+                intersect_2 = self._vertices[lonely_vert] + vector_2*np.tile(line_param_2, (3, 1)).T
+                print('Intersection 1', intersect_1)
+                print('Intersection 2', intersect_2)
 
         # If all points in a simplex == zero, then append to node
         polygon_in_plane = np.all(node_sides == 0, axis=1)
