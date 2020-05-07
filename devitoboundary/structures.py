@@ -190,7 +190,6 @@ class BSP_Tree:
             if np.any(type_a):
                 simplices_a = node_simplices[straddle][type_a]
 
-                print('One split')
                 # -ve sum along axis 1 returns the side with a single point
                 lonely_sides = -np.sum(node_sides[straddle][type_a], axis=1)
                 # Split simplices of type a into those with a single node on the positive side
@@ -205,17 +204,14 @@ class BSP_Tree:
                 pos_ln_positions = np.where(node_sides[straddle][type_a][lonely_sides == -1] == 1)
 
                 lonely_vert = np.concatenate((simplices_a_pos[pos_lp_positions], simplices_a_neg[neg_ln_positions]))
-                print('Lonely vertices', self._vertices[lonely_vert])
                 other_vert_1 = np.concatenate((simplices_a_pos[neg_lp_positions][::2], simplices_a_neg[pos_ln_positions][::2]))
-                print('One of the other vertices', self._vertices[other_vert_1])
                 other_vert_2 = np.concatenate((simplices_a_pos[neg_lp_positions][1::2], simplices_a_neg[pos_ln_positions][1::2]))
-                print('The other one', self._vertices[other_vert_2])
+
                 # Vectors connecting the lonely vertex with the other two
                 vector_1 = self._vertices[other_vert_1] - self._vertices[lonely_vert]
                 vector_2 = self._vertices[other_vert_2] - self._vertices[lonely_vert]
-                print('Vector 1', vector_1)
-                print('Vector 2', vector_2)
                 # FIXME: Occasionally get very small values. Probably due to floating point errors
+                # These points should be on the plane I think
                 # Also causes div by zero errors
                 line_param_1 = ((node_value - node_equation[0]*self._vertices[lonely_vert][:, 0]
                                  - node_equation[1]*self._vertices[lonely_vert][:, 1]
@@ -229,11 +225,33 @@ class BSP_Tree:
                                 / (node_equation[0]*vector_2[:, 0]
                                    + node_equation[1]*vector_2[:, 1]
                                    + node_equation[2]*vector_2[:, 2]))
-                print('Line params', line_param_1, line_param_2)
                 intersect_1 = self._vertices[lonely_vert] + vector_1*np.tile(line_param_1, (3, 1)).T
                 intersect_2 = self._vertices[lonely_vert] + vector_2*np.tile(line_param_2, (3, 1)).T
-                print('Intersection 1', intersect_1)
-                print('Intersection 2', intersect_2)
+            if np.any(type_b):
+                simplices_b = node_simplices[straddle][type_b]
+                # Get the points in the simplices, isolating the point on the plane
+                plane_positions = np.where(node_sides[straddle][type_b] == 0)
+                # FIXME: Probably efficiency savings to be had here
+                non_plane_positions = np.where(node_sides[straddle][type_b] != 0)
+                plane_vert = simplices_b[plane_positions]
+                non_plane_vert = simplices_b[non_plane_positions]
+                non_plane_vert_1 = non_plane_vert[::2]
+                non_plane_vert_2 = non_plane_vert[1::2]
+
+                # Just one vector and intersection this time around
+                vector_b = self._vertices[non_plane_vert_1] - self._vertices[non_plane_vert_2]
+
+                line_param_b = ((node_value - node_equation[0]*self._vertices[non_plane_vert_2][:, 0]
+                                 - node_equation[1]*self._vertices[non_plane_vert_2][:, 1]
+                                 - node_equation[2]*self._vertices[non_plane_vert_2][:, 2])
+                                / (node_equation[0]*vector_b[:, 0]
+                                   + node_equation[1]*vector_b[:, 1]
+                                   + node_equation[2]*vector_b[:, 2]))
+
+                intersect_b = self._vertices[non_plane_vert_2] + vector_b*np.tile(line_param_b, (3, 1)).T
+
+            # if np.any(type_a) and np.any(type_b):
+                # Append the new simplex indices of both types to node_simplices
 
         # If all points in a simplex == zero, then append to node
         polygon_in_plane = np.all(node_sides == 0, axis=1)
