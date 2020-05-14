@@ -85,8 +85,17 @@ class BSP_Tree:
         #                       np.arange(self._simplices.shape[0]))
         self._root = BSP_Node(np.arange(self._simplices.shape[0]))
 
+        self._old_equations = np.copy(self._equations)
+
         self.construct(leafsize-1)  # Only one plane at a leaf
-        print('The final tree contains %i polygons' % simplices.shape[0])
+        print('The initial polygon count was %i' % simplices.shape[0])
+        print('The final tree contains %i polygons' % self._simplices.shape[0])
+        for i in range(self._simplices.shape[0]):
+            plane_check = np.dot(self._equations[i], self._vertices[self._simplices[i]][0]) \
+                - self._values[i]
+            if abs(plane_check > 0.1):
+                print('Polygon %i' % i)
+                print(plane_check)
 
     @property
     def root(self):
@@ -121,6 +130,8 @@ class BSP_Tree:
         """The recursive tree constructor"""
         if node.index_list.shape[0] > leafsize:  # FIXME: Remove this
             # print('Index list is ', node.index_list)
+            # Look for changes across this function
+
             self._split(node)
             if node.pos is not None:
                 # print(node.index, 'Constructing a new subtree on the positive branch.')
@@ -131,8 +142,9 @@ class BSP_Tree:
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
+        old_index_list = np.copy(node.index_list)  # Temp
         # Generate up to 10 indices to try out for splitting
-        # Can contain duplicates. Always generates 5 indices
+        # Can contain duplicates. Generates up to 10 indices
         index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
         # Find the best index and use that one
         for i in range(len(index_pile)):
@@ -143,36 +155,40 @@ class BSP_Tree:
             # Get every unique vertex in list
             trial_node_vertices = self._vertices[np.unique(trial_node_simplices)]
 
-            trial_node_equation = self._equations[trial_index]
+            # I think the wheels fall off because trial_node_equation is still an array
+            # So this is just a pointer to the original array, rather than a copy
+            # Thus the original array gets modified
+            # But where is this getting modified?
+            trial_node_equation = np.copy(self._equations[trial_index])
             trial_node_value = self._values[trial_index]
             trial_node_results = trial_node_equation[0]*trial_node_vertices[:, 0] \
                 + trial_node_equation[1]*trial_node_vertices[:, 1] \
                 + trial_node_equation[2]*trial_node_vertices[:, 2] \
                 - trial_node_value
 
-            trial_node_sides = np.sign(trial_node_results[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            # The .round() here exists to kill any div by zero errors
+            # These come about when a vertex on the plane gets pushed to one halfspace by float errors
+            # This causes the plane to be earmarked for splitting then produces a div by zero
+            # Might want increasing in the future, but fine for now
+            trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
             if i == 0:  # Could be moved outside the loop
                 index = trial_index
                 node_simplices = trial_node_simplices
-                node_vertices = trial_node_vertices
                 node_equation = trial_node_equation
                 node_value = trial_node_value
-                node_results = trial_node_results
                 node_sides = trial_node_sides
                 straddle = trial_straddle
                 split_q = trial_split_q
             elif trial_split_q < split_q:
                 index = trial_index
-                node_simplices = trial_node_simplices
-                node_vertices = trial_node_vertices
-                node_equation = trial_node_equation
+                node_simplices[:] = trial_node_simplices[:]
+                node_equation[:] = trial_node_equation[:]
                 node_value = trial_node_value
-                node_results = trial_node_results
-                node_sides = trial_node_sides
-                straddle = trial_straddle
+                node_sides[:] = trial_node_sides[:]
+                straddle[:] = trial_straddle[:]
                 split_q = trial_split_q
 
         # Remove from parent list permanently
@@ -189,6 +205,7 @@ class BSP_Tree:
             type_a = np.logical_not(type_b)
             if np.any(type_a):
                 simplices_a = node_simplices[straddle][type_a]
+                # I think I forgot to swap to self._simplices
 
                 # -ve sum along axis 1 returns the side with a single point
                 lonely_sides = -np.sum(node_sides[straddle][type_a], axis=1)
@@ -211,6 +228,7 @@ class BSP_Tree:
                 vector_1 = self._vertices[other_vert_1] - self._vertices[lonely_vert]
                 vector_2 = self._vertices[other_vert_2] - self._vertices[lonely_vert]
                 # FIXME: Occasionally get very small values. Probably due to floating point errors
+                # Want to do something to check the value if everything is going to catch fire
                 # These points should be on the plane I think
                 # Also causes div by zero errors
                 line_param_1 = ((node_value - node_equation[0]*self._vertices[lonely_vert][:, 0]
@@ -231,7 +249,6 @@ class BSP_Tree:
                 simplices_b = node_simplices[straddle][type_b]
                 # Get the points in the simplices, isolating the point on the plane
                 plane_positions = np.where(node_sides[straddle][type_b] == 0)
-                # FIXME: Probably efficiency savings to be had here
                 non_plane_positions = np.where(node_sides[straddle][type_b] != 0)
                 plane_vert = simplices_b[plane_positions]
                 non_plane_vert = simplices_b[non_plane_positions]
@@ -250,10 +267,185 @@ class BSP_Tree:
 
                 intersect_b = self._vertices[non_plane_vert_2] + vector_b*np.tile(line_param_b, (3, 1)).T
 
-            # if np.any(type_a) and np.any(type_b):
+            if np.any(type_a) and np.any(type_b):  # FIXME: Will occasionally go wonky
+                # Probably contains some kinf of reference to equations on their own
+                # Need to extend self._equations and self._values
+                equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+                equations_b = np.tile(self._equations[node.index_list[straddle][type_b]], (2, 1))
+                self._equations = np.concatenate((self._equations, equations_a, equations_b))
+
+                values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
+                values_b = np.tile(self._values[node.index_list[straddle][type_b]], 2)
+                self._values = np.concatenate((self._values, values_a, values_b))
+
+                # Remove the indices of the simplices that were split from node_simplices
+                node.index_list = node.index_list[np.logical_not(straddle)]
                 # Append the new simplex indices of both types to node_simplices
+                node.index_list = np.concatenate((node.index_list,
+                                                  np.arange(self._simplices.shape[0],
+                                                            self._simplices.shape[0]
+                                                            + 3*intersect_1.shape[0]
+                                                            + 2*intersect_b.shape[0])))
+                # Append new simplices to self._simplices
+                # v0, v2, p0 (other_vert_1, other_vert_2, intersect_1)
+                new_simplices_a1 = np.array((other_vert_1, other_vert_2,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]))).T
+                # v1, p0, p1 (lonely_vert, intersect_1, intersect_2)
+                new_simplices_a2 = np.array((lonely_vert,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]),
+                                             np.arange(self._vertices.shape[0] + intersect_1.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0]))).T
+                # v2, p0, p1 (other_vert_2, intersect_1, intersect_2)
+                new_simplices_a3 = np.array((other_vert_2,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]),
+                                             np.arange(self._vertices.shape[0] + intersect_1.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0]))).T
+                # v0, v1, p0 (plane_vert, non_plane_vert_1, intersect_b)
+                new_simplices_b1 = np.array((plane_vert, non_plane_vert_1,
+                                             np.arange(self._vertices.shape[0] + 2*intersect_2.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0] + intersect_b.shape[0]))).T
+                # new_simplices_b2  # v0, v2, p0 (plane_vert, non_plane_vert_2, intersect_b)
+                new_simplices_b2 = np.array((plane_vert, non_plane_vert_2,
+                                             np.arange(self._vertices.shape[0] + 2*intersect_2.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0] + intersect_b.shape[0]))).T
+                # Concatenate the above in order with self._simplices
+                self._simplices = np.concatenate((self._simplices,
+                                                 new_simplices_a1, new_simplices_a2,
+                                                 new_simplices_a3, new_simplices_b1,
+                                                 new_simplices_b2))
+                # Append new vertices to self._vertices
+                self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2, intersect_b))
+
+                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
+                ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
+                                      - node_value)
+                ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
+                                      - node_value)
+                ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
+                                      - node_value)
+                ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
+                                      - node_value)
+                ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
+                                      - node_value)
+                node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
+                node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
+                                             ns_a3_sides, ns_b1_sides, ns_b2_sides))
+
+            """
+            elif np.any(type_a):
+                # Need to extend self._equations and self._values
+                equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+                self._equations = np.concatenate((self._equations, equations_a))
+
+                values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
+                self._values = np.concatenate((self._values, values_a))
+
+                # Remove the indices of the simplices that were split from node_simplices
+                node.index_list = node.index_list[np.logical_not(straddle)]
+                # Append the new simplex indices of both types to node_simplices
+                node.index_list = np.concatenate((node.index_list,
+                                                  np.arange(self._simplices.shape[0],
+                                                            self._simplices.shape[0]
+                                                            + 3*intersect_1.shape[0])))
+                # Append new simplices to self._simplices
+                # v0, v2, p0 (other_vert_1, other_vert_2, intersect_1)
+                new_simplices_a1 = np.array((other_vert_1, other_vert_2,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]))).T
+                # v1, p0, p1 (lonely_vert, intersect_1, intersect_2)
+                new_simplices_a2 = np.array((lonely_vert,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]),
+                                             np.arange(self._vertices.shape[0] + intersect_1.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0]))).T
+                # v2, p0, p1 (other_vert_2, intersect_1, intersect_2)
+                new_simplices_a3 = np.array((other_vert_2,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_1.shape[0]),
+                                             np.arange(self._vertices.shape[0] + intersect_1.shape[0],
+                                                       self._vertices.shape[0] + 2*intersect_2.shape[0]))).T
+                # Concatenate the above in order with self._simplices
+                self._simplices = np.concatenate((self._simplices,
+                                                 new_simplices_a1, new_simplices_a2,
+                                                 new_simplices_a3))
+                # Append new vertices to self._vertices
+                self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2))
+
+                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
+                ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
+                                      - node_value)
+                ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
+                                      - node_value)
+                ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
+                                      - node_value)
+                node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
+                node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
+                                             ns_a3_sides))
+            elif np.any(type_b):
+                equations_b = np.tile(self._equations[node.index_list[straddle][type_b]], (2, 1))
+                self._equations = np.concatenate((self._equations, equations_b))
+
+                values_b = np.tile(self._values[node.index_list[straddle][type_b]], 2)
+                self._values = np.concatenate((self._values, values_b))
+
+                # Remove the indices of the simplices that were split from node_simplices
+                node.index_list = node.index_list[np.logical_not(straddle)]
+                # Append the new simplex indices of both types to node_simplices
+                node.index_list = np.concatenate((node.index_list,
+                                                  np.arange(self._simplices.shape[0],
+                                                            self._simplices.shape[0]
+                                                            + 2*intersect_b.shape[0])))
+
+                # Append new simplices to self._simplices
+                # v0, v1, p0 (plane_vert, non_plane_vert_1, intersect_b)
+                new_simplices_b1 = np.array((plane_vert, non_plane_vert_1,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_b.shape[0]))).T
+                # v0, v2, p0 (plane_vert, non_plane_vert_2, intersect_b)
+                new_simplices_b2 = np.array((plane_vert, non_plane_vert_2,
+                                             np.arange(self._vertices.shape[0],
+                                                       self._vertices.shape[0] + intersect_b.shape[0]))).T
+                # Concatenate the above in order with self._simplices
+                self._simplices = np.concatenate((self._simplices,
+                                                 new_simplices_b1,
+                                                 new_simplices_b2))
+                # Append new vertices to self._vertices
+                self._vertices = np.concatenate((self._vertices, intersect_b))
+
+                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
+                ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
+                                      - node_value)
+                ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
+                                      + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
+                                      + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
+                                      - node_value)
+                node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
+                node_sides = np.concatenate((node_sides, ns_b1_sides, ns_b2_sides))
+            """
 
         # If all points in a simplex == zero, then append to node
+        # Could just do this with a not?
         polygon_in_plane = np.all(node_sides == 0, axis=1)
         node.plane_indices = node.index_list[polygon_in_plane]
 
@@ -370,7 +562,7 @@ class PolyMesh:
 
     def _core_properties(self):
         """Set up all the core properties of the mesh"""
-        mesh = Delaunay(self._points[:, :2], qhull_options="QJ")
+        mesh = Delaunay(self._points[:, :2])  # , qhull_options="QJ")
         self._simplices = mesh.simplices
         self._neighbors = mesh.neighbors
         self._polycount = len(self._simplices)
