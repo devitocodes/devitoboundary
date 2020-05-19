@@ -675,8 +675,8 @@ class PolyMesh:
             print('There are extra indices at this node', node.plane_indices)
         # Want to find the half spaces of all the query points
         qp = self._query_points[query_indices]  # Points to find half spaces of
-        node_equation = self._equations[node.index]
-        node_value = self._values[node.index]
+        node_equation = self._tree._equations[node.index]
+        node_value = self._tree._values[node.index]
         node_results = node_equation[0]*qp[:, 0] \
             + node_equation[1]*qp[:, 1] \
             + node_equation[2]*qp[:, 2] \
@@ -752,7 +752,7 @@ class PolyMesh:
         # FIXME: Make this check for occlusion on an array of simplices
         # We are fine down to line 428 atm
 
-        vertices = self._points[self._simplices[simplex]]
+        vertices = self._tree._vertices[self._tree._simplices[simplex]]
         if axis == 'x':
             # p0, p1, p2 are vertices, p is the array of test points
             p0, p1, p2 = vertices
@@ -800,8 +800,8 @@ class PolyMesh:
         Measures the axial distance between points and a simplex along a specified
         axis.
         """
-        A, B, C = self._equations[simplex]
-        D = self._values[simplex]
+        A, B, C = self._tree._equations[simplex]
+        D = self._tree._values[simplex]
         if axis == 'z':
             dist = (D - A*pt[:, 0] - B*pt[:, 1])/C
             return pt[:, 2] - dist
