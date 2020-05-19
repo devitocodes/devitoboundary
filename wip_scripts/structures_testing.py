@@ -23,4 +23,4 @@ mesh = PolyMesh(data, grid)
 q_points = [[4.2, 2.2, 5.3], [3.1, 1.1, 5.6], [1.4, 6.2, 1.2],
             [10.0, 3.2, 1.1], [6.3, 2.2, 6.1], [7.2, 2.1, 4.2]]
 
-# mesh.query(q_points)
+mesh.query(q_points)

@@ -81,21 +81,36 @@ class BSP_Tree:
         self._simplices = simplices
 
         # Set up root node of tree
-        # self._root = BSP_Node(np.random.randint(0, self._simplices.shape[0]),
-        #                       np.arange(self._simplices.shape[0]))
         self._root = BSP_Node(np.arange(self._simplices.shape[0]))
-
-        self._old_equations = np.copy(self._equations)
 
         self.construct(leafsize-1)  # Only one plane at a leaf
         print('The initial polygon count was %i' % simplices.shape[0])
         print('The final tree contains %i polygons' % self._simplices.shape[0])
+        all_gone_wrong = False
         for i in range(self._simplices.shape[0]):
-            plane_check = np.dot(self._equations[i], self._vertices[self._simplices[i]][0]) \
+            plane_check_0 = np.dot(self._equations[i], self._vertices[self._simplices[i]][0]) \
                 - self._values[i]
-            if abs(plane_check > 0.1):
-                print('Polygon %i' % i)
-                print(plane_check)
+            plane_check_1 = np.dot(self._equations[i], self._vertices[self._simplices[i]][1]) \
+                - self._values[i]
+            plane_check_2 = np.dot(self._equations[i], self._vertices[self._simplices[i]][2]) \
+                - self._values[i]
+            # print('Polygon %i' % i)
+            # print('Is simplex')
+            # print(self._simplices[i])
+            # print('Has vertices')
+            # print(self._vertices[self._simplices[i]])
+            # print('And equation')
+            # print(self._equations[i])
+            # print('And value')
+            # print(self._values[i])
+            # print('Produces plane checks of')
+            # print(plane_check_0, plane_check_1, plane_check_2)
+            if abs(plane_check_0) > 0.1 or abs(plane_check_1) > 0.1 or abs(plane_check_2) > 0.1:
+                print('NOOOOOO, IT HAS ALL GONE WRONG')
+                all_gone_wrong = True
+            # print('\n')
+        if all_gone_wrong:
+            print('It all went wrong')
 
     @property
     def root(self):
@@ -142,7 +157,6 @@ class BSP_Tree:
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
-        old_index_list = np.copy(node.index_list)  # Temp
         # Generate up to 10 indices to try out for splitting
         # Can contain duplicates. Generates up to 10 indices
         index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
@@ -151,9 +165,10 @@ class BSP_Tree:
             trial_index = index_pile[i]
 
             # Check each point in each simplex (Minus the one at the trial index)
-            trial_node_simplices = self._simplices[node.index_list[node.index_list != trial_index]]
+            # These are temporarily set to copy
+            trial_node_simplices = np.copy(self._simplices[node.index_list[node.index_list != trial_index]])
             # Get every unique vertex in list
-            trial_node_vertices = self._vertices[np.unique(trial_node_simplices)]
+            trial_node_vertices = np.copy(self._vertices[np.unique(trial_node_simplices)])
 
             # I think the wheels fall off because trial_node_equation is still an array
             # So this is just a pointer to the original array, rather than a copy
@@ -220,6 +235,7 @@ class BSP_Tree:
                 neg_lp_positions = np.where(node_sides[straddle][type_a][lonely_sides == 1] == -1)
                 pos_ln_positions = np.where(node_sides[straddle][type_a][lonely_sides == -1] == 1)
 
+                # I think this produces a shuffling effect
                 lonely_vert = np.concatenate((simplices_a_pos[pos_lp_positions], simplices_a_neg[neg_ln_positions]))
                 other_vert_1 = np.concatenate((simplices_a_pos[neg_lp_positions][::2], simplices_a_neg[pos_ln_positions][::2]))
                 other_vert_2 = np.concatenate((simplices_a_pos[neg_lp_positions][1::2], simplices_a_neg[pos_ln_positions][1::2]))
@@ -268,13 +284,18 @@ class BSP_Tree:
                 intersect_b = self._vertices[non_plane_vert_2] + vector_b*np.tile(line_param_b, (3, 1)).T
 
             if np.any(type_a) and np.any(type_b):  # FIXME: Will occasionally go wonky
-                # Probably contains some kinf of reference to equations on their own
                 # Need to extend self._equations and self._values
-                equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+                # equations_a and values_a have the concatenate to assemble them in the same order as the simplices
+                # This is due to the way the type A simplices are split and reconcatenated
+                # equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+                equations_a = np.tile(np.concatenate((self._equations[node.index_list[straddle][type_a][lonely_sides == 1]],
+                                                      self._equations[node.index_list[straddle][type_a][lonely_sides == -1]])), (3, 1))
                 equations_b = np.tile(self._equations[node.index_list[straddle][type_b]], (2, 1))
                 self._equations = np.concatenate((self._equations, equations_a, equations_b))
 
-                values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
+                # values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
+                values_a = np.tile(np.concatenate((self._values[node.index_list[straddle][type_a][lonely_sides == 1]],
+                                                   self._values[node.index_list[straddle][type_a][lonely_sides == -1]])), 3)
                 values_b = np.tile(self._values[node.index_list[straddle][type_b]], 2)
                 self._values = np.concatenate((self._values, values_a, values_b))
 
@@ -344,13 +365,14 @@ class BSP_Tree:
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
                                              ns_a3_sides, ns_b1_sides, ns_b2_sides))
 
-            """
             elif np.any(type_a):
                 # Need to extend self._equations and self._values
-                equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+                equations_a = np.tile(np.concatenate((self._equations[node.index_list[straddle][type_a][lonely_sides == 1]],
+                                                      self._equations[node.index_list[straddle][type_a][lonely_sides == -1]])), (3, 1))
                 self._equations = np.concatenate((self._equations, equations_a))
 
-                values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
+                values_a = np.tile(np.concatenate((self._values[node.index_list[straddle][type_a][lonely_sides == 1]],
+                                                   self._values[node.index_list[straddle][type_a][lonely_sides == -1]])), 3)
                 self._values = np.concatenate((self._values, values_a))
 
                 # Remove the indices of the simplices that were split from node_simplices
@@ -400,6 +422,7 @@ class BSP_Tree:
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
                                              ns_a3_sides))
+
             elif np.any(type_b):
                 equations_b = np.tile(self._equations[node.index_list[straddle][type_b]], (2, 1))
                 self._equations = np.concatenate((self._equations, equations_b))
@@ -420,10 +443,12 @@ class BSP_Tree:
                 new_simplices_b1 = np.array((plane_vert, non_plane_vert_1,
                                              np.arange(self._vertices.shape[0],
                                                        self._vertices.shape[0] + intersect_b.shape[0]))).T
+
                 # v0, v2, p0 (plane_vert, non_plane_vert_2, intersect_b)
                 new_simplices_b2 = np.array((plane_vert, non_plane_vert_2,
                                              np.arange(self._vertices.shape[0],
                                                        self._vertices.shape[0] + intersect_b.shape[0]))).T
+
                 # Concatenate the above in order with self._simplices
                 self._simplices = np.concatenate((self._simplices,
                                                  new_simplices_b1,
@@ -442,7 +467,6 @@ class BSP_Tree:
                                       - node_value)
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_b1_sides, ns_b2_sides))
-            """
 
         # If all points in a simplex == zero, then append to node
         # Could just do this with a not?
