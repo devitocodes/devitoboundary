@@ -663,11 +663,7 @@ class PolySurface:
         print('Starting query')
         self._query(self._tree._root, full_indices)
 
-        print('z distances', self._z_dist)
-        print('y pos distances', self._y_pos_dist)
-        print('y neg distances', self._y_neg_dist)
-        print('x pos distances', self._x_pos_dist)
-        print('x neg distances', self._x_neg_dist)
+        return self._z_dist, self._y_pos_dist, self._y_neg_dist, self._x_pos_dist, self._x_neg_dist
 
     def _query(self, node, query_indices):
         """The recursive traversal for querying the tree"""
