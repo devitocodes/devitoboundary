@@ -671,8 +671,8 @@ class PolyMesh:
 
     def _query(self, node, query_indices):
         """The recursive traversal for querying the tree"""
-        if node.plane_indices.size != 0:
-            print('There are extra indices at this node', node.plane_indices)
+        # if node.plane_indices.size != 0:
+        #     print('There are extra indices at this node', node.plane_indices)
         # Want to find the half spaces of all the query points
         qp = self._query_points[query_indices]  # Points to find half spaces of
         node_equation = self._tree._equations[node.index]
@@ -698,9 +698,10 @@ class PolyMesh:
         # Z axis
         # Check occlusion of points with no distances
         no_z_distance = np.isnan(self._z_dist[query_indices])
+        # FIXME, want to catch no query points
         if np.nonzero(no_z_distance) != 0:  # No point checking if all distances filled
             z_occluded = self._occludes(self._query_points[query_indices[no_z_distance]],
-                                        node.index, 'z')
+                                        np.append(node.plane_indices, node.index), 'z')
             # Measure distance to occluded points
             if np.nonzero(z_occluded) != 0:
                 new_z_dists = self._distance(self._query_points[query_indices[no_z_distance][z_occluded]],
@@ -713,7 +714,7 @@ class PolyMesh:
                                       np.isnan(self._y_neg_dist[query_indices]))
         if np.nonzero(no_y_distance) != 0:  # No point checking if all distances filled
             y_occluded = self._occludes(self._query_points[query_indices[no_y_distance]],
-                                        node.index, 'y')
+                                        np.append(node.plane_indices, node.index), 'y')
             # Measure distance to occluded points
             if np.nonzero(y_occluded) != 0:
                 new_y_dists = self._distance(self._query_points[query_indices[no_y_distance][y_occluded]],
@@ -727,7 +728,7 @@ class PolyMesh:
                                       np.isnan(self._x_neg_dist[query_indices]))
         if np.nonzero(no_x_distance) != 0:  # No point checking if all distances filled
             x_occluded = self._occludes(self._query_points[query_indices[no_x_distance]],
-                                        node.index, 'x')
+                                        np.append(node.plane_indices, node.index), 'x')
             # Measure distance to occluded points
             if np.nonzero(x_occluded) != 0:
                 new_x_dists = self._distance(self._query_points[query_indices[no_x_distance][x_occluded]],
@@ -744,7 +745,7 @@ class PolyMesh:
         if node.pos is not None and query_indices[point_spaces == -1].shape[0] != 0:
             self._query(node.pos, query_indices[point_spaces == -1])
 
-    def _occludes(self, pt, simplex, axis):
+    def _occludes(self, pt, simplices, axis):
         """
         A function to check whether a set of points are occluded by a simplex
         on a specified axis.
@@ -752,48 +753,69 @@ class PolyMesh:
         # FIXME: Make this check for occlusion on an array of simplices
         # We are fine down to line 428 atm
 
-        vertices = self._tree._vertices[self._tree._simplices[simplex]]
-        if axis == 'x':
-            # p0, p1, p2 are vertices, p is the array of test points
-            p0, p1, p2 = vertices
+        vertices = self._tree._vertices[self._tree._simplices[simplices]]
+        p0 = vertices[:, 0]
+        p1 = vertices[:, 1]
+        p2 = vertices[:, 2]
 
-            area = -p1[1]*p2[2] + p0[1]*(-p1[2] + p2[2]) + p0[2]*(p1[1] - p2[1]) + p1[2]*p2[1]
-            if area == 0:  # This plane is axially aligned
+        if axis == 'x':
+            # p0, p1, p2 are vertices, pt is the array of test points
+            area = -p1[:, 1]*p2[:, 2] + p0[:, 1]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 1] - p2[:, 1]) + p1[:, 2]*p2[:, 1]
+            if np.any(area == 0):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
                 return false_array
-            s = (p0[1]*p2[2] - p0[2]*p2[1] + (p2[1] - p0[1])*pt[:, 2] + (p0[2] - p2[2])*pt[:, 1])/area
-            t = (p0[2]*p1[1] - p0[1]*p1[2] + (p0[1] - p1[1])*pt[:, 2] + (p1[2] - p0[2])*pt[:, 1])/area
+            s1 = np.broadcast_to((p0[:, 1]*p2[:, 2] - p0[:, 2]*p2[:, 1])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s2 = np.outer((p2[:, 1] - p0[:, 1]), pt[:, 2])
+            s3 = np.outer((p0[:, 2] - p2[:, 2]), pt[:, 1])
+            s4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s = (s1 + s2 + s3)/s4
+            t1 = np.broadcast_to((p0[:, 2]*p1[:, 1] - p0[:, 1]*p1[:, 2])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t2 = np.outer((p0[:, 1] - p1[:, 1]), pt[:, 2])
+            t3 = np.outer((p1[:, 2] - p0[:, 2]), pt[:, 1])
+            t4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t = (t1 + t2 + t3)/t4
 
-            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+            return np.any(np.logical_and.reduce((s >= 0, t >= 0, 1-s-t >= 0), axis=0), axis=0)
 
         if axis == 'y':
-            # p0, p1, p2 are vertices, p is the array of test points
-            p0, p1, p2 = vertices
-
-            area = -p1[0]*p2[2] + p0[0]*(-p1[2] + p2[2]) + p0[2]*(p1[0] - p2[0]) + p1[2]*p2[0]
-            if area == 0:  # This plane is axially aligned
+            area = -p1[:, 0]*p2[:, 2] + p0[:, 0]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 0] - p2[:, 0]) + p1[:, 2]*p2[:, 0]
+            if np.any(area == 0):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
                 return false_array
-            s = (p0[0]*p2[2] - p0[2]*p2[0] + (p2[0] - p0[0])*pt[:, 2] + (p0[2] - p2[2])*pt[:, 0])/area
-            t = (p0[2]*p1[0] - p0[0]*p1[2] + (p0[0] - p1[0])*pt[:, 2] + (p1[2] - p0[2])*pt[:, 0])/area
+            s1 = np.broadcast_to((p0[:, 0]*p2[:, 2] - p0[:, 2]*p2[:, 0])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s2 = np.outer((p2[:, 0] - p0[:, 0]), pt[:, 2])
+            s3 = np.outer((p0[:, 2] - p2[:, 2]), pt[:, 0])
+            s4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s = (s1 + s2 + s3)/s4
+            t1 = np.broadcast_to((p0[:, 2]*p1[:, 0] - p0[:, 0]*p1[:, 2])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t2 = np.outer((p0[:, 0] - p1[:, 0]), pt[:, 2])
+            t3 = np.outer((p1[:, 2] - p0[:, 2]), pt[:, 0])
+            t4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t = (t1 + t2 + t3)/t4
 
-            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+            return np.any(np.logical_and.reduce((s >= 0, t >= 0, 1-s-t >= 0), axis=0), axis=0)
 
         if axis == 'z':
-            # p0, p1, p2 are vertices, p is the array of test points
-            p0, p1, p2 = vertices
+            area = -p1[:, 0]*p2[:, 1] + p0[:, 0]*(-p1[:, 1] + p2[:, 1]) + p0[:, 1]*(p1[:, 0] - p2[:, 0]) + p1[:, 1]*p2[:, 0]
 
-            area = -p1[0]*p2[1] + p0[0]*(-p1[1] + p2[1]) + p0[1]*(p1[0] - p2[0]) + p1[1]*p2[0]
-            if area == 0:  # This plane is axially aligned
-                false_array = np.empty((pt.shape[0]), dtype=np.bool)
-                false_array[:] = False
-                return false_array
-            s = (p0[0]*p2[1] - p0[1]*p2[0] + (p2[0] - p0[0])*pt[:, 1] + (p0[1] - p2[1])*pt[:, 0])/area
-            t = (p0[1]*p1[0] - p0[0]*p1[1] + (p0[0] - p1[0])*pt[:, 1] + (p1[1] - p0[1])*pt[:, 0])/area
+            if np.any(area == 0):  # This plane is axially aligned
+                print('Everything has gone wrong, area should not be zero in the z plane')
+            # S calculation is split into parts as it is very messy for the array version
+            s1 = np.broadcast_to((p0[:, 0]*p2[:, 1] - p0[:, 1]*p2[:, 0])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s2 = np.outer((p2[:, 0] - p0[:, 0]), pt[:, 1])
+            s3 = np.outer((p0[:, 1] - p2[:, 1]), pt[:, 0])
+            s4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            s = (s1 + s2 + s3)/s4
+            t1 = np.broadcast_to((p0[:, 1]*p1[:, 0] - p0[:, 0]*p1[:, 1])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t2 = np.outer((p0[:, 0] - p1[:, 0]), pt[:, 1])
+            t3 = np.outer((p1[:, 1] - p0[:, 1]), pt[:, 0])
+            t4 = np.broadcast_to(area[:, np.newaxis], (p0.shape[0], pt.shape[0]))
+            t = (t1 + t2 + t3)/t4
 
-            return np.logical_and.reduce((s > 0, t > 0, 1-s-t > 0))
+            # These are >= as a point under the edge of a polygon is still occluded
+            return np.any(np.logical_and.reduce((s >= 0, t >= 0, 1-s-t >= 0), axis=0), axis=0)
 
     def _distance(self, pt, simplex, axis):
         """
