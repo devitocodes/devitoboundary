@@ -1,5 +1,5 @@
 from devito import Grid
-from devitoboundary import PolyMesh
+from devitoboundary import PolySurface
 import numpy as np
 # from scipy.spatial import KDTree
 from sys import setrecursionlimit
@@ -31,7 +31,7 @@ mesh_x, mesh_y = np.meshgrid(boundary_x, boundary_y)
 
 boundary_z = inv_dome_func(mesh_x, mesh_y)
 
-# mesh = PolyMesh(data, grid)
+# mesh = PolySurface(data, grid)
 data = np.vstack((mesh_x.flatten(), mesh_y.flatten(), boundary_z.flatten())).T
 # print(len(data))
-mesh = PolyMesh(data, grid)
+mesh = PolySurface(data, grid)

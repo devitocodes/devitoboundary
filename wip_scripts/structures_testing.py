@@ -1,5 +1,5 @@
 from devito import Grid
-from devitoboundary import PolyMesh
+from devitoboundary import PolySurface
 import numpy as np
 np.seterr(all='raise')
 
@@ -17,7 +17,7 @@ data = [[1, 2, 3], [2, 1, 0], [5, 1, 2],
 
 grid = Grid(extent=(10, 10, 10), shape=(11, 11, 11))
 
-mesh = PolyMesh(data, grid)
+mesh = PolySurface(data, grid)
 
 # Will also want to figure out what to do if a point lies on a surface
 q_points = [[4.2, 2.2, 5.3], [3.1, 1.1, 5.6], [1.4, 6.2, 1.2],

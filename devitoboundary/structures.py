@@ -7,7 +7,7 @@ import numpy as np
 
 from scipy.spatial import Delaunay
 
-__all__ = ['PolyMesh']
+__all__ = ['PolySurface']
 
 
 class BSP_Node:
@@ -484,7 +484,7 @@ class BSP_Tree:
         node.set_children(pos_list, neg_list)
 
 
-class PolyMesh:
+class PolySurface:
     """
     A polygonal mesh of points. Used to express a non-concave (2.5D) surface
     in 3D space. This surface is indexed and can be used to rapidly find all
@@ -518,7 +518,7 @@ class PolyMesh:
     """
 
     def __init__(self, data, grid, setup=True):
-        assert len(grid.dimensions) == 3, "PolyMesh is for 3D grids only"
+        assert len(grid.dimensions) == 3, "PolySurface is for 3D grids only"
         assert len(np.shape(data)) == 2, "Coordinates for each point should be in the form [x, y, z]"
 
         self._grid = grid
