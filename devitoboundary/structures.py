@@ -86,31 +86,6 @@ class BSP_Tree:
         self.construct(leafsize-1)  # Only one plane at a leaf
         print('The initial polygon count was %i' % simplices.shape[0])
         print('The final tree contains %i polygons' % self._simplices.shape[0])
-        all_gone_wrong = False
-        for i in range(self._simplices.shape[0]):
-            plane_check_0 = np.dot(self._equations[i], self._vertices[self._simplices[i]][0]) \
-                - self._values[i]
-            plane_check_1 = np.dot(self._equations[i], self._vertices[self._simplices[i]][1]) \
-                - self._values[i]
-            plane_check_2 = np.dot(self._equations[i], self._vertices[self._simplices[i]][2]) \
-                - self._values[i]
-            # print('Polygon %i' % i)
-            # print('Is simplex')
-            # print(self._simplices[i])
-            # print('Has vertices')
-            # print(self._vertices[self._simplices[i]])
-            # print('And equation')
-            # print(self._equations[i])
-            # print('And value')
-            # print(self._values[i])
-            # print('Produces plane checks of')
-            # print(plane_check_0, plane_check_1, plane_check_2)
-            if abs(plane_check_0) > 0.1 or abs(plane_check_1) > 0.1 or abs(plane_check_2) > 0.1:
-                print('NOOOOOO, IT HAS ALL GONE WRONG')
-                all_gone_wrong = True
-            # print('\n')
-        if all_gone_wrong:
-            print('It all went wrong')
 
     @property
     def root(self):
@@ -185,7 +160,8 @@ class BSP_Tree:
             # These come about when a vertex on the plane gets pushed to one halfspace by float errors
             # This causes the plane to be earmarked for splitting then produces a div by zero
             # Might want increasing in the future, but fine for now
-            trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            # 2 is safest. If recursion limit hit, this is probably why
+            trial_node_sides = np.sign(trial_node_results.round(3)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
@@ -486,7 +462,7 @@ class BSP_Tree:
 
 class PolySurface:
     """
-    A polygonal mesh of points. Used to express a non-concave (2.5D) surface
+    A polygonal surface of points. Used to express a non-concave (2.5D) surface
     in 3D space. This surface is indexed and can be used to rapidly find all
     grid nodes within a given axial distance of any facet. It can be queried to
     return all points which are within the area of effect of the surface and
