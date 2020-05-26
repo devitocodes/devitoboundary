@@ -137,6 +137,7 @@ class BSP_Tree:
         index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
         # Find the best index and use that one
         for i in range(len(index_pile)):
+            #  FIXME: This loop should break if a trial_split_q of zero is found
             trial_index = index_pile[i]
 
             # Check each point in each simplex (Minus the one at the trial index)
@@ -161,7 +162,7 @@ class BSP_Tree:
             # This causes the plane to be earmarked for splitting then produces a div by zero
             # Might want increasing in the future, but fine for now
             # 2 is safest. If recursion limit hit, this is probably why
-            trial_node_sides = np.sign(trial_node_results.round(3)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
@@ -534,6 +535,8 @@ class PolySurface:
     def values(self):
         """The constant of the plane equation"""
         return self._values
+
+    # FIXME: Maybe want the tree as a cached property
 
     def add_data(self, data):
         """

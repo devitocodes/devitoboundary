@@ -13,74 +13,76 @@ from scipy.spatial import Delaunay
 from sympy import finite_diff_weights
 from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
+from devitoboundary import PolySurface
 from mpl_toolkits.mplot3d import Axes3D
 
-__all__ = ['GenericBoundary', 'Boundary3D', 'Topography3D']
+__all__ = ['GenericSurface', 'ImmersedBoundarySurface']
 
 
-class GenericBoundary():
+class GenericSurface():
     """
-    A generic object to contain data relevant for implementing internal
-    boundaries within a given domain.
+    A generic object attatched to one or more Devito Functions, used to contain
+    data relevant for implementing 2.5D internal boundaries within a given 3D
+    domain. A faceted surface is constructed from the topography data. This
+    surface can be queried for axial distances to the boundary, simplifying
+    implementation of immersed boundaries in finite difference models.
+
+    Parameters
+    ----------
+    boundary_data : array_like
+        Array of topography points grouped as [[x, y, z], [x, y, z], ...]
+    functions : tuple of Devito Function or TimeFunction objects
+        The function(s) to which the boundary is to be attached.
     """
 
-    def __init__(self, function, boundary_data):
+    def __init__(self, boundary_data, functions):
+        self._boundary_data = np.array(boundary_data)
+        # Check that boundary data has correct formatting
+        assert len(self._boundary_data.shape) == 2, "Boundary data incorrectly formatted"
+        assert self._boundary_data.shape[1] == 3, "GenericSurface is for 3D boundaries only"
+        # Assert functions supplied as tuple
+        assert isinstance(functions, tuple), "Functions must be supplied as tuple"
+        # Check that all the functions share a grid
+        for function in functions:
+            assert function.grid is functions[0].grid, "All functions must share the same grid"
+        # Want to check that this grid is 3D
+        self._grid = functions[0].grid
+        assert len(self._grid.dimensions) == 3, "GenericSurface is for 3D grids only"
+        self._functions = functions
 
-        self._method_order = function.space_order
-
-        # Derive useful properties from grid
-        self._shape = np.asarray(function.grid.shape)
-        self._extent = np.asarray(function.grid.extent)
-        self._spacing = function.grid.spacing
-        self._dimensions = function.grid.dimensions
-        self.origin = (0, 0)
-
-        self._read_in(boundary_data)
+        self._surface = PolySurface(self._boundary_data, self._grid)
 
     @property
-    def method_order(self):
-        """
-        Order of the FD discretisation.
-        """
+    def boundary_data(self):
+        """The topography data for the boundary"""
+        return self._boundary_data
 
-        return self._method_order
+    @property
+    def grid(self):
+        """The grid to which the boundary is attached"""
+        return self._grid
 
-    def _read_in(self, boundary_data):
-        """
-        A function to read in topography data, and output as a pandas
-        dataframe.
-        """
-
-        self._boundary_data = boundary_data
-
-
-class Boundary3D(GenericBoundary):
-    """
-    A generic object to contain data relevant for implementing 3D boundaries
-    within a given domain.
-    """
-
-    def __init__(self, function, boundary_data, pmls=0):
-        GenericBoundary.__init__(self, function, boundary_data)
-
-        self._pmls = pmls
+    @property
+    def functions(self):
+        """The functions to which the boundary is attached"""
+        return self._functions
 
     def plot_boundary(self, invert_z=True, save=False, save_path=None):
         """
-        Plots the boundary surface as a triangular mesh.
+        Plot the boundary surface as a triangular mesh.
         """
 
         fig = plt.figure()
         plot_axes = fig.add_subplot(111, projection='3d')
-        plot_axes.plot_trisurf(self._boundary_data['x'],
-                               self._boundary_data['y'],
-                               self._boundary_data['z'] - self._pmls*self._spacing[2],
+        plot_axes.plot_trisurf(self._boundary_data[:, 0],
+                               self._boundary_data[:, 1],
+                               self._boundary_data[:, 2],
                                color='aquamarine')
 
         plot_axes.set_xlabel("x")
         plot_axes.set_ylabel("y")
         plot_axes.set_zlabel("z")
-        plot_axes.set_zlim(-1*self._pmls*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2], False)
+        plot_axes.set_zlim(0, self._grid.extent[2], False)
         if invert_z:
             plot_axes.invert_zaxis()
         if save:
@@ -91,19 +93,29 @@ class Boundary3D(GenericBoundary):
         plt.show()
 
 
-class Topography3D(Boundary3D):
+class ImmersedBoundarySurface(GenericSurface):
     """
-    An object to encapsulate the implementation of surface topography in a 3D
-    domain. Note that concavities will be incorrectly interpreted during
-    boundary generation (BoundarySurface3D should be used in this case).
+    An immersed boundary object for implementation of surface topography in a 3D
+    domain. The boundary surface is reconstructed from an appropriately-formatted
+    cloud of topography measurements.
+
+    Parameters
+    ----------
+    boundary_data : array_like
+        Array of topography points grouped as [[x, y, z], [x, y, z], ...]
+    functions : tuple of Devito Function or TimeFunction objects
+        The function(s) to which the boundary is to be attached.
+    behaviours: tuple
+        The behaviours which each function wants to display at the boundary
+        (e.g. 'antisymmetric_mirror').
     """
 
     def __init__(self, function, boundary_data, deriv_order, pmls=0):
-        Boundary3D.__init__(self, function, boundary_data, pmls)
+        # Boundary3D.__init__(self, function, boundary_data, pmls)
 
-        self._generate_triangles()
+        # self._generate_triangles()
         self._node_id()
-        self._construct_stencils(deriv_order)
+        # self._construct_stencils(deriv_order)
         # self._weight_function(function, deriv_order)  # Temporarily disabled
 
     def _generate_triangles(self):

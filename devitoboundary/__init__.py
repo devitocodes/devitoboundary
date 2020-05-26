@@ -1,5 +1,5 @@
-from .topography import *
 from .structures import *
+from .topography import *
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
