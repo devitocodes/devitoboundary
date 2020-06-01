@@ -83,9 +83,15 @@ class BSP_Tree:
         # Set up root node of tree
         self._root = BSP_Node(np.arange(self._simplices.shape[0]))
 
+        # Temp quality measure
+        self._unbalanced_split = 0
+        self._balanced_split = 0
+
         self.construct(leafsize-1)  # Only one plane at a leaf
         print('The initial polygon count was %i' % simplices.shape[0])
         print('The final tree contains %i polygons' % self._simplices.shape[0])
+        print('The number of balanced splits was', self._balanced_split)
+        print('The number of unbalanced splits was', self._unbalanced_split)
 
     @property
     def root(self):
@@ -123,6 +129,10 @@ class BSP_Tree:
             # Look for changes across this function
 
             self._split(node)
+            if node.pos is not None and node.neg is not None:
+                self._balanced_split += 1
+            elif (node.pos is not None and node.neg is None) or (node.pos is None and node.neg is not None):
+                self._unbalanced_split += 1
             if node.pos is not None:
                 # print(node.index, 'Constructing a new subtree on the positive branch.')
                 self._construct(node.pos, leafsize)  # Wooooo recursion!!!1!
@@ -132,12 +142,15 @@ class BSP_Tree:
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
+        # Heuristic weights
+        # split_weight = 1
+        # balance_weight = 0.3
+
         # Generate up to 10 indices to try out for splitting
         # Can contain duplicates. Generates up to 10 indices
         index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
         # Find the best index and use that one
         for i in range(len(index_pile)):
-            #  FIXME: This loop should break if a trial_split_q of zero is found
             trial_index = index_pile[i]
 
             # Check each point in each simplex (Minus the one at the trial index)
@@ -166,6 +179,13 @@ class BSP_Tree:
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
+            # Normalised mismatch between size of the two branches
+            trial_balance_q = abs(np.count_nonzero(trial_node_sides == 1) - np.count_nonzero(trial_node_sides == -1))  # /(trial_node_simplices.shape[0] + 1)
+            # trial_heuristic_q = trial_split_q*trial_balance_q
+            trial_heuristic_q = max(trial_split_q, 1)*max(trial_balance_q, 1)
+            # print('Weighted trial_split_q is', split_weight*trial_split_q)
+            # print('Weighted trial_balance_q is', balance_weight*trial_balance_q)
+            # print('The unweighted product is', trial_split_q*trial_balance_q)
             if i == 0:  # Could be moved outside the loop
                 index = trial_index
                 node_simplices = trial_node_simplices
@@ -174,7 +194,8 @@ class BSP_Tree:
                 node_sides = trial_node_sides
                 straddle = trial_straddle
                 split_q = trial_split_q
-            elif trial_split_q < split_q:
+                heuristic_q = trial_heuristic_q
+            elif trial_heuristic_q < heuristic_q:
                 index = trial_index
                 node_simplices[:] = trial_node_simplices[:]
                 node_equation[:] = trial_node_equation[:]
@@ -182,6 +203,7 @@ class BSP_Tree:
                 node_sides[:] = trial_node_sides[:]
                 straddle[:] = trial_straddle[:]
                 split_q = trial_split_q
+                heuristic_q = trial_heuristic_q
 
         # Remove from parent list permanently
         node.index_list = node.index_list[node.index_list != index]
@@ -516,6 +538,8 @@ class PolySurface:
         """Indices of the simplices of each polygon"""
         return self._simplices
 
+    # FIXME: I don't need a load of these and should get rid
+
     @property
     def neighbors(self):
         """The indices of neighboring polygons of each polygon"""
@@ -590,6 +614,77 @@ class PolySurface:
         self._tree = BSP_Tree(self._points, self._simplices,
                               self._equations, self._values)
 
+    def fd_node_sides(self):
+        """
+        Check all nodes in the grid to check if they are outside or inside the
+        boundary surface.
+
+        Returns
+        -------
+        positive_mask : ndarray
+            A boolean mask matching the size of the grid. True where the respective
+            node lies on the positive side of the boundary surface.
+        """
+        grid_mesh = np.meshgrid(np.arange(self._grid.shape[0]),
+                                np.arange(self._grid.shape[1]),
+                                np.arange(self._grid.shape[2]))
+        grid_x, grid_y, grid_z = grid_mesh
+        self._grid_nodes = np.vstack((grid_x.flatten(), grid_y.flatten(), grid_z.flatten())).T
+        # Create an array of indices to send through the tree
+        # This means that respective positions can be retained without searching
+        full_indices = np.arange(self._grid_nodes.shape[0])
+        self._positive_mask = np.zeros(self._grid.shape, dtype=np.bool)
+
+        self._depth_measure = []
+        print('Starting query')
+        self._fd_node_sides(self._tree._root, full_indices, 0)
+        print(self._depth_measure)
+        print(len(self._depth_measure))
+        print('The maximum tree depth is', max(self._depth_measure))
+        print('The average tree depth is', np.mean(self._depth_measure))
+        print('The ideal tree depth is approximately', np.log2(self._tree.simplices.shape[0]))
+        return self._positive_mask
+
+    def _fd_node_sides(self, node, query_indices, depth):
+        """
+        The recursive traversal for determining which side of the boundary nodes
+        lie on.
+        """
+        qp = self._grid_nodes[query_indices]  # Points to find half spaces of
+        if node.pos is not None or node.neg is not None:
+            node_equation = self._tree._equations[node.index]
+            node_value = self._tree._values[node.index]
+            node_results = node_equation[0]*qp[:, 0] \
+                + node_equation[1]*qp[:, 1] \
+                + node_equation[2]*qp[:, 2] \
+                - node_value
+
+            point_spaces = np.sign(node_results.round(2))  # Reduces half spaces to -1, 0, 1
+
+            if node.pos is not None and np.any(point_spaces == 1):
+                self._fd_node_sides(node.pos, query_indices[point_spaces == 1], depth+1)
+
+            if node.neg is not None and np.any(point_spaces == -1):
+                self._fd_node_sides(node.neg, query_indices[point_spaces == -1], depth+1)
+
+            # Points on the plane are on positive side
+            plane_coords = self._grid_nodes[query_indices[point_spaces == 0]]
+            self._positive_mask[plane_coords[:, 0],
+                                plane_coords[:, 1],
+                                plane_coords[:, 2]] = True
+        else:
+            # Find the vectors from the first vertex of the simplex to the query nodes
+            position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
+            # Dot this with the normal vector
+            dot_normal = np.dot(position_vectors, self._tree._equations[node.index])
+            dot_normal_sides = np.sign(dot_normal)
+            # Set the entry in self._positive_mask
+            positive_coords = self._grid_nodes[query_indices[dot_normal_sides >= 0]]
+            self._positive_mask[positive_coords[:, 0],
+                                positive_coords[:, 1],
+                                positive_coords[:, 2]] = True
+            self._depth_measure.append(depth)
+
     def query(self, q_points):
         """
         Query a set of points to find axial distances to the boundary surface.
@@ -658,8 +753,7 @@ class PolySurface:
             - node_value
 
         point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
-        # Need to figure out what to do with points that lie in a plane
-        # Also need to figure out what to do about additonal planes at the node
+        # Possibly want a round on this to deal with floating point errors
 
         # Check near sides
         # Process the ones where the positive is the near side
@@ -777,6 +871,9 @@ class PolySurface:
 
             if np.any(area == 0):  # This plane is axially aligned
                 print('Everything has gone wrong, area should not be zero in the z plane')
+                print(vertices)
+                print(self._tree._equations[simplices])
+                print(self._tree._values[simplices])
             # S calculation is split into parts as it is very messy for the array version
             s1 = np.broadcast_to((p0[:, 0]*p2[:, 1] - p0[:, 1]*p2[:, 0])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
             s2 = np.outer((p2[:, 0] - p0[:, 0]), pt[:, 1])

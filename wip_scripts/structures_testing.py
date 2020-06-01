@@ -16,6 +16,7 @@ data = [[1, 2, 3], [2, 1, 0], [5, 1, 2],
 #         [6, 0, -3], [9, 0, 1], [15, 0, 1]]
 
 grid = Grid(extent=(10, 10, 10), shape=(11, 11, 11))
+# grid = Grid(extent=(10, 10, 10), shape=(201, 201, 201))
 
 mesh = PolySurface(data, grid)
 
@@ -23,5 +24,9 @@ mesh = PolySurface(data, grid)
 q_points = [[4.2, 2.2, 5.3], [3.1, 1.1, 5.6], [1.4, 6.2, 1.2],
             [10.0, 3.2, 1.1], [6.3, 2.2, 6.1], [7.2, 2.1, 4.2]]
 
-print(mesh.query(q_points))
-print(mesh.query(q_points))
+# print(mesh.query(q_points))
+# print(mesh.query(q_points))
+result = mesh.FD_node_sides()
+print(result)
+print(np.any(result))
+print(np.count_nonzero(result))

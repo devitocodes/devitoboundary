@@ -1,11 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from devitoboundary import GenericSurface
+from devitoboundary import ImmersedBoundarySurface
 from devito import Grid, TimeFunction
+from sys import setrecursionlimit
+
+setrecursionlimit(3000)
 
 # Topography config
-SUBSAMPLE = 10
+SUBSAMPLE = 2  # 5
 PMLS = 50
 
 VP = 1.2
@@ -40,13 +43,24 @@ def inv_dome_func(x, y):
     return dome_z
 
 
+def realistic_func(x, y):
+    surf_z = 0.5*grid.extent[2] + 0.05*grid.extent[2]*np.sin(2*np.pi*x/(1.3*grid.extent[0])) \
+        + 0.05*grid.extent[2]*np.sin(2*np.pi*x/(0.23*grid.extent[0])) \
+        + 0.025*grid.extent[2]*np.sin(2*np.pi*x/(0.56*grid.extent[0])) \
+        + 0.025*grid.extent[2]*np.sin(2*np.pi*x/(0.09*grid.extent[0])) \
+        + 0.05*grid.extent[2]*np.sin(2*np.pi*y/(0.23*grid.extent[1])) \
+        + 0.05*grid.extent[2]*np.sin(2*np.pi*y/(0.84*grid.extent[1]))
+    return surf_z
+
+
 surface_x, surface_y = np.meshgrid(boundary_x, boundary_y)
 
-surface_z = inv_dome_func(surface_x, surface_y)
+# surface_z = inv_dome_func(surface_x, surface_y)
+surface_z = realistic_func(surface_x, surface_y)
 
 surface_data = np.vstack((surface_x.flatten(), surface_y.flatten(), surface_z.flatten())).T
 
-surface = GenericSurface(surface_data, (u,))
+surface = ImmersedBoundarySurface(surface_data, (u,), ('antisymmetric_mirror',))
 surface.plot_boundary()
 
 # boundary_obj.plot_nodes(save=True, save_path="images/boundary_plot")

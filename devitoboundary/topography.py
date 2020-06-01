@@ -10,6 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from scipy.spatial import Delaunay
+from scipy.interpolate import griddata
 from sympy import finite_diff_weights
 from devito import Function, Dimension, Substitutions, Coefficient
 from devito.tools import as_tuple
@@ -32,7 +33,8 @@ class GenericSurface():
     boundary_data : array_like
         Array of topography points grouped as [[x, y, z], [x, y, z], ...]
     functions : tuple of Devito Function or TimeFunction objects
-        The function(s) to which the boundary is to be attached.
+        The function(s) to which the boundary is to be attached. Note that these
+        must all have the same space order.
     """
 
     def __init__(self, boundary_data, functions):
@@ -43,8 +45,10 @@ class GenericSurface():
         # Assert functions supplied as tuple
         assert isinstance(functions, tuple), "Functions must be supplied as tuple"
         # Check that all the functions share a grid
+        # Check that all the functions have the same space order
         for function in functions:
             assert function.grid is functions[0].grid, "All functions must share the same grid"
+            assert function.space_order == functions[0].space_order, "All functions must have the same space order"
         # Want to check that this grid is 3D
         self._grid = functions[0].grid
         assert len(self._grid.dimensions) == 3, "GenericSurface is for 3D grids only"
@@ -92,6 +96,50 @@ class GenericSurface():
                 raise OSError("Invalid filepath.")
         plt.show()
 
+    def query(self, q_points):
+        """
+        Query a set of points to find axial distances to the boundary surface.
+        Distances are returned in grid increments.
+
+        Parameters
+        ----------
+        q_points : array_like
+            Array of points to query grouped as [[x, y, z], [x, y, z], ...]
+
+        Returns
+        -------
+        z_dist : ndarray
+            Distance to the surface in the z direction for the respective points
+            in q_points. Values of NaN indicate that the surface does not
+            occlude the point in this direction.
+        y_pos_dist : ndarray
+            Distances to the surface in the positive y direction. Same behaviours
+            as z_dist
+        y_neg_dist : ndarray
+            Distances to the surface in the negative y direction. Same behaviours
+            as z_dist
+        x_pos_dist : ndarray
+            Distances to the surface in the positive x direction. Same behaviours
+            as z_dist
+        x_neg_dist : ndarray
+            Distances to the surface in the negative x direction. Same behaviours
+            as z_dist
+        """
+        return self._surface.query(q_points)
+
+    def fd_node_sides(self):
+        """
+        Check all nodes in the grid and determine if they are outside or inside the
+        boundary surface.
+
+        Returns
+        -------
+        positive_mask : ndarray
+            A boolean mask matching the size of the grid. True where the respective
+            node lies on the positive (outside) of the boundary surface.
+        """
+        return self._surface.fd_node_sides()
+
 
 class ImmersedBoundarySurface(GenericSurface):
     """
@@ -106,658 +154,34 @@ class ImmersedBoundarySurface(GenericSurface):
     functions : tuple of Devito Function or TimeFunction objects
         The function(s) to which the boundary is to be attached.
     behaviours: tuple
-        The behaviours which each function wants to display at the boundary
-        (e.g. 'antisymmetric_mirror').
+        The respective behaviours which each function wants to display at the
+        boundary (e.g. 'antisymmetric_mirror').
     """
 
-    def __init__(self, function, boundary_data, deriv_order, pmls=0):
-        # Boundary3D.__init__(self, function, boundary_data, pmls)
+    def __init__(self, boundary_data, functions, behaviours):
+        super().__init__(boundary_data, functions)
+        assert isinstance(behaviours, tuple), "Behaviours must be supplied as tuple"
+        supported_behaviours = ('antisymmetric_mirror',)
+        for behaviour in behaviours:
+            if behaviour not in supported_behaviours:
+                raise NotImplementedError('%s is not a supported behaviour' % behaviour)
+        self._behaviours = behaviours
 
-        # self._generate_triangles()
         self._node_id()
-        # self._construct_stencils(deriv_order)
-        # self._weight_function(function, deriv_order)  # Temporarily disabled
-
-    def _generate_triangles(self):
-        """
-        Generates a triangle mesh from 3D topography data using Delaunay
-        triangulation. The surface of the mesh generated will be used
-        to represent the boundary.
-        """
-        # Triangulation is 2D using x and y values
-        self._mesh = Delaunay(self._boundary_data.iloc[:, 0:2]).simplices
-
-    def _construct_plane(self, vertices):
-        """
-        Finds the equation of the plane defined by the triangle, along
-        with its boundaries.
-        """
-        # Find equation of plane
-        vertex_1 = self._boundary_data.iloc[vertices[:, 0]].to_numpy()
-        vertex_2 = self._boundary_data.iloc[vertices[:, 1]].to_numpy()
-        vertex_3 = self._boundary_data.iloc[vertices[:, 2]].to_numpy()
-        vector_1 = vertex_2 - vertex_1
-        vector_2 = vertex_3 - vertex_2
-        plane_grad = np.cross(vector_1, vector_2)
-        plane_const = -np.sum(plane_grad*vertex_1, axis=1)
-
-        print("The first bit is done")
-        # Return plane equation, vertices, and vectors of boundaries
-        return vertex_1, vertex_2, vertex_3, \
-            plane_grad, plane_const
-
-    def _above_bool(self, block, gradient, constant, verts):
-        """
-        Returns True if a point is above the boundary (-ve z direction).
-        Returns False otherwise.
-        """
-
-        loc_a = (block[0]*gradient[0]
-                 + block[1]*gradient[1]
-                 + block[2]*gradient[2]
-                 + constant < 0)
-
-        for v_c in combinations(range(3), 2):
-            v_3 = np.setdiff1d(range(3), v_c)[0]
-
-            # Points are within boundaries of triangle
-
-            # Use x = my + c instead (for handling edges of type x = c)
-            xy_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
-            clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])
-            if xy_flip:
-                clean_dx = 1  # Prevents undefined behaviour
-            else:
-                clean_dy = 1  # Could be turned into try-except?
-
-            # For edges of type y = mx + c
-            m_x = (verts[1, v_c[0]] - verts[1, v_c[1]])/clean_dx
-            c_x = verts[1, v_c[0]] - m_x*verts[0, v_c[0]]
-            # For edges of type x = c
-            m_y = (verts[0, v_c[0]] - verts[0, v_c[1]])/clean_dy
-            c_y = verts[0, v_c[0]] - m_y*verts[1, v_c[0]]
-
-            v_above = verts[1, v_3] > m_x*verts[0, v_3] + c_x
-            # True if inside of triangle is in +ve y direction from edge or in
-            # -ve x direction if edge is vertical.
-            if xy_flip:
-                v_above = (verts[0, v_3]
-                           <= m_y*verts[1, v_3]
-                           + c_y)
-
-            cond_1 = np.logical_and(block[1] >= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xy_flip),
-                                                   v_above))
-
-            cond_2 = np.logical_and(block[0] <= m_y*block[1] + c_y,
-                                    np.logical_and(xy_flip,
-                                                   v_above))
-
-            cond_3 = np.logical_and(block[1] <= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xy_flip),
-                                                   np.logical_not(v_above)))
-
-            cond_4 = np.logical_and(block[0] >= m_y*block[1] + c_y,
-                                    np.logical_and(xy_flip,
-                                                   np.logical_not(v_above)))
-
-            # Horrible Russian doll to do 'or' of all the above
-            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                       np.logical_or(cond_3, cond_4))
-
-            loc_a = np.logical_and(loc_a, tri_bounds)
-
-        return loc_a
-
-    def _z_bool(self, block, gradient, constant, verts):
-        """
-        Returns True if a point is located within the z locus.
-        Returns False otherwise.
-        """
-
-        # Points are below boundary (+ve z direction from boundary)
-        loc_z = (block[0]*gradient[0]
-                 + block[1]*gradient[1]
-                 + block[2]*gradient[2]
-                 + constant > 0)
-
-        # Points are above base of locus (-ve z direction from locus base)
-        loc_z_base = (block[0]*gradient[0]
-                      + block[1]*gradient[1]
-                      + (block[2] - (self._spacing[2]
-                                     * self._method_order/2))*gradient[2]
-                      + constant <= 0)
-
-        loc_z = np.logical_and(loc_z, loc_z_base)
-
-        for v_c in combinations(range(3), 2):
-            v_3 = np.setdiff1d(range(3), v_c)[0]
-
-            # Points are within boundaries of triangle
-
-            # Use x = my + c instead (for handling edges of type x = c)
-            xy_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
-            clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])
-            if xy_flip:
-                clean_dx = 1  # Prevents undefined behaviour
-            else:
-                clean_dy = 1  # Could be turned into try-except?
-
-            # For edges of type y = mx + c
-            m_x = (verts[1, v_c[0]] - verts[1, v_c[1]])/clean_dx
-            c_x = verts[1, v_c[0]] - m_x*verts[0, v_c[0]]
-            # For edges of type x = c
-            m_y = (verts[0, v_c[0]] - verts[0, v_c[1]])/clean_dy
-            c_y = verts[0, v_c[0]] - m_y*verts[1, v_c[0]]
-
-            v_above = verts[1, v_3] > m_x*verts[0, v_3] + c_x
-            # True if inside of triangle is in +ve y direction from edge or in
-            # -ve x direction if edge is vertical.
-            if xy_flip:
-                v_above = (verts[0, v_3]
-                           <= m_y*verts[1, v_3]
-                           + c_y)
-
-            cond_1 = np.logical_and(block[1] >= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xy_flip),
-                                                   v_above))
-
-            cond_2 = np.logical_and(block[0] <= m_y*block[1] + c_y,
-                                    np.logical_and(xy_flip,
-                                                   v_above))
-
-            cond_3 = np.logical_and(block[1] <= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xy_flip),
-                                                   np.logical_not(v_above)))
-
-            cond_4 = np.logical_and(block[0] >= m_y*block[1] + c_y,
-                                    np.logical_and(xy_flip,
-                                                   np.logical_not(v_above)))
-
-            # Horrible Russian doll to do 'or' of all the above
-            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                       np.logical_or(cond_3, cond_4))
-
-            loc_z = np.logical_and(loc_z, tri_bounds)
-
-        return loc_z
-
-    def _y_bool(self, block, gradient, constant, verts, grad_pos, grad_neg):
-        """
-        Returns True if a point is located within the y locus.
-        Returns False otherwise.
-        """
-
-        # Points are below boundary (+ve z direction from boundary)
-        # Sometimes returns false for all if plane is flatish (sort later)
-        loc_y = (block[0]*gradient[0]
-                 + block[1]*gradient[1]
-                 + block[2]*gradient[2]
-                 + constant > 0)
-
-        # Points are above base of locus (-ve z direction from locus base)
-        loc_y_base = (block[0]*gradient[0]
-                      + (block[1]
-                         + (grad_neg*self._spacing[1]
-                            * self._method_order/2)
-                         - (grad_pos*self._spacing[1]
-                            * self._method_order/2))*gradient[1]
-                      + block[2]*gradient[2]
-                      + constant <= 0)
-
-        loc_y = np.logical_and(loc_y, loc_y_base)
-
-        for v_c in combinations(range(3), 2):
-            v_3 = np.setdiff1d(range(3), v_c)[0]
-
-            # Points are within boundaries of triangle
-
-            # Use x = mz + c instead (for handling edges of type x = c)
-            xz_flip = ((verts[0, v_c[0]] - verts[0, v_c[1]]) == 0)
-            clean_dx = (verts[0, v_c[0]] - verts[0, v_c[1]])  # Zero-free denominator
-            clean_dz = (verts[2, v_c[0]] - verts[2, v_c[1]])
-            if xz_flip:
-                clean_dx = 1  # Prevents undefined behaviour
-            if verts[2, v_c[0]] - verts[2, v_c[1]] == 0:
-                clean_dz = 1  # Could be turned into try-except?
-
-            # For edges of type z = mx + c
-            m_x = (verts[2, v_c[0]] - verts[2, v_c[1]])/clean_dx
-            c_x = verts[2, v_c[0]] - m_x*verts[0, v_c[0]]
-            # For edges of type x = c
-            m_z = (verts[0, v_c[0]] - verts[0, v_c[1]])/clean_dz
-            c_z = verts[0, v_c[0]] - m_z*verts[2, v_c[0]]
-
-            v_above = verts[2, v_3] > m_x*verts[0, v_3] + c_x
-            # True if inside of triangle is in +ve z direction from edge or in
-            # -ve x direction if edge is vertical.
-            if xz_flip:
-                v_above = (verts[0, v_3]
-                           <= m_z*verts[2, v_3]
-                           + c_z)
-
-            cond_1 = np.logical_and(block[2] >= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xz_flip),
-                                                   v_above))
-
-            cond_2 = np.logical_and(block[0] <= m_z*block[2] + c_z,
-                                    np.logical_and(xz_flip,
-                                                   v_above))
-
-            cond_3 = np.logical_and(block[2] <= m_x*block[0] + c_x,
-                                    np.logical_and(np.logical_not(xz_flip),
-                                                   np.logical_not(v_above)))
-
-            cond_4 = np.logical_and(block[0] >= m_z*block[2] + c_z,
-                                    np.logical_and(xz_flip,
-                                                   np.logical_not(v_above)))
-
-            # Horrible Russian doll to do 'or' of all the above
-            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                       np.logical_or(cond_3, cond_4))
-
-            loc_y = np.logical_and(loc_y, tri_bounds)
-        return loc_y
-
-    def _x_bool(self, block, gradient, constant, verts, grad_pos, grad_neg):
-        """
-        Returns True if a point is located within the x locus.
-        Returns False otherwise.
-        """
-
-        # Points are below boundary (+ve z direction from boundary)
-        # Sometimes returns false for all if plane is flatish (sort later)
-        loc_x = (block[0]*gradient[0]
-                 + block[1]*gradient[1]
-                 + block[2]*gradient[2]
-                 + constant > 0)
-
-        # Points are above base of locus (-ve z direction from locus base)
-        loc_x_base = ((block[0]
-                       + (grad_neg*self._spacing[0]
-                          * self._method_order/2)
-                       - (grad_pos*self._spacing[0]
-                          * self._method_order/2))*gradient[0]
-                      + block[1]*gradient[1]
-                      + block[2]*gradient[2]
-                      + constant <= 0)
-
-        loc_x = np.logical_and(loc_x, loc_x_base)
-
-        for v_c in combinations(range(3), 2):
-            v_3 = np.setdiff1d(range(3), v_c)[0]
-
-            # Points are within boundaries of triangle
-
-            # Use y = mz + c instead (for handling edges of type y = c)
-            yz_flip = ((verts[1, v_c[0]] - verts[1, v_c[1]]) == 0)
-            clean_dy = (verts[1, v_c[0]] - verts[1, v_c[1]])  # Zero-free denominator
-            clean_dz = (verts[2, v_c[0]] - verts[2, v_c[1]])
-            if yz_flip:
-                clean_dy = 1  # Prevents undefined behaviour
-            if verts[2, v_c[0]] - verts[2, v_c[1]] == 0:
-                clean_dz = 1  # Could be turned into try-eycept?
-
-            # For edges of type z = my + c
-            m_y = (verts[2, v_c[0]] - verts[2, v_c[1]])/clean_dy
-            c_y = verts[2, v_c[0]] - m_y*verts[1, v_c[0]]
-            # For edges of type y = c
-            m_z = (verts[1, v_c[0]] - verts[1, v_c[1]])/clean_dz
-            c_z = verts[1, v_c[0]] - m_z*verts[2, v_c[0]]
-
-            v_above = verts[2, v_3] > m_y*verts[1, v_3] + c_y
-            # True if inside of triangle is in +ve z direction from edge or in
-            # -ve y direction if edge is vertical.
-            if yz_flip:
-                v_above = (verts[1, v_3]
-                           <= m_z*verts[2, v_3]
-                           + c_z)
-
-            cond_1 = np.logical_and(block[2] >= m_y*block[1] + c_y,
-                                    np.logical_and(np.logical_not(yz_flip),
-                                                   v_above))
-
-            cond_2 = np.logical_and(block[1] <= m_z*block[2] + c_z,
-                                    np.logical_and(yz_flip,
-                                                   v_above))
-
-            cond_3 = np.logical_and(block[2] <= m_y*block[1] + c_y,
-                                    np.logical_and(np.logical_not(yz_flip),
-                                                   np.logical_not(v_above)))
-
-            cond_4 = np.logical_and(block[1] >= m_z*block[2] + c_z,
-                                    np.logical_and(yz_flip,
-                                                   np.logical_not(v_above)))
-
-            # Horrible Russian doll to do 'or' of all the above
-            tri_bounds = np.logical_or(np.logical_or(cond_1, cond_2),
-                                       np.logical_or(cond_3, cond_4))
-
-            loc_x = np.logical_and(loc_x, tri_bounds)
-        return loc_x
-
-    def _above_nodes(self, gradients, constants, vertices):
-        """
-        Returns all nodes within z locus, along with their corresponding eta
-        values.
-        """
-
-        x_min = np.amin(vertices[:, 0, :], 1)
-        x_max = np.amax(vertices[:, 0, :], 1)
-        x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
-        x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        y_min = np.amin(vertices[:, 1, :], 1)
-        y_max = np.amax(vertices[:, 1, :], 1)
-        y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
-        y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
-        valid_locus = y_max_index >= y_min_index
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        y_min = y_min[valid_locus]
-        y_max = y_max[valid_locus]
-        y_min_index = y_min_index[valid_locus]
-        y_max_index = y_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        z_max = np.amax(vertices[:, 2, :], 1)
-        z_min_index = self._pmls
-        z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
-
-        a_locus_data = pd.DataFrame(columns=['x', 'y',
-                                             'z'])
-
-        for i in range(len(x_min)):
-            # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
-                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
-                                                 x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
-                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
-                                                 y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace((z_min_index - self._pmls)*self._spacing[2],
-                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
-                                                 z_max_index[i] - z_min_index + 1))
-            # Apply revamped _z_bool() for masking
-            mask = self._above_bool(locus_mesh, gradients[i], constants[i], vertices[i])
-            add_nodes = pd.DataFrame({'x': locus_mesh[0][mask],
-                                      'y': locus_mesh[1][mask],
-                                      'z': locus_mesh[2][mask]})
-            a_locus_data = a_locus_data.append(add_nodes, ignore_index=True, sort=False)
-        return a_locus_data
-
-    def _z_nodes(self, gradients, constants, vertices):
-        """
-        Returns all nodes within z locus, along with their corresponding eta
-        values.
-        """
-
-        x_min = np.amin(vertices[:, 0, :], 1)
-        x_max = np.amax(vertices[:, 0, :], 1)
-        x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
-        x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        y_min = np.amin(vertices[:, 1, :], 1)
-        y_max = np.amax(vertices[:, 1, :], 1)
-        y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
-        y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
-        valid_locus = y_max_index >= y_min_index
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        y_min = y_min[valid_locus]
-        y_max = y_max[valid_locus]
-        y_min_index = y_min_index[valid_locus]
-        y_max_index = y_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:, 2, :], 1) + 0.5*self._method_order*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2])
-        z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
-        z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
-
-        z_locus_data = pd.DataFrame(columns=['x', 'y',
-                                             'z', 'z_eta'])
-
-        for i in range(len(x_min)):
-            # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
-                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
-                                                 x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
-                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
-                                                 y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
-                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
-                                                 z_max_index[i] - z_min_index[i] + 1))
-            # Apply revamped _z_bool() for masking
-            mask = self._z_bool(locus_mesh, gradients[i], constants[i], vertices[i])
-            eta = (-(gradients[i, 0]*locus_mesh[0][mask]
-                     + gradients[i, 1]*locus_mesh[1][mask]
-                     + constants[i])/gradients[i, 2] - locus_mesh[2][mask])/self._spacing[2]
-            add_nodes = pd.DataFrame({'x': locus_mesh[0][mask],
-                                      'y': locus_mesh[1][mask],
-                                      'z': locus_mesh[2][mask],
-                                      'z_eta': eta})
-            z_locus_data = z_locus_data.append(add_nodes, ignore_index=True, sort=False)
-        self._modified_nodes = pd.concat([self._modified_nodes, z_locus_data.iloc[:, :3]],
-                                         sort=False).drop_duplicates().reset_index(drop=True)
-        return z_locus_data
-
-    def _y_nodes(self, gradients, constants, vertices):
-        """
-        Returns all nodes within y locus, along with their corresponding eta
-        values.
-        """
-
-        valid_locus = np.logical_not(np.logical_and(vertices[:, 2, 0] == vertices[:, 2, 1],
-                                                    vertices[:, 2, 0] == vertices[:, 2, 2]))  # Remove flat polygons
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        x_min = np.amin(vertices[:, 0, :], 1)
-        x_max = np.amax(vertices[:, 0, :], 1)
-        x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
-        x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-        valid_locus = (x_max_index >= x_min_index)  # Locus actually contains gridlines
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
-        z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
-        valid_locus = z_max_index >= z_min_index
-        x_min = x_min[valid_locus]
-        x_max = x_max[valid_locus]
-        x_min_index = x_min_index[valid_locus]
-        x_max_index = x_max_index[valid_locus]
-        z_min = z_min[valid_locus]
-        z_max = z_max[valid_locus]
-        z_min_index = z_min_index[valid_locus]
-        z_max_index = z_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        grad_positive = gradients[:, 1] > 0
-        grad_negative = gradients[:, 1] < 0
-
-        y_min = np.amin(vertices[:, 1, :], 1) - grad_negative*0.5*self._method_order*self._spacing[1]  # These may want to be more cleverly calculated for very rough surfaces
-        y_max = np.amax(vertices[:, 1, :], 1) + grad_positive*0.5*self._method_order*self._spacing[1]  # Wants to be flipped depending on gradient
-        y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
-        y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
-
-        y_locus_data = pd.DataFrame(columns=['x', 'y',
-                                             'z', 'y_eta_l',
-                                             'y_eta_r'])
-
-        for i in range(len(x_min)):
-            # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
-                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
-                                                 x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
-                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
-                                                 y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
-                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
-                                                 z_max_index[i] - z_min_index[i] + 1))
-            # Apply revamped _z_bool() for masking
-            mask = self._y_bool(locus_mesh, gradients[i], constants[i],
-                                vertices[i], grad_positive[i], grad_negative[i])
-            eta_r = (-(gradients[i, 0]*locus_mesh[0][mask]
-                       + gradients[i, 2]*locus_mesh[2][mask]
-                       + constants[i])/gradients[i, 1] - locus_mesh[1][mask])/self._spacing[1]
-            # Split eta into -ve (left) and +ve (right) values
-            eta_l = eta_r.copy()
-            eta_r[eta_r < 0] = np.nan
-            eta_l[eta_l > 0] = np.nan
-            add_nodes = pd.DataFrame({'x': locus_mesh[0][mask],
-                                      'y': locus_mesh[1][mask],
-                                      'z': locus_mesh[2][mask],
-                                      'y_eta_r': eta_r,
-                                      'y_eta_l': eta_l})
-            y_locus_data = pd.concat([y_locus_data, add_nodes],
-                                     sort=False).drop_duplicates().reset_index(drop=True)
-        self._modified_nodes = pd.concat([self._modified_nodes, y_locus_data.iloc[:, :3]],
-                                         sort=False).drop_duplicates().reset_index(drop=True)
-        return y_locus_data
-
-    def _x_nodes(self, gradients, constants, vertices):
-        """
-        Returns all nodes within x locus, along with their corresponding eta
-        values.
-        """
-
-        valid_locus = np.logical_not(np.logical_and(vertices[:, 2, 0] == vertices[:, 2, 1],
-                                                    vertices[:, 2, 0] == vertices[:, 2, 2]))  # Remove flat polygons
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        y_min = np.amin(vertices[:, 1, :], 1)
-        y_max = np.amax(vertices[:, 1, :], 1)
-        y_min_index = (np.ceil(y_min/self._spacing[1])).astype(int) + self._pmls
-        y_max_index = (np.floor(y_max/self._spacing[1])).astype(int) + self._pmls
-        valid_locus = (y_max_index >= y_min_index)  # Locus actually contains gridlines
-        y_min = y_min[valid_locus]
-        y_max = y_max[valid_locus]
-        y_min_index = y_min_index[valid_locus]
-        y_max_index = y_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        z_min = np.minimum(np.amin(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_max = np.minimum(np.amax(vertices[:, 2, :], 1), self._extent[2] - self._pmls*self._spacing[2])
-        z_min_index = (np.ceil(z_min/self._spacing[2])).astype(int) + self._pmls
-        z_max_index = (np.floor(z_max/self._spacing[2])).astype(int) + self._pmls
-        valid_locus = z_max_index >= z_min_index
-        y_min = y_min[valid_locus]
-        y_max = y_max[valid_locus]
-        y_min_index = y_min_index[valid_locus]
-        y_max_index = y_max_index[valid_locus]
-        z_min = z_min[valid_locus]
-        z_max = z_max[valid_locus]
-        z_min_index = z_min_index[valid_locus]
-        z_max_index = z_max_index[valid_locus]
-        gradients = gradients[valid_locus]
-        constants = constants[valid_locus]
-        vertices = vertices[valid_locus]
-
-        grad_positive = gradients[:, 0] > 0
-        grad_negative = gradients[:, 0] < 0
-
-        x_min = np.amin(vertices[:, 0, :], 1) - grad_negative*0.5*self._method_order*self._spacing[0]  # These may want to be more cleverly calculated for very rough surfaces
-        x_max = np.amax(vertices[:, 0, :], 1) + grad_positive*0.5*self._method_order*self._spacing[0]  # Wants to be flipped depending on gradient
-        x_min_index = (np.ceil(x_min/self._spacing[0])).astype(int) + self._pmls
-        x_max_index = (np.floor(x_max/self._spacing[0])).astype(int) + self._pmls
-
-        x_locus_data = pd.DataFrame(columns=['x', 'y',
-                                             'z', 'x_eta_l',
-                                             'x_eta_r'])
-
-        for i in range(len(x_min)):
-            # Create meshgrid
-            locus_mesh = np.meshgrid(np.linspace((x_min_index[i] - self._pmls)*self._spacing[0],
-                                                 (x_max_index[i] - self._pmls)*self._spacing[0],
-                                                 x_max_index[i] - x_min_index[i] + 1),
-                                     np.linspace((y_min_index[i] - self._pmls)*self._spacing[1],
-                                                 (y_max_index[i] - self._pmls)*self._spacing[1],
-                                                 y_max_index[i] - y_min_index[i] + 1),
-                                     np.linspace((z_min_index[i] - self._pmls)*self._spacing[2],
-                                                 (z_max_index[i] - self._pmls)*self._spacing[2],
-                                                 z_max_index[i] - z_min_index[i] + 1))
-            # Apply revamped _z_bool() for masking
-            mask = self._x_bool(locus_mesh, gradients[i], constants[i],
-                                vertices[i], grad_positive[i], grad_negative[i])
-            eta_r = (-(gradients[i, 1]*locus_mesh[1][mask]
-                       + gradients[i, 2]*locus_mesh[2][mask]
-                       + constants[i])/gradients[i, 0] - locus_mesh[0][mask])/self._spacing[0]
-            # Split eta into -ve (left) and +ve (right) values
-            eta_l = eta_r.copy()
-            eta_r[eta_r < 0] = np.nan
-            eta_l[eta_l > 0] = np.nan
-            add_nodes = pd.DataFrame({'x': locus_mesh[0][mask],
-                                      'y': locus_mesh[1][mask],
-                                      'z': locus_mesh[2][mask],
-                                      'x_eta_r': eta_r,
-                                      'x_eta_l': eta_l})
-            x_locus_data = pd.concat([x_locus_data, add_nodes],
-                                     sort=False).drop_duplicates().reset_index(drop=True)
-        self._modified_nodes = pd.concat([self._modified_nodes, x_locus_data.iloc[:, :3]],
-                                         sort=False).drop_duplicates().reset_index(drop=True)
-        return x_locus_data
 
     def _node_id(self):
         """
-        Generates a list of nodes where stencils will require modification
-        in either x or y directions.
+        Identifies the nodes within the area of effect of the boundary, where
+        stencils will require modification. Axial distances are calculated during
+        this process.
         """
 
-        self._modified_nodes = pd.DataFrame(columns=['x', 'y', 'z'])
-
-        vertex_1, vertex_2, vertex_3, \
-            plane_grad, plane_const = self._construct_plane(self._mesh)
-
-        z_nodes = self._z_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        y_nodes = self._y_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        x_nodes = self._x_nodes(plane_grad, plane_const, np.dstack((vertex_1, vertex_2, vertex_3)))
-        self._modified_nodes = self._modified_nodes.merge(z_nodes, how='outer', on=['x', 'y', 'z'])
-        self._modified_nodes = self._modified_nodes.merge(y_nodes, how='outer', on=['x', 'y', 'z'])
-        self._modified_nodes = self._modified_nodes.merge(x_nodes, how='outer', on=['x', 'y', 'z'])
+        print('Node ID started')
+        positive_mask = self.fd_node_sides()
+        print(positive_mask)
+        plt.imshow(positive_mask[10].T)
+        plt.show()
+        # Want to take a slice through this for qc
 
     def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """
