@@ -688,8 +688,6 @@ class PolySurface:
         self._depth_measure = []
         print('Starting query')
         self._fd_node_sides(self._tree._root, full_indices, 0)
-        print(self._depth_measure)
-        print(len(self._depth_measure))
         print('The maximum tree depth is', max(self._depth_measure))
         print('The average tree depth is', np.mean(self._depth_measure))
         print('The ideal tree depth is approximately', np.log2(self._tree.simplices.shape[0]))
@@ -748,7 +746,7 @@ class PolySurface:
                                 positive_coords[:, 2]] = True
             self._depth_measure.append(depth)
 
-    def query(self, q_points):
+    def query(self, q_points, index_input=False):
         """
         Query a set of points to find axial distances to the boundary surface.
         Distances are returned with units of dx (grid increment).
@@ -777,8 +775,11 @@ class PolySurface:
             Distances to the surface in the negative x direction. Same behaviours
             as z_dist
         """
-        self._query_points = np.array(q_points, dtype=np.float32)
-        self._query_points /= self._grid.spacing  # Convert to grid-index space
+        if not index_input:
+            self._query_points = np.array(q_points, dtype=np.float32)
+            self._query_points /= self._grid.spacing  # Convert to grid-index space
+        else:
+            self._query_points = np.array(q_points)
 
         # Create an array of indices to actually send through the tree
         # This means that respective positions can be retained without searching
@@ -810,32 +811,40 @@ class PolySurface:
         qp = self._query_points[query_indices]  # Points to find half spaces of
         node_equation = self._tree._equations[node.index]
         node_value = self._tree._values[node.index]
-        node_results = node_equation[0]*qp[:, 0] \
-            + node_equation[1]*qp[:, 1] \
-            + node_equation[2]*qp[:, 2] \
-            - node_value
+        # node_results = node_equation[0]*qp[:, 0] \
+        #     + node_equation[1]*qp[:, 1] \
+        #     + node_equation[2]*qp[:, 2] \
+        #     - node_value
+        # Find the vectors from the first vertex of the simplex to the query nodes
+        position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
+        # Dot this with the normal vector
+        dot_normal = np.dot(position_vectors, node_equation)
+        point_spaces = np.sign(dot_normal.round(2))
 
-        point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
+        # point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
         # Possibly want a round on this to deal with floating point errors
 
         # Check near sides
         # Process the ones where the positive is the near side
-        if node.pos is not None and query_indices[point_spaces == 1].shape[0] != 0:
+        # FIXME: Wording here could be more clear
+        # if node.pos is not None and query_indices[point_spaces == 1].shape[0] != 0:
+        if node.pos is not None and any(point_spaces == 1):
             self._query(node.pos, query_indices[point_spaces == 1])
 
         # Process the ones where the negative is the near side
-        if node.neg is not None and query_indices[point_spaces == -1].shape[0] != 0:
+        # if node.neg is not None and query_indices[point_spaces == -1].shape[0] != 0:
+        if node.neg is not None and np.any(point_spaces == -1):
             self._query(node.neg, query_indices[point_spaces == -1])
 
         # Z axis
         # Check occlusion of points with no distances
         no_z_distance = np.isnan(self._z_dist[query_indices])
-        # FIXME, want to catch no query points
-        if np.nonzero(no_z_distance) != 0:  # No point checking if all distances filled
+        if np.any(no_z_distance):
             z_occluded = self._occludes(self._query_points[query_indices[no_z_distance]],
                                         np.append(node.plane_indices, node.index), 'z')
             # Measure distance to occluded points
-            if np.nonzero(z_occluded) != 0:
+            # if np.nonzero(z_occluded) != 0:
+            if np.any(z_occluded):
                 new_z_dists = self._distance(self._query_points[query_indices[no_z_distance][z_occluded]],
                                              node.index, 'z')
                 self._z_dist[query_indices[no_z_distance][z_occluded]] = new_z_dists
@@ -844,11 +853,12 @@ class PolySurface:
         # Check occlusion of points with no distances
         no_y_distance = np.logical_or(np.isnan(self._y_pos_dist[query_indices]),
                                       np.isnan(self._y_neg_dist[query_indices]))
-        if np.nonzero(no_y_distance) != 0:  # No point checking if all distances filled
+        if np.any(no_y_distance):
             y_occluded = self._occludes(self._query_points[query_indices[no_y_distance]],
                                         np.append(node.plane_indices, node.index), 'y')
             # Measure distance to occluded points
-            if np.nonzero(y_occluded) != 0:
+            # if np.nonzero(y_occluded) != 0:
+            if np.any(y_occluded):
                 new_y_dists = self._distance(self._query_points[query_indices[no_y_distance][y_occluded]],
                                              node.index, 'y')
                 self._y_pos_dist[query_indices[no_y_distance][y_occluded][new_y_dists >= 0]] = new_y_dists[new_y_dists >= 0]
@@ -858,11 +868,12 @@ class PolySurface:
         # Check occlusion of points with no distances
         no_x_distance = np.logical_or(np.isnan(self._x_pos_dist[query_indices]),
                                       np.isnan(self._x_neg_dist[query_indices]))
-        if np.nonzero(no_x_distance) != 0:  # No point checking if all distances filled
+        if np.any(no_x_distance):
             x_occluded = self._occludes(self._query_points[query_indices[no_x_distance]],
                                         np.append(node.plane_indices, node.index), 'x')
             # Measure distance to occluded points
-            if np.nonzero(x_occluded) != 0:
+            # if np.nonzero(x_occluded) != 0:
+            if np.any(x_occluded):
                 new_x_dists = self._distance(self._query_points[query_indices[no_x_distance][x_occluded]],
                                              node.index, 'x')
                 self._x_pos_dist[query_indices[no_x_distance][x_occluded][new_x_dists >= 0]] = new_x_dists[new_x_dists >= 0]
@@ -870,11 +881,13 @@ class PolySurface:
 
         # Check far sides
         # Process the ones where the positive is the near side
-        if node.neg is not None and query_indices[point_spaces == 1].shape[0] != 0:
+        # if node.neg is not None and query_indices[point_spaces == 1].shape[0] != 0:
+        if node.neg is not None and np.any(point_spaces == 1):
             self._query(node.neg, query_indices[point_spaces == 1])
 
         # Process the ones where the negative is the near side
-        if node.pos is not None and query_indices[point_spaces == -1].shape[0] != 0:
+        # if node.pos is not None and query_indices[point_spaces == -1].shape[0] != 0:
+        if node.pos is not None and np.any(point_spaces == -1):
             self._query(node.pos, query_indices[point_spaces == -1])
 
     def _occludes(self, pt, simplices, axis):

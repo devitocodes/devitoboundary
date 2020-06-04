@@ -96,7 +96,7 @@ class GenericSurface():
                 raise OSError("Invalid filepath.")
         plt.show()
 
-    def query(self, q_points):
+    def query(self, q_points, index_input=False):
         """
         Query a set of points to find axial distances to the boundary surface.
         Distances are returned in grid increments.
@@ -125,7 +125,7 @@ class GenericSurface():
             Distances to the surface in the negative x direction. Same behaviours
             as z_dist
         """
-        return self._surface.query(q_points)
+        return self._surface.query(q_points, index_input)
 
     def fd_node_sides(self):
         """
@@ -210,9 +210,18 @@ class ImmersedBoundarySurface(GenericSurface):
         Calculates the axial distances between the identified boundary nodes and the
         boundary surface.
         """
-        print('Started distance calculation')
         # Node x, y, and z indices
         node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
+        # vstack these
+        boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
+        # Query boundary nodes for distances
+        axial_distances = self.query(boundary_nodes, index_input=True)
+        # Set distances as variables
+        self._z_dist = axial_distances[0]
+        self._yp_dist = axial_distances[1]
+        self._yn_dist = axial_distances[2]
+        self._xp_dist = axial_distances[3]
+        self._xn_dist = axial_distances[4]
 
     def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """
