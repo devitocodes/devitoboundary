@@ -165,17 +165,23 @@ class BSP_Tree:
             # But where is this getting modified?
             trial_node_equation = np.copy(self._equations[trial_index])
             trial_node_value = self._values[trial_index]
-            trial_node_results = trial_node_equation[0]*trial_node_vertices[:, 0] \
-                + trial_node_equation[1]*trial_node_vertices[:, 1] \
-                + trial_node_equation[2]*trial_node_vertices[:, 2] \
-                - trial_node_value
+            # trial_node_results = trial_node_equation[0]*trial_node_vertices[:, 0] \
+            #     + trial_node_equation[1]*trial_node_vertices[:, 1] \
+            #     + trial_node_equation[2]*trial_node_vertices[:, 2] \
+            #     - trial_node_value
+
+            # Find the vectors from the first vertex of the simplex to the query nodes
+            trial_position_vectors = trial_node_vertices - self._vertices[self._simplices[trial_index]][0]
+            # Dot this with the normal vector
+            dot_normal = np.dot(trial_position_vectors, trial_node_equation)
+            trial_node_sides = np.sign(dot_normal.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
 
             # The .round() here exists to kill any div by zero errors
             # These come about when a vertex on the plane gets pushed to one halfspace by float errors
             # This causes the plane to be earmarked for splitting then produces a div by zero
             # Might want increasing in the future, but fine for now
             # 2 is safest. If recursion limit hit, this is probably why
-            trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            # trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
@@ -340,26 +346,48 @@ class BSP_Tree:
                 self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2, intersect_b))
 
                 # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
-                                      - node_value)
-                ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
-                                      - node_value)
-                ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
-                                      - node_value)
-                ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
-                                      - node_value)
-                ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
-                                      - node_value)
+                # ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
+                #                       - node_value)
+                # ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
+                #                       - node_value)
+                # ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
+                #                       - node_value)
+                # ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
+                #                       - node_value)
+                # ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
+                #                       - node_value)
+
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
                                              ns_a3_sides, ns_b1_sides, ns_b2_sides))
@@ -406,18 +434,31 @@ class BSP_Tree:
                 self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2))
 
                 # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
-                                      - node_value)
-                ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
-                                      - node_value)
-                ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
-                                      - node_value)
+                # ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
+                #                       - node_value)
+                # ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
+                #                       - node_value)
+                # ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
+                #                       - node_value)
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
                                              ns_a3_sides))
@@ -456,14 +497,23 @@ class BSP_Tree:
                 self._vertices = np.concatenate((self._vertices, intersect_b))
 
                 # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
-                                      - node_value)
-                ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
-                                      + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
-                                      + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
-                                      - node_value)
+                # ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
+                #                       - node_value)
+                # ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
+                #                       + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
+                #                       + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
+                #                       - node_value)
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                # Find the vectors from the first vertex of the simplex to the query nodes
+                ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
+                # Dot this with the normal vector
+                ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_b1_sides, ns_b2_sides))
 
@@ -654,15 +704,28 @@ class PolySurface:
         if node.pos is not None or node.neg is not None:
             node_equation = self._tree._equations[node.index]
             node_value = self._tree._values[node.index]
-            node_results = node_equation[0]*qp[:, 0] \
-                + node_equation[1]*qp[:, 1] \
-                + node_equation[2]*qp[:, 2] \
-                - node_value
+            # node_results = node_equation[0]*qp[:, 0] \
+            #     + node_equation[1]*qp[:, 1] \
+            #     + node_equation[2]*qp[:, 2] \
+            #     - node_value
+            # Find the vectors from the first vertex of the simplex to the query nodes
+            position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
+            # Dot this with the normal vector
+            dot_normal = np.dot(position_vectors, node_equation)
+            point_spaces = np.sign(dot_normal.round(2))
 
-            point_spaces = np.sign(node_results.round(2))  # Reduces half spaces to -1, 0, 1
+            # point_spaces = np.sign(node_results.round(2))  # Reduces half spaces to -1, 0, 1
 
             if node.pos is not None and np.any(point_spaces == 1):
                 self._fd_node_sides(node.pos, query_indices[point_spaces == 1], depth+1)
+            # Need to do something here.
+            # I can hit an effective leaf node if all my points are in negative half space but only node.pos exists
+            else:
+                # add all query_indices[point_spaces == 1]
+                pos_plane_coords = self._grid_nodes[query_indices[point_spaces == 1]]
+                self._positive_mask[pos_plane_coords[:, 0],
+                                    pos_plane_coords[:, 1],
+                                    pos_plane_coords[:, 2]] = True
 
             if node.neg is not None and np.any(point_spaces == -1):
                 self._fd_node_sides(node.neg, query_indices[point_spaces == -1], depth+1)

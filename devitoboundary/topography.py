@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 
 from scipy.spatial import Delaunay
 from scipy.interpolate import griddata
-from sympy import finite_diff_weights
-from devito import Function, Dimension, Substitutions, Coefficient
+from sympy import finite_diff_weights, Max
+from devito import Function, Dimension, Substitutions, Coefficient, TimeFunction, Eq, Operator, Grid
 from devito.tools import as_tuple
 from devitoboundary import PolySurface
 from mpl_toolkits.mplot3d import Axes3D
@@ -168,6 +168,7 @@ class ImmersedBoundarySurface(GenericSurface):
         self._behaviours = behaviours
 
         self._node_id()
+        self._distance_calculation()
 
     def _node_id(self):
         """
@@ -178,10 +179,40 @@ class ImmersedBoundarySurface(GenericSurface):
 
         print('Node ID started')
         positive_mask = self.fd_node_sides()
-        print(positive_mask)
-        plt.imshow(positive_mask[10].T)
-        plt.show()
-        # Want to take a slice through this for qc
+
+        m_size = int(self._functions[0].space_order/2)
+
+        # Edge detection
+        # Want to add M/2 layers of padding on every edge
+        # FIXME: would be more efficient to use a subdomainset here
+        pg_shape = np.array(self._grid.shape) + 2*m_size
+        pg_extent = (self._grid.extent[0] + 2*m_size*self._grid.spacing[0],
+                     self._grid.extent[1] + 2*m_size*self._grid.spacing[1],
+                     self._grid.extent[2] + 2*m_size*self._grid.spacing[2])
+        padded_grid = Grid(shape=pg_shape, extent=pg_extent)
+        edge_detect = TimeFunction(name='edge_detect', grid=padded_grid,
+                                   space_order=self._functions[0].space_order)
+
+        edge_detect.data[:] = np.pad(positive_mask, (m_size,), 'edge')
+
+        # detect_eq = Eq(edge_detect.forward, edge_detect.div)
+        detect_eq = Eq(edge_detect.forward, Max(abs(edge_detect.dx), abs(edge_detect.dy), abs(edge_detect.dz)))
+
+        detect_op = Operator([detect_eq], name='DetectBoundary')
+        detect_op.apply(time_M=1)
+
+        edge_mask = np.sign(edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size])
+
+        self._boundary_node_mask = np.logical_and(positive_mask, edge_mask)
+
+    def _distance_calculation(self):
+        """
+        Calculates the axial distances between the identified boundary nodes and the
+        boundary surface.
+        """
+        print('Started distance calculation')
+        # Node x, y, and z indices
+        node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
 
     def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """

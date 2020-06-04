@@ -8,7 +8,7 @@ from sys import setrecursionlimit
 setrecursionlimit(3000)
 
 # Topography config
-SUBSAMPLE = 2  # 5
+SUBSAMPLE = 10  # 5
 PMLS = 50
 
 VP = 1.2

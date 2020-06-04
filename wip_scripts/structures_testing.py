@@ -1,6 +1,7 @@
 from devito import Grid
 from devitoboundary import PolySurface
 import numpy as np
+import matplotlib.pyplot as plt
 np.seterr(all='raise')
 
 data = [[1, 2, 3], [2, 1, 0], [5, 1, 2],
@@ -26,7 +27,10 @@ q_points = [[4.2, 2.2, 5.3], [3.1, 1.1, 5.6], [1.4, 6.2, 1.2],
 
 # print(mesh.query(q_points))
 # print(mesh.query(q_points))
-result = mesh.FD_node_sides()
+result = mesh.fd_node_sides()
 print(result)
-print(np.any(result))
-print(np.count_nonzero(result))
+print('Grid size is', result.size)
+print('Grid points in positive side', np.count_nonzero(result))
+plt.imshow(result[10].T)
+plt.colorbar()
+plt.show()
