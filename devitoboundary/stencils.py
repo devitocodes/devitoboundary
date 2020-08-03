@@ -5,23 +5,22 @@ order.
 import sympy as sp
 
 
-class Ext_Poly:
+class Stencil_Gen:
     """
-    An extrapolation polynomial constructed from a set of boundary conditions.
-    This extrapolation is as a function of x.
+    Modified stencils for an immersed boundary at which a set of boundary conditions
+    are to be imposed.
     """
 
-    def __init__(self, s_o, n_pts):
-
+    def __init__(self, s_o):
+        self._s_o = s_o
         self._x = sp.IndexedBase('x')  # Arbitrary values of x
         self._u_x = sp.IndexedBase('u_x')  # Respective values of the function
 
         self._a = sp.IndexedBase('a')
-
         self._n, self._n_max = sp.symbols('n, n_max')  # Maximum polynomial order
 
-        self._s_o = s_o
-        self._n_pts = n_pts
+        self._x_b, self._x_r, self._x_l = sp.symbols('x_b, x_r, x_l')
+        self._x_c = sp.symbols('x_c')  # Continuous x
 
     @property
     def space_order(self):
@@ -29,24 +28,9 @@ class Ext_Poly:
         return self._s_o
 
     @property
-    def n_pts(self):
-        """The number of points available to the extrapolation"""
-        return self._n_pts
-
-    @property
-    def x(self):
-        """The indexed base for arbitrary values of x"""
-        return self._x
-
-    @property
-    def u_x(self):
-        """Corresponding function values for arbitrary values of x"""
-        return self._u_x
-
-    @property
-    def a(self):
-        """The polynomial coefficients for the extrapolation"""
-        return self._a
+    def x_b(self):
+        """The generic boundary position"""
+        return self._x_b
 
     def u(self, val, deriv=0):
         """Returns specified derivative of a polynomial of a given order"""
@@ -58,22 +42,24 @@ class Ext_Poly:
         """Add list of boundary condtions using u"""
         self._bcs = bc_list
 
-    def coeff_gen(self):
+    def _coeff_gen(self, n_pts, bcs=None):
         """Generate the polynomial coefficients for the specification"""
-        n_bcs = len(self._bcs)
-        n_p_used = min(max(self._s_o - n_bcs + 1, 1), self._n_pts)  # Number of points used for the polynomial
+        if bcs is None:
+            bcs = self._bcs
+        n_bcs = len(bcs)
+        n_p_used = min(max(self._s_o - n_bcs + 1, 1), n_pts)  # Number of points used for the polynomial
 
         poly_order = n_bcs + n_p_used - 1
 
         # Generate additional equations for each point used
         eq_list = [sp.Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
 
-        short_bcs = self._bcs.copy()
+        short_bcs = bcs.copy()
         main_bcs = [None for i in range(len(short_bcs))]
-        for i in range(len(self._bcs)):
-            main_bcs[i] = sp.Eq(self._bcs[i].lhs.subs(self._n_max, poly_order).doit(), self._bcs[i].rhs)
+        for i in range(len(bcs)):
+            main_bcs[i] = sp.Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
         poly_order -= main_bcs.count(sp.Eq(0, 0))  # Truncate illegible bcs
-        equations = self._bcs + eq_list
+        equations = bcs + eq_list
 
         for i in range(len(equations)):
             equations[i] = sp.Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
@@ -82,27 +68,34 @@ class Ext_Poly:
 
         return sp.solve(equations, solve_variables)
 
+    def _stencils(self):
+        """
+        Generate all possible polynomial variants required given the order of the
+        spatial discretization and a list of boundary conditions. There will be
+        a single polynomial generated for the independent case, and
+        one for each unified case as available points are depleted.
+        """
+        n_bcs = len(self._bcs)
 
-class Ext_Variations:
-    """
-    All possible polynomial variants required given the order of the spatial
-    discretization and a list of boundary conditions. There will be
-    a single polynomial generated for the independent case, and
-    one for each unified case as available points are depleted.
-    """
+        # Initialise list for storing polynomials
+        ds_poly = []
+        # Set up ds_bc_list
+        ds_bc_list = []
+        for i in range(n_bcs):
+            ds_bc_list.append(self._bcs[i].subs(self._x_b, self._x_l))
+            ds_bc_list.append(self._bcs[i].subs(self._x_b, self._x_r))
 
+        for i in range(1, self._s_o - n_bcs + 1):
+            ds_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1 - i,
+                                             bcs=ds_bc_list)
+            print(ds_poly_coeffs)
+            ds_poly_i = 0
+            for j in range(len(ds_poly_coeffs)):
+                ds_poly_i += ds_poly_coeffs[self._a[j]]*self._x_c**j
+            ds_poly.append(ds_poly_i)
 
-class Stencil_Gen:
-    """
-    Modified stencils for an immersed boundary at which a set of boundary conditions
-    are to be imposed.
-    """
-
-    def __init__(self, bc_list, s_o):
-        self._bc_list = bc_list
-        self._s_o = s_o
-
-    @property
-    def space_order(self):
-        """The formal order of the stencils"""
-        return self._s_o
+        ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
+        ss_poly = 0
+        for i in range(len(ss_poly_coeffs)):
+            ss_poly += ss_poly_coeffs[self._a[i]]*self._x_c**i
+        return ss_poly, ds_poly
