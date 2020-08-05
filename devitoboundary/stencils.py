@@ -4,7 +4,7 @@ order.
 """
 import numpy as np
 import sympy as sp
-from devito import Eq
+# TODO: Replace the Eq and solve with Devito versions
 # TODO: Add exceptions where necessary
 
 
@@ -117,17 +117,17 @@ class Stencil_Gen:
         poly_order = n_bcs + n_p_used - 1
 
         # Generate additional equations for each point used
-        eq_list = [Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
+        eq_list = [sp.Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
 
         short_bcs = bcs.copy()
         main_bcs = [None for i in range(len(short_bcs))]
         for i in range(len(bcs)):
-            main_bcs[i] = Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
-        poly_order -= main_bcs.count(Eq(0, 0))  # Truncate illegible bcs
+            main_bcs[i] = sp.Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
+        poly_order -= main_bcs.count(sp.Eq(0, 0))  # Truncate illegible bcs
         equations = bcs + eq_list
 
         for i in range(len(equations)):
-            equations[i] = Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
+            equations[i] = sp.Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
 
         solve_variables = tuple(self._a[i] for i in range(poly_order+1))
 
