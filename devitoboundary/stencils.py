@@ -355,6 +355,6 @@ class Stencil_Gen:
                                                            (self._eta_r, sub_r)])
         coeffs = np.empty(self._s_o+1)
         for i in range(self._s_o+1):
-            coeffs[i] = stencil.coeff(self._f[i-int(self._s_o/2)], 1)
+            coeffs[i] = float(stencil.coeff(self._f[i-int(self._s_o/2)], 1))
 
         return coeffs
