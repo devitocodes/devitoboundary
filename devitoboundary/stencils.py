@@ -5,12 +5,48 @@ order.
 import numpy as np
 import sympy as sp
 # TODO: Replace the Eq and solve with Devito versions
+# TODO: Add exceptions where necessary
 
 
 class Stencil_Gen:
     """
+    Stencil_Gen(space_order)
+
     Modified stencils for an immersed boundary at which a set of boundary conditions
     are to be imposed.
+
+    Parameters
+    ----------
+    space_order : int
+        The order of the desired spatial discretization.
+
+    Attributes
+    ----------
+    stencil_list : list
+        A nested list of possible stencil variants. Indexed by [left variant],
+        [right variant]. A variant is the number of half grid increments by
+        which the stencil is truncated by the boundary.
+    space_order : int
+        The order of the stencils.
+    x_b : Sympy symbol
+        The generic boundary position to be used for specifying boundary
+        conditions.
+
+    Methods
+    -------
+    u(val, deriv=0)
+        The generic function, to be used for specifying bounday conditions.
+    add_bcs(bc_list)
+        Add a list of boundary conditions constructed using u and x_b. Must be
+        called before all_variants() and subs().
+    all_variants(deriv)
+        Calculate the stencil coefficients of all possible stencil variants
+        required for a given derivative. Must be called before subs().
+    subs(eta_l=None, eta_r=None)
+        Obtain a numpy array of the stencil coefficients given values of eta_l
+        and eta_r. This is the offset between the central stencil point and
+        the boundary on the respective side. As such eta_l should always be
+        negative and eta_r positive.
     """
 
     def __init__(self, s_o):
@@ -44,13 +80,31 @@ class Stencil_Gen:
         return self._x_b
 
     def u(self, val, deriv=0):
-        """Returns specified derivative of a polynomial of a given order"""
+        """
+        Returns specified derivative of the extrapolations polynomial. To be used
+        for specification of boundary conditions.
+
+        Parameters
+        ----------
+        val : Sympy symbol
+            The variable of the function. Should typically be x_b.
+        deriv : int
+            The order of the derivative. Default is zero.
+        """
         x_poly = sp.symbols('x_poly')
         polynomial = sp.Sum(self._a[self._n]*x_poly**self._n, (self._n, 0, self._n_max))
         return sp.diff(polynomial, x_poly, deriv).subs(x_poly, val)
 
     def add_bcs(self, bc_list):
-        """Add list of boundary condtions using u"""
+        """
+        Add a list of boundary conditions. These conditions should be formed as
+        devito Eq objects equating some u(x_b) to a given value.
+
+        Parameters
+        ----------
+        bc_list : list
+            The list of boundary conditions.
+        """
         self._bcs = bc_list
 
     def _coeff_gen(self, n_pts, bcs=None):
@@ -111,10 +165,15 @@ class Stencil_Gen:
         self._i_poly_variants = ss_poly
         self._u_poly_variants = ds_poly
 
-    def _all_variants(self, deriv):
+    def all_variants(self, deriv):
         """
-        Calculate the stencil coefficients for all possible stencil variants of
-        a given derivative and space order.
+        Calculate the stencil coefficients of all possible stencil variants
+        required for a given derivative.
+
+        Parameters
+        ----------
+        deriv : int
+            The derivative for which stencils should be calculated
         """
         self._f = sp.IndexedBase('f')
         self._h_x = sp.symbols('h_x')
@@ -251,8 +310,28 @@ class Stencil_Gen:
 
     def subs(self, eta_l=None, eta_r=None):
         """
-        Given eta values, return the correct stencil coefficients as a numpy array.
+        Obtain a numpy array of the stencil coefficients given values of eta_l
+        and eta_r. This is the offset between the central stencil point and
+        the boundary on the respective side. As such eta_l should always be
+        negative and eta_r positive.
+
+        Parameters
+        ----------
+        eta_l : float
+            The offset between the center of the stencil and the left side
+            boundary, measured in grid increments. Should always be negative.
+            Default is None.
+        eta_r : float
+            The offset between the center of the stencil and the right side
+            boundary, measured in grid increments. Should always be positive.
+            Default is None
+
+        Returns
+        -------
+        coeffs : ndarray
+            An array of the stencil coefficients for these eta values.
         """
+
         # Need to catch eta_l or eta_r having wrong signs
         # Need to catch any points exactly on the boundary that slip through the net
 
@@ -274,11 +353,8 @@ class Stencil_Gen:
 
         stencil = self._stencil_list[dist_l][dist_r].subs([(self._eta_l, sub_l),
                                                            (self._eta_r, sub_r)])
-        print(eta_l, eta_r)
-        print(stencil)
         coeffs = np.empty(self._s_o+1)
         for i in range(self._s_o+1):
             coeffs[i] = stencil.coeff(self._f[i-int(self._s_o/2)], 1)
-        print(coeffs, "\n")
 
-        # Change this to a return
+        return coeffs
