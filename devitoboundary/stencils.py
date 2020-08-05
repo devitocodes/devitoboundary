@@ -4,8 +4,7 @@ order.
 """
 import numpy as np
 import sympy as sp
-# TODO: Replace the Eq and solve with Devito versions
-# TODO: Add exceptions where necessary
+from devito import Eq
 
 
 class Stencil_Gen:
@@ -117,17 +116,17 @@ class Stencil_Gen:
         poly_order = n_bcs + n_p_used - 1
 
         # Generate additional equations for each point used
-        eq_list = [sp.Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
+        eq_list = [Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
 
         short_bcs = bcs.copy()
         main_bcs = [None for i in range(len(short_bcs))]
         for i in range(len(bcs)):
-            main_bcs[i] = sp.Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
-        poly_order -= main_bcs.count(sp.Eq(0, 0))  # Truncate illegible bcs
+            main_bcs[i] = Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
+        poly_order -= main_bcs.count(Eq(0, 0))  # Truncate illegible bcs
         equations = bcs + eq_list
 
         for i in range(len(equations)):
-            equations[i] = sp.Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
+            equations[i] = Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
 
         solve_variables = tuple(self._a[i] for i in range(poly_order+1))
 
@@ -332,13 +331,12 @@ class Stencil_Gen:
             An array of the stencil coefficients for these eta values.
         """
 
-        # Need to catch eta_l or eta_r having wrong signs
-        # Need to catch any points exactly on the boundary that slip through the net
-
         if eta_l is None or abs(eta_l) > self._s_o/2:
             dist_l = 0
             sub_l = 0  # Placeholder to stop subs() encountering None
         else:
+            if eta_l >= 0:
+                raise ValueError("eta_l must be negative. Current value is %.2f" % eta_l)
             # Turn eta into the relevent le index in the stencil list
             dist_l = self._s_o - np.ceil(abs(eta_l)*2).astype(np.int) + 1
             sub_l = eta_l
@@ -347,7 +345,9 @@ class Stencil_Gen:
             dist_r = 0
             sub_r = 0  # Placeholder to stop subs() encountering None
         else:
-            # Turn eta into the relevent le index in the stencil list
+            if eta_r <= 0:
+                raise ValueError("eta_r must be positive. Current value is %.2f" % eta_r)
+            # Turn eta into the relevent ri index in the stencil list
             dist_r = self._s_o - np.ceil(eta_r*2).astype(np.int) + 1
             sub_r = eta_r
 
