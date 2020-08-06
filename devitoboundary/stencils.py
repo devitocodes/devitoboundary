@@ -177,6 +177,9 @@ class Stencil_Gen:
         self._f = sp.IndexedBase('f')
         self._h_x = sp.symbols('h_x')
         self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')
+
+        # Want to check the json here for the relevent nested list
+
         # Want to start by calculating standard stencil expansions
         base_coeffs = sp.finite_diff_weights(deriv,
                                              range(-int(self._s_o/2), int(self._s_o/2)+1),
@@ -259,7 +262,7 @@ class Stencil_Gen:
                         else:
                             l_poly = None
 
-                    else:
+                    elif self._s_o >= 4:
                         # Available points for unified polynomial construction
                         a_p_uni = self._s_o + 1 - right_u - left_u
                         # Special case when points available for unified polynomial are zero (or smaller)
@@ -303,6 +306,42 @@ class Stencil_Gen:
                             for n in range(left_o):
                                 stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
                                                                    u_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
+                    else:
+                        # Order 2 edge case (use separate polynomials)
+                        # For order 2, the double sided polynomial is never needed.
+                        # Right side polynomial
+                        r_poly = self._i_poly_variants
+
+                        # Substitute in correct values of x and u_x
+                        r_poly = r_poly.subs([(self._u_x[0], self._f[0]),
+                                              (self._x[0], 0)])
+
+                        # If ri is 2, then set eta_r to 0.5*h_x
+                        if ri == 2:
+                            r_poly = r_poly.subs(self._x_b, 0.5*self._h_x)
+                        else:
+                            r_poly = r_poly.subs(self._x_b, self._eta_r*self._h_x)
+
+                        for n in range(right_o):
+                            stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
+                                                               r_poly.subs(self._x_c, (int(self._s_o/2)-n)*self._h_x))
+
+                        # Left side polynomial
+                        l_poly = self._i_poly_variants
+
+                        # Substitute in correct values of x and u_x
+                        l_poly = l_poly.subs([(self._u_x[0], self._f[0]),
+                                              (self._x[0], 0)])
+
+                        # If le is 2, then set eta_r to 0.5*h_x
+                        if le == 2:
+                            l_poly = l_poly.subs(self._x_b, -0.5*self._h_x)
+                        else:
+                            l_poly = l_poly.subs(self._x_b, self._eta_l*self._h_x)
+
+                        for n in range(left_o):
+                            stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
+                                                               l_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
                 else:
                     stencil_entry = base_stencil
                 self._stencil_list[le][ri] = sp.simplify(stencil_entry)
