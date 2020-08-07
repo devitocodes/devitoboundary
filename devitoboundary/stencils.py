@@ -5,6 +5,8 @@ order.
 import numpy as np
 import sympy as sp
 from devito import Eq
+# TODO: Allow for stencil lists for each derivative rather than having a single
+#       global list.
 
 
 class Stencil_Gen:
