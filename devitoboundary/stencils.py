@@ -61,6 +61,10 @@ class Stencil_Gen:
         self._x_b, self._x_r, self._x_l = sp.symbols('x_b, x_r, x_l')
         self._x_c = sp.symbols('x_c')  # Continuous x
 
+        self._f = sp.IndexedBase('f')  # Function values at particular points
+        self._h_x = sp.symbols('h_x')  # Grid spacing
+        self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')  # Distance to boundary
+
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
@@ -176,9 +180,6 @@ class Stencil_Gen:
         deriv : int
             The derivative for which stencils should be calculated
         """
-        self._f = sp.IndexedBase('f')
-        self._h_x = sp.symbols('h_x')
-        self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')
 
         # Want to check the json here for the relevent nested list
 
