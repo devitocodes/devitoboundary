@@ -69,6 +69,8 @@ class Stencil_Gen:
         self._i_poly_variants = None
         self._u_poly_variants = None
 
+        self._stencil_dict = {}
+
     @property
     def stencil_list(self):
         """The list of all possible stencils"""
@@ -348,6 +350,8 @@ class Stencil_Gen:
                 else:
                     stencil_entry = base_stencil
                 self._stencil_list[le][ri] = sp.simplify(stencil_entry)
+
+        self._stencil_dict[str(self._bcs)+str(self._s_o)] = self._stencil_list
 
     def subs(self, eta_l=None, eta_r=None):
         """
