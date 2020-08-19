@@ -5,13 +5,15 @@ order.
 import numpy as np
 import sympy as sp
 from devito import Eq
+import pickle
+import warnings
 # TODO: Allow for stencil lists for each derivative rather than having a single
 #       global list.
 
 
 class Stencil_Gen:
     """
-    Stencil_Gen(space_order)
+    Stencil_Gen(space_order, stencil_file=None)
 
     Modified stencils for an immersed boundary at which a set of boundary conditions
     are to be imposed.
@@ -20,6 +22,8 @@ class Stencil_Gen:
     ----------
     space_order : int
         The order of the desired spatial discretization.
+    stencil_file : str
+        The filepath of the stencil cache.
 
     Attributes
     ----------
@@ -50,7 +54,7 @@ class Stencil_Gen:
         negative and eta_r positive.
     """
 
-    def __init__(self, s_o):
+    def __init__(self, s_o, stencil_file=None):
         self._s_o = s_o
         self._x = sp.IndexedBase('x')  # Arbitrary values of x
         self._u_x = sp.IndexedBase('u_x')  # Respective values of the function
@@ -68,8 +72,16 @@ class Stencil_Gen:
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
-
-        self._stencil_dict = {}
+         
+        if stencil_file is None:
+            self._stencil_dict = {}
+        else:
+            with open(stencil_file, 'rb') as f:
+                stencils = pickle.load(f)
+                if not isinstance(stencils, dict):
+                    raise TypeError("Specified file does not contain a dictionary")
+                self._stencil_dict = stencils
+        self._stencil_file = stencil_file
 
     @property
     def stencil_list(self):
@@ -172,7 +184,42 @@ class Stencil_Gen:
         self._i_poly_variants = ss_poly
         self._u_poly_variants = ds_poly
 
-    def all_variants(self, deriv):
+    def all_variants(self, deriv, stencil_out=None):
+        """
+        Calculate the stencil coefficients of all possible stencil variants
+        required for a given derivative.
+
+        Parameters
+        ----------
+        deriv : int
+            The derivative for which stencils should be calculated
+        stencil_out : str
+            The filepath to where the stencils should be cached. This will
+            default to the filepath set at initialization. If this is not done,
+            the filepath supplied here will be used. If both are missing,
+            then stencils will not be cached.
+        """
+
+        try:
+            self._stencil_list = self._stencil_dict[str(self._bcs)+str(self._s_o)+str(deriv)+'ns']
+        except KeyError:
+            if stencil_out is None and self._stencil_file is None:
+                warnings.warn("No file specified for caching generated stencils.")
+            if stencil_out is not None and self._stencil_file is not None:
+                warnings.warn("File already specified for caching stencils. Defaulting to {}".format(self._stencil_file))
+            
+            warnings.warn("Generating new stencils, this may take some time.")
+            self._all_variants(deriv)
+
+            if self._stencil_file is not None:
+                with open(self._stencil_file, 'wb') as f:
+                    pickle.dump(self._stencil_dict, f)
+            elif stencil_out is not None:
+                with open(stencil_out, 'wb') as f:
+                    pickle.dump(self._stencil_dict, f)
+
+
+    def _all_variants(self, deriv):
         """
         Calculate the stencil coefficients of all possible stencil variants
         required for a given derivative.
@@ -351,7 +398,7 @@ class Stencil_Gen:
                     stencil_entry = base_stencil
                 self._stencil_list[le][ri] = sp.simplify(stencil_entry)
 
-        self._stencil_dict[str(self._bcs)+str(self._s_o)] = self._stencil_list
+        self._stencil_dict[str(self._bcs)+str(self._s_o)+str(deriv)+'ns'] = self._stencil_list
 
     def subs(self, eta_l=None, eta_r=None):
         """
