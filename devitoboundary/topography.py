@@ -153,19 +153,10 @@ class ImmersedBoundarySurface(GenericSurface):
         Array of topography points grouped as [[x, y, z], [x, y, z], ...]
     functions : tuple of Devito Function or TimeFunction objects
         The function(s) to which the boundary is to be attached.
-    behaviours: tuple
-        The respective behaviours which each function wants to display at the
-        boundary (e.g. 'antisymmetric_mirror').
     """
 
-    def __init__(self, boundary_data, functions, behaviours):
+    def __init__(self, boundary_data, functions):
         super().__init__(boundary_data, functions)
-        assert isinstance(behaviours, tuple), "Behaviours must be supplied as tuple"
-        supported_behaviours = ('antisymmetric_mirror',)
-        for behaviour in behaviours:
-            if behaviour not in supported_behaviours:
-                raise NotImplementedError('%s is not a supported behaviour' % behaviour)
-        self._behaviours = behaviours
 
         self._node_id()
         self._distance_calculation()
