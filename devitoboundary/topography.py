@@ -14,7 +14,7 @@ from scipy.interpolate import griddata
 from sympy import finite_diff_weights, Max
 from devito import Function, Dimension, Substitutions, Coefficient, TimeFunction, Eq, Operator, Grid
 from devito.tools import as_tuple
-from devitoboundary import PolySurface
+from devitoboundary import PolySurface, Stencil_Gen
 from mpl_toolkits.mplot3d import Axes3D
 
 __all__ = ['GenericSurface', 'ImmersedBoundarySurface']
@@ -153,10 +153,19 @@ class ImmersedBoundarySurface(GenericSurface):
         Array of topography points grouped as [[x, y, z], [x, y, z], ...]
     functions : tuple of Devito Function or TimeFunction objects
         The function(s) to which the boundary is to be attached.
+    stencil_file : str
+        The file where a cache of stencils is stored. If none provided, then
+        any stencils will be calculated from scratch. Default is None.
     """
 
-    def __init__(self, boundary_data, functions):
+    def __init__(self, boundary_data, functions, stencil_file=None):
         super().__init__(boundary_data, functions)
+        # Want to create an appropriately named Stencil_Gen for each function
+        # Store these in a dictionary
+        self.stencils = {}
+        for function in functions:
+            self.stencils[function.name] = Stencil_Gen(function.space_order,
+                                                       stencil_file=stencil_file)
 
         self._node_id()
         self._distance_calculation()
@@ -243,6 +252,51 @@ class ImmersedBoundarySurface(GenericSurface):
             else:
                 raise OSError("Invalid filepath.")
         plt.show()
+
+    def x_b(self, function):
+        """
+        The boundary position used for specifying boundary conditions.
+        Shortcut for self.stencils[function.name].x_b
+
+        Parameters
+        ----------
+        function : Devito function
+            The function to which x_b refers
+        """
+        return self.stencils[function.name].x_b
+
+    def u(self, function, x, deriv=0):
+        """
+        The generic function for specifying boundary conditions.
+        Shortcut for self.stencils[function.name].u(x, deriv)
+
+        Parameters
+        ----------
+        function : Devito function
+            The function which u represents
+        x : sympy symbol
+            The variable used for the boundary condtion (should
+            always be x_b)
+        deriv : int
+            The order of the derivative of the function. Default
+            is zero (no derivative taken)
+        """
+        return self.stencils[function.name].u(x, deriv)
+
+    def add_bcs(self, function, bc_list):
+        """
+        Attatch boundary conditions to be imposed on the specified function on
+        the boundary surface.
+
+        Parameters
+        ----------
+        function : Devito function
+            The function to attach the boundary conditions to.
+        bc_list : list of Devito Eq objects
+            The set of boundary conditions, specified in terms of 'u' and
+            'x_b'
+        """
+        self.stencils[function.name].add_bcs(bc_list)
 
     def _generate_coefficients(self, node, deriv_order):
         """
