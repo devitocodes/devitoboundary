@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 
 from devitoboundary import ImmersedBoundarySurface
-from devito import Grid, TimeFunction
+from devito import Grid, TimeFunction, Eq
 from sys import setrecursionlimit
 
 setrecursionlimit(3000)
 
 # Topography config
-SUBSAMPLE = 2  # 5
+SUBSAMPLE = 5  # 5
 PMLS = 0
 
 VP = 1.2
@@ -60,7 +60,15 @@ surface_z = realistic_func(surface_x, surface_y)
 
 surface_data = np.vstack((surface_x.flatten(), surface_y.flatten(), surface_z.flatten())).T
 
-surface = ImmersedBoundarySurface(surface_data, (u,), ('antisymmetric_mirror',))
+surface = ImmersedBoundarySurface(surface_data, (u,), stencil_file='test_cache.dat')
+
+# Zero even derivatives on the boundary
+bc_0 = Eq(surface.u(u, surface.x_b(u)), 0)
+bc_2 = Eq(surface.u(u, surface.x_b(u), 2), 0)
+bcs = [bc_0, bc_2]
+
+surface.add_bcs(u, bcs)
+
 surface.plot_boundary()
 
 # boundary_obj.plot_nodes(save=True, save_path="images/boundary_plot")

@@ -9,9 +9,11 @@ import pickle
 import warnings
 # TODO: Allow for stencil lists for each derivative rather than having a single
 #       global list.
+# Currently cannot calculate first and second derivative stencils for the same function
 
+__all__ = ['StencilGen']
 
-class Stencil_Gen:
+class StencilGen:
     """
     Stencil_Gen(space_order, stencil_file=None)
 
@@ -69,6 +71,7 @@ class Stencil_Gen:
         self._h_x = sp.symbols('h_x')  # Grid spacing
         self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')  # Distance to boundary
 
+        self._bc_list = None
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
@@ -82,6 +85,11 @@ class Stencil_Gen:
                     raise TypeError("Specified file does not contain a dictionary")
                 self._stencil_dict = stencils
         self._stencil_file = stencil_file
+
+    @property
+    def bc_list(self):
+        """The list of boundary conditions"""
+        return self._bc_list
 
     @property
     def stencil_list(self):

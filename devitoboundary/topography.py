@@ -14,7 +14,7 @@ from scipy.interpolate import griddata
 from sympy import finite_diff_weights, Max
 from devito import Function, Dimension, Substitutions, Coefficient, TimeFunction, Eq, Operator, Grid
 from devito.tools import as_tuple
-from devitoboundary import PolySurface, Stencil_Gen
+from devitoboundary import PolySurface, StencilGen
 from mpl_toolkits.mplot3d import Axes3D
 
 __all__ = ['GenericSurface', 'ImmersedBoundarySurface']
@@ -164,8 +164,8 @@ class ImmersedBoundarySurface(GenericSurface):
         # Store these in a dictionary
         self.stencils = {}
         for function in functions:
-            self.stencils[function.name] = Stencil_Gen(function.space_order,
-                                                       stencil_file=stencil_file)
+            self.stencils[function.name] = StencilGen(function.space_order,
+                                                      stencil_file=stencil_file)
 
         self._node_id()
         self._distance_calculation()
@@ -214,6 +214,7 @@ class ImmersedBoundarySurface(GenericSurface):
         node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
         # vstack these
         boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
+        print(boundary_nodes)
         # Query boundary nodes for distances
         axial_distances = self.query(boundary_nodes, index_input=True)
         # Set distances as variables
@@ -297,6 +298,57 @@ class ImmersedBoundarySurface(GenericSurface):
             'x_b'
         """
         self.stencils[function.name].add_bcs(bc_list)
+
+    def has_bcs(self, function):
+        """
+        Checks that a function attatched to the boundary has boundary
+        conditions.
+
+        Parameters
+        ----------
+        function : Devito function
+            The function to be checked
+
+        Returns
+        -------
+        bc_bool : bool
+            True if the specified function has boundary conditions
+            attatched.
+        """
+        if self.stencils[function.name].bc_list is None:
+            return False
+        return True
+
+    def _calculate_stencils(self, function, deriv, stencil_out=None):
+        """
+        Calculate or retrieve the set of stencils required for the specified
+        derivative and function.
+        """
+        if not has_bcs(function):
+            raise RuntimeError("Function has no boundary conditions set")
+        self.stencils[function.name].all_variants(deriv, stencil_out=stencil_out)
+        # May get odd behaviour if calling this function for multiple different
+        # derivatives of the same function repeatedly.
+
+    def subs(self, spec, stencil_out=None):
+        """
+        Return a Substitutions object for all stencil modifications associated
+        with the boundary, given the derivatives specified.
+
+        Parameters
+        ----------
+        spec : dict
+            Dictionary containing pairs of functions and their derivatives.
+            E.g. {u : 2, v : 1} for second derivative of u and first of v.
+        stencil_out : str
+            Filepath to cache stencils if no file was specified for caching
+            at initialisation. Default is None (no caching)
+        """
+        # subs({u : 1, u : 2, v : 1})
+        # Unpack the dictionary
+        for function in spec:
+            # Do the thing on every pair in the dictionary
+            print(spec[function])
 
     def _generate_coefficients(self, node, deriv_order):
         """
