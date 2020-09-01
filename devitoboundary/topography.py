@@ -8,6 +8,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import warnings
 
 from scipy.spatial import Delaunay
 from scipy.interpolate import griddata
@@ -179,9 +180,6 @@ class ImmersedBoundarySurface(GenericSurface):
 
         print('Node ID started')
         positive_mask = self.fd_node_sides()
-        plt.imshow(positive_mask[:, 10])
-        plt.colorbar()
-        plt.show()
 
         m_size = int(self._functions[0].space_order/2)
 
@@ -226,12 +224,8 @@ class ImmersedBoundarySurface(GenericSurface):
         self._yn_dist = axial_distances[2]
         self._xp_dist = axial_distances[3]
         self._xn_dist = axial_distances[4]
-        # print(self._boundary_data)
-        # print(self._z_dist)
-        # print(self._yp_dist)
-        # print(self._yn_dist)
-        # print(self._xp_dist)
-        # print(self._xn_dist)
+
+        # FIXME: Occasionally z_dist contains nan (which shouldn't be the case)
 
     def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """
@@ -393,7 +387,41 @@ class ImmersedBoundarySurface(GenericSurface):
             # Loop over set of points
             # Call self.stencils[function.name].subs() for each dimension for each modified point
             for i in range(self._boundary_nodes.shape[0]):
-                print("This is a node")
+                pos_x = self._boundary_nodes[i, 0]
+                pos_y = self._boundary_nodes[i, 1]
+                pos_z = self._boundary_nodes[i, 2]
+                if not np.isnan(self._z_dist[i]):
+                    weights[function.name+"_z"].data[pos_x, pos_y, pos_z] \
+                        = self.stencils[function.name].subs(eta_r=self._z_dist[i]) 
+                else:
+                    warnings.warn("Encountered missing z distance during stencil generation.")
+
+                if not np.isnan(self._yp_dist[i]) or not np.isnan(self._yn_dist[i]):
+                    if np.isnan(self._yp_dist[i]):
+                        eta_r = None
+                    else:
+                        eta_r = self._yp_dist[i]
+                    if np.isnan(self._yn_dist[i]):
+                        eta_l = None
+                    else:
+                        eta_l = self._yn_dist[i]
+                    
+                    weights[function.name+"_y"].data[pos_x, pos_y, pos_z] \
+                        = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
+
+                if not np.isnan(self._xp_dist[i]) or not np.isnan(self._xn_dist[i]):
+                    if np.isnan(self._xp_dist[i]):
+                        eta_r = None
+                    else:
+                        eta_r = self._xp_dist[i]
+                    if np.isnan(self._xn_dist[i]):
+                        eta_l = None
+                    else:
+                        eta_l = self._xn_dist[i]
+                    
+                    weights[function.name+"_x"].data[pos_x, pos_y, pos_z] \
+                        = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
+
 
 
     def _generate_coefficients(self, node, deriv_order):
