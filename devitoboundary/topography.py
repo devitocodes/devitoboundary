@@ -179,6 +179,9 @@ class ImmersedBoundarySurface(GenericSurface):
 
         print('Node ID started')
         positive_mask = self.fd_node_sides()
+        plt.imshow(positive_mask[:, 10])
+        plt.colorbar()
+        plt.show()
 
         m_size = int(self._functions[0].space_order/2)
 
@@ -200,9 +203,8 @@ class ImmersedBoundarySurface(GenericSurface):
 
         detect_op = Operator([detect_eq], name='DetectBoundary')
         detect_op.apply(time_M=1)
-
-        edge_mask = np.sign(edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size])
-
+        # 1e-9 deals with floating point errors
+        edge_mask = (edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size] > 1e-9)
         self._boundary_node_mask = np.logical_and(positive_mask, edge_mask)
 
     def _distance_calculation(self):
@@ -213,22 +215,30 @@ class ImmersedBoundarySurface(GenericSurface):
         # Node x, y, and z indices
         node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
         # vstack these
-        boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
-        print(boundary_nodes)
+        self._boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
+        
+        print(self._boundary_nodes)
         # Query boundary nodes for distances
-        axial_distances = self.query(boundary_nodes, index_input=True)
+        axial_distances = self.query(self._boundary_nodes, index_input=True)
         # Set distances as variables
         self._z_dist = axial_distances[0]
         self._yp_dist = axial_distances[1]
         self._yn_dist = axial_distances[2]
         self._xp_dist = axial_distances[3]
         self._xn_dist = axial_distances[4]
+        # print(self._boundary_data)
+        # print(self._z_dist)
+        # print(self._yp_dist)
+        # print(self._yn_dist)
+        # print(self._xp_dist)
+        # print(self._xn_dist)
 
     def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
         """
         Plots the boundary surface and the nodes identified as needing modification
         to their weights.
         """
+        # FIXME: Super outdated. Currently doesn't work
 
         fig = plt.figure()
         plot_axes = fig.add_subplot(111, projection='3d')
@@ -344,11 +354,47 @@ class ImmersedBoundarySurface(GenericSurface):
             Filepath to cache stencils if no file was specified for caching
             at initialisation. Default is None (no caching)
         """
-        # subs({u : 1, u : 2, v : 1})
+        # Dictionary to store weight functions for each function
+        weights = {}
+
+        s_dim = Dimension(name='s')
+        ncoeffs = self._method_order+1
+
+        wshape = self._shape + (ncoeffs,)
+        wdims = self._dimensions + (s_dim,)
+
+        # Can't have two derivatives of the same function due to matching keys
         # Unpack the dictionary
         for function in spec:
-            # Do the thing on every pair in the dictionary
-            print(spec[function])
+            # Loop over every item in the dictionary
+            self._calculate_stencils(function, spec[function], stencil_out=stencil_out)
+
+            # Set up weight functions for this function
+            weights[function.name+"_x"] = Function(name=function.name+"_w_x",
+                                                   dimensions=wdims,
+                                                   shape=wshape)
+            weights[function.name+"_y"] = Function(name=function.name+"_w_y",
+                                                   dimensions=wdims,
+                                                   shape=wshape)
+            weights[function.name+"_z"] = Function(name=function.name+"_w_z",
+                                                   dimensions=wdims,
+                                                   shape=wshape)
+
+            # Initialise function data with standard FD weights
+
+            # Construct standard stencils
+            std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
+            std_coeffs = np.array(std_coeffs)
+
+            weights[function.name+"_x"].data[:, :, :] = std_coeffs[:]
+            weights[function.name+"_y"].data[:, :, :] = std_coeffs[:]
+            weights[function.name+"_z"].data[:, :, :] = std_coeffs[:]
+
+            # Loop over set of points
+            # Call self.stencils[function.name].subs() for each dimension for each modified point
+            for i in range(self._boundary_nodes.shape[0]):
+                print("This is a node")
+
 
     def _generate_coefficients(self, node, deriv_order):
         """
