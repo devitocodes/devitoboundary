@@ -216,6 +216,7 @@ class ImmersedBoundarySurface(GenericSurface):
         self._boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
         
         print(self._boundary_nodes)
+        print(self._boundary_nodes.shape[0])
         # Query boundary nodes for distances
         axial_distances = self.query(self._boundary_nodes, index_input=True)
         # Set distances as variables
@@ -328,7 +329,7 @@ class ImmersedBoundarySurface(GenericSurface):
         Calculate or retrieve the set of stencils required for the specified
         derivative and function.
         """
-        if not has_bcs(function):
+        if not self.has_bcs(function):
             raise RuntimeError("Function has no boundary conditions set")
         self.stencils[function.name].all_variants(deriv, stencil_out=stencil_out)
         # May get odd behaviour if calling this function for multiple different
@@ -348,8 +349,10 @@ class ImmersedBoundarySurface(GenericSurface):
             Filepath to cache stencils if no file was specified for caching
             at initialisation. Default is None (no caching)
         """
-        # Dictionary to store weight functions for each function
-        weights = {}
+        m_size = int(self._functions[0].space_order/2)
+
+        # List to store weight functions for each function
+        weights = []
 
         s_dim = Dimension(name='s')
         ncoeffs = self._functions[0].space_order+1
@@ -378,7 +381,7 @@ class ImmersedBoundarySurface(GenericSurface):
             exterior_mask = np.logical_not(self._positive_mask)
 
             # Construct standard stencils
-            std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
+            std_coeffs = finite_diff_weights(spec[function], range(-m_size, m_size+1), 0)[-1][-1]
             std_coeffs = np.array(std_coeffs)
 
             w_x.data[:, :, :] = std_coeffs[:]
@@ -430,20 +433,20 @@ class ImmersedBoundarySurface(GenericSurface):
             w_z.data[exterior_mask] = 0
 
             # derivative, dimension, function, weights
-            weights[function.name+"_x"] = Coefficient(spec[function],
-                                                      self._grid.dimensions[0],
-                                                      function,
-                                                      w_x)
-            weights[function.name+"_y"] = Coefficient(spec[function],
-                                                      self._grid.dimensions[1],
-                                                      function,
-                                                      w_y)                     
-            weights[function.name+"_z"] = Coefficient(spec[function],
-                                                      self._grid.dimensions[2],
-                                                      function,
-                                                      w_z)
+            weights.append(Coefficient(spec[function],
+                           function,
+                           self._grid.dimensions[0],
+                           w_x))
+            weights.append(Coefficient(spec[function],
+                           function,
+                           self._grid.dimensions[1],
+                           w_y))                     
+            weights.append(Coefficient(spec[function],
+                           function,
+                           self._grid.dimensions[2],
+                           w_z))
 
-        return Substitutions(**weights)
+        return Substitutions(*tuple(weights))
 
     def _generate_coefficients(self, node, deriv_order):
         """

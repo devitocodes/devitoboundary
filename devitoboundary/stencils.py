@@ -71,7 +71,7 @@ class StencilGen:
         self._h_x = sp.symbols('h_x')  # Grid spacing
         self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')  # Distance to boundary
 
-        self._bc_list = None
+        self._bcs = None
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
@@ -89,7 +89,7 @@ class StencilGen:
     @property
     def bc_list(self):
         """The list of boundary conditions"""
-        return self._bc_list
+        return self._bcs
 
     @property
     def stencil_list(self):

@@ -83,10 +83,12 @@ surface.plot_boundary()
 # src.coordinates.data[0, :] = 500
 # src.coordinates.data[0, -1] = 800
 
+# Dictionary of derivatives needed
+deriv = {u : 2}
 
 # We can now write the PDE
-# pde = model.m*u.dt2 - u.laplace + model.damp*u.dt
-# eq = Eq(pde, 0, coefficients=boundary_obj.subs)
+pde = VP*u.dt2 - u.laplace
+eq = Eq(pde, 0, coefficients=surface.subs(deriv))
 
 # stencil = solve(eq.evaluate, u.forward)
 # src_term = src.inject(field=u.forward, expr=src*dt**2/model.m)
