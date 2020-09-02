@@ -179,7 +179,7 @@ class ImmersedBoundarySurface(GenericSurface):
         """
 
         print('Node ID started')
-        positive_mask = self.fd_node_sides()
+        self._positive_mask = self.fd_node_sides()
 
         m_size = int(self._functions[0].space_order/2)
 
@@ -194,7 +194,7 @@ class ImmersedBoundarySurface(GenericSurface):
         edge_detect = TimeFunction(name='edge_detect', grid=padded_grid,
                                    space_order=self._functions[0].space_order)
 
-        edge_detect.data[:] = np.pad(positive_mask, (m_size,), 'edge')
+        edge_detect.data[:] = np.pad(self._positive_mask, (m_size,), 'edge')
 
         # detect_eq = Eq(edge_detect.forward, edge_detect.div)
         detect_eq = Eq(edge_detect.forward, Max(abs(edge_detect.dx), abs(edge_detect.dy), abs(edge_detect.dz)))
@@ -203,7 +203,7 @@ class ImmersedBoundarySurface(GenericSurface):
         detect_op.apply(time_M=1)
         # 1e-9 deals with floating point errors
         edge_mask = (edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size] > 1e-9)
-        self._boundary_node_mask = np.logical_and(positive_mask, edge_mask)
+        self._boundary_node_mask = np.logical_and(self._positive_mask, edge_mask)
 
     def _distance_calculation(self):
         """
@@ -352,10 +352,10 @@ class ImmersedBoundarySurface(GenericSurface):
         weights = {}
 
         s_dim = Dimension(name='s')
-        ncoeffs = self._method_order+1
+        ncoeffs = self._functions[0].space_order+1
 
-        wshape = self._shape + (ncoeffs,)
-        wdims = self._dimensions + (s_dim,)
+        wshape = self._grid.shape + (ncoeffs,)
+        wdims = self._grid.dimensions + (s_dim,)
 
         # Can't have two derivatives of the same function due to matching keys
         # Unpack the dictionary
@@ -364,25 +364,26 @@ class ImmersedBoundarySurface(GenericSurface):
             self._calculate_stencils(function, spec[function], stencil_out=stencil_out)
 
             # Set up weight functions for this function
-            weights[function.name+"_x"] = Function(name=function.name+"_w_x",
-                                                   dimensions=wdims,
-                                                   shape=wshape)
-            weights[function.name+"_y"] = Function(name=function.name+"_w_y",
-                                                   dimensions=wdims,
-                                                   shape=wshape)
-            weights[function.name+"_z"] = Function(name=function.name+"_w_z",
-                                                   dimensions=wdims,
-                                                   shape=wshape)
+            w_x = Function(name=function.name+"_w_x",
+                           dimensions=wdims,
+                           shape=wshape)
+            w_y = Function(name=function.name+"_w_y",
+                           dimensions=wdims,
+                           shape=wshape)
+            w_z = Function(name=function.name+"_w_z",
+                           dimensions=wdims,
+                           shape=wshape)
 
             # Initialise function data with standard FD weights
+            exterior_mask = np.logical_not(self._positive_mask)
 
             # Construct standard stencils
             std_coeffs = finite_diff_weights(deriv_order, range(-m_size, m_size+1), 0)[-1][-1]
             std_coeffs = np.array(std_coeffs)
 
-            weights[function.name+"_x"].data[:, :, :] = std_coeffs[:]
-            weights[function.name+"_y"].data[:, :, :] = std_coeffs[:]
-            weights[function.name+"_z"].data[:, :, :] = std_coeffs[:]
+            w_x.data[:, :, :] = std_coeffs[:]
+            w_y.data[:, :, :] = std_coeffs[:]
+            w_z.data[:, :, :] = std_coeffs[:]
 
             # Loop over set of points
             # Call self.stencils[function.name].subs() for each dimension for each modified point
@@ -391,7 +392,7 @@ class ImmersedBoundarySurface(GenericSurface):
                 pos_y = self._boundary_nodes[i, 1]
                 pos_z = self._boundary_nodes[i, 2]
                 if not np.isnan(self._z_dist[i]):
-                    weights[function.name+"_z"].data[pos_x, pos_y, pos_z] \
+                    w_z.data[pos_x, pos_y, pos_z] \
                         = self.stencils[function.name].subs(eta_r=self._z_dist[i]) 
                 else:
                     warnings.warn("Encountered missing z distance during stencil generation.")
@@ -406,7 +407,7 @@ class ImmersedBoundarySurface(GenericSurface):
                     else:
                         eta_l = self._yn_dist[i]
                     
-                    weights[function.name+"_y"].data[pos_x, pos_y, pos_z] \
+                    w_y.data[pos_x, pos_y, pos_z] \
                         = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
 
                 if not np.isnan(self._xp_dist[i]) or not np.isnan(self._xn_dist[i]):
@@ -419,10 +420,30 @@ class ImmersedBoundarySurface(GenericSurface):
                     else:
                         eta_l = self._xn_dist[i]
                     
-                    weights[function.name+"_x"].data[pos_x, pos_y, pos_z] \
+                    w_x.data[pos_x, pos_y, pos_z] \
                         = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
 
+            # Zero weights in the exterior
+            # weights[function.name+"_x"]
+            w_x.data[exterior_mask] = 0
+            w_y.data[exterior_mask] = 0
+            w_z.data[exterior_mask] = 0
 
+            # derivative, dimension, function, weights
+            weights[function.name+"_x"] = Coefficient(spec[function],
+                                                      self._grid.dimensions[0],
+                                                      function,
+                                                      w_x)
+            weights[function.name+"_y"] = Coefficient(spec[function],
+                                                      self._grid.dimensions[1],
+                                                      function,
+                                                      w_y)                     
+            weights[function.name+"_z"] = Coefficient(spec[function],
+                                                      self._grid.dimensions[2],
+                                                      function,
+                                                      w_z)
+
+        return Substitutions(**weights)
 
     def _generate_coefficients(self, node, deriv_order):
         """
