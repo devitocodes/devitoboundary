@@ -165,6 +165,8 @@ class ImmersedBoundarySurface(GenericSurface):
         # Store these in a dictionary
         self.stencils = {}
         for function in functions:
+            if function.coefficients != 'symbolic':
+                raise ValueError("Function {} does not have symbolic coefficients set".format(function.name))
             self.stencils[function.name] = StencilGen(function.space_order,
                                                       stencil_file=stencil_file)
 
