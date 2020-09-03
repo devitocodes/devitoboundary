@@ -3,10 +3,7 @@ A module for implementation of topography in Devito via the immersed
 boundary method.
 """
 
-from itertools import combinations
-
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import warnings
 
