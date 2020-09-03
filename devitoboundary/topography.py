@@ -235,19 +235,19 @@ class ImmersedBoundarySurface(GenericSurface):
         Plots the boundary surface and the nodes identified as needing modification
         to their weights.
         """
-        # FIXME: Super outdated. Currently doesn't work
 
         fig = plt.figure()
         plot_axes = fig.add_subplot(111, projection='3d')
         if show_boundary:
-            plot_axes.plot_trisurf(self._boundary_data['x'],
-                                   self._boundary_data['y'],
-                                   self._boundary_data['z'] - self._pmls*self._spacing[2],
+            plot_axes.plot_trisurf(self._boundary_data[:, 0],
+                                   self._boundary_data[:, 1],
+                                   self._boundary_data[:, 2],
                                    color='aquamarine')
+
         if show_nodes:
-            plot_axes.scatter(self._modified_nodes['x'],
-                              self._modified_nodes['y'],
-                              self._modified_nodes['z'] - self._pmls*self._spacing[2],
+            plot_axes.scatter(self._boundary_nodes[:, 0]*self._grid.spacing[0],
+                              self._boundary_nodes[:, 1]*self._grid.spacing[1],
+                              self._boundary_nodes[:, 2]*self._grid.spacing[2],
                               marker='^', color='orangered')
         plot_axes.set_xlabel("x")
         plot_axes.set_ylabel("y")
