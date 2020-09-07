@@ -20,7 +20,7 @@ def fsign(val):
         The array to have signs calculated
     """
     # Set tolerance either side of zero
-    TOL = 1e-6
+    TOL = 1e-4
 
     a = np.zeros(np.shape(val), dtype=np.int8)
     a = np.where(val > TOL, 1, a)
