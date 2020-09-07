@@ -10,6 +10,25 @@ from scipy.spatial import Delaunay
 __all__ = ['PolySurface']
 
 
+def fsign(val):
+    """
+    Float-safe analogue of np.sign(),
+
+    Parameters
+    ----------
+    val : ndarray
+        The array to have signs calculated
+    """
+    # Set tolerance either side of zero
+    TOL = 1e-6
+
+    a = np.zeros(np.shape(val), dtype=np.int8)
+    a = np.where(val > TOL, 1, a)
+    a = np.where(val < -TOL, -1, a)
+
+    return a
+
+
 class BSP_Node:
     """
     A node for a binary spatial partition (BSP) tree.
@@ -174,7 +193,8 @@ class BSP_Tree:
             trial_position_vectors = trial_node_vertices - self._vertices[self._simplices[trial_index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(trial_position_vectors, trial_node_equation)
-            trial_node_sides = np.sign(dot_normal.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            # trial_node_sides = np.sign(dot_normal.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
+            trial_node_sides = fsign(dot_normal[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
 
             # The .round() here exists to kill any div by zero errors
             # These come about when a vertex on the plane gets pushed to one halfspace by float errors
@@ -370,23 +390,28 @@ class BSP_Tree:
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                # ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                ns_a1_sides = fsign(np.dot(ns_a1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                # ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                ns_a2_sides = fsign(np.dot(ns_a2_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+                # ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+                ns_a3_sides = fsign(np.dot(ns_a3_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                # ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                ns_b1_sides = fsign(np.dot(ns_b1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+                # ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+                ns_b2_sides = fsign(np.dot(ns_b2_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
@@ -449,15 +474,18 @@ class BSP_Tree:
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                # ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
+                ns_a1_sides = fsign(np.dot(ns_a1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                # ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
+                ns_a2_sides = fsign(np.dot(ns_a2_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+                # ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
+                ns_a3_sides = fsign(np.dot(ns_a3_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_a1_sides, ns_a2_sides,
@@ -508,11 +536,13 @@ class BSP_Tree:
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                # ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
+                ns_b1_sides = fsign(np.dot(ns_b1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+                # ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
+                ns_b2_sides = fsign(np.dot(ns_b2_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_b1_sides, ns_b2_sides))
@@ -710,7 +740,8 @@ class PolySurface:
             position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(position_vectors, node_equation)
-            point_spaces = np.sign(dot_normal.round(2))
+            # point_spaces = np.sign(dot_normal.round(2))
+            point_spaces = fsign(dot_normal)
 
             # point_spaces = np.sign(node_results.round(2))  # Reduces half spaces to -1, 0, 1
 
@@ -738,7 +769,8 @@ class PolySurface:
             position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(position_vectors, self._tree._equations[node.index])
-            dot_normal_sides = np.sign(dot_normal)
+            # dot_normal_sides = np.sign(dot_normal)
+            dot_normal_sides = fsign(dot_normal)
             # Set the entry in self._positive_mask
             positive_coords = self._grid_nodes[query_indices[dot_normal_sides >= 0]]
             self._positive_mask[positive_coords[:, 0],
@@ -812,14 +844,15 @@ class PolySurface:
         node_equation = self._tree._equations[node.index]
         node_value = self._tree._values[node.index]
         # node_results = node_equation[0]*qp[:, 0] \
-        #     + node_equation[1]*qp[:, 1] \
+        #     + node_equation[1]*qp[:, 1] \if np.any(np.absolute(area) <= 10*np.finfo(np.float).eps):  # This plane is axially aligned
         #     + node_equation[2]*qp[:, 2] \
         #     - node_value
         # Find the vectors from the first vertex of the simplex to the query nodes
         position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
         # Dot this with the normal vector
         dot_normal = np.dot(position_vectors, node_equation)
-        point_spaces = np.sign(dot_normal.round(2))
+        # point_spaces = np.sign(dot_normal.round(2))
+        point_spaces = fsign(dot_normal)
 
         # point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
         # Possibly want a round on this to deal with floating point errors
@@ -906,7 +939,8 @@ class PolySurface:
         if axis == 'x':
             # p0, p1, p2 are vertices, pt is the array of test points
             area = -p1[:, 1]*p2[:, 2] + p0[:, 1]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 1] - p2[:, 1]) + p1[:, 2]*p2[:, 1]
-            if np.any(area == 0):  # This plane is axially aligned
+            # if np.any(area == 0):  # This plane is axially aligned
+            if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
                 return false_array
@@ -925,7 +959,8 @@ class PolySurface:
 
         if axis == 'y':
             area = -p1[:, 0]*p2[:, 2] + p0[:, 0]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 0] - p2[:, 0]) + p1[:, 2]*p2[:, 0]
-            if np.any(area == 0):  # This plane is axially aligned
+            # if np.any(area == 0):  # This plane is axially aligned
+            if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
                 return false_array
@@ -945,7 +980,8 @@ class PolySurface:
         if axis == 'z':
             area = -p1[:, 0]*p2[:, 1] + p0[:, 0]*(-p1[:, 1] + p2[:, 1]) + p0[:, 1]*(p1[:, 0] - p2[:, 0]) + p1[:, 1]*p2[:, 0]
 
-            if np.any(area == 0):  # This plane is axially aligned
+            # if np.any(area == 0):  # This plane is axially aligned
+            if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 print('Everything has gone wrong, area should not be zero in the z plane')
                 print(vertices)
                 print(self._tree._equations[simplices])
