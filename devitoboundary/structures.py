@@ -42,27 +42,19 @@ class BSP_Node:
     parent : BSP_Node
         The parent node of a node
     """
-    # def __init__(self, index, index_list, parent=None):
     def __init__(self, index_list, parent=None):
         self.parent = parent  # Parent node
         self.pos = None  # Positive branch
         self.neg = None  # Negative branch
-        # self.index = index  # Index of the simplex/plane used for splitting
         self.index = None
         self.plane_indices = np.array([])  # Indices of any other simplices that lie in the plane
-        # self.index_list = index_list[index_list != index]
         self.index_list = index_list
 
     def set_children(self, pos_list, neg_list):
         """Set up child tree nodes"""
         if len(pos_list) != 0:
-            # Set up a new node using a random plane from the subset
-            # self.pos = BSP_Node(pos_list[np.random.randint(0, pos_list.shape[0])],
-            #                     pos_list, parent=self)
             self.pos = BSP_Node(pos_list, parent=self)
         if len(neg_list) != 0:
-            # self.neg = BSP_Node(neg_list[np.random.randint(0, neg_list.shape[0])],
-            #                     neg_list, parent=self)
             self.neg = BSP_Node(neg_list, parent=self)
         self.index_list = np.array([])
 
@@ -144,9 +136,6 @@ class BSP_Tree:
     def _construct(self, node, leafsize):
         """The recursive tree constructor"""
         if node.index_list.shape[0] > leafsize:  # FIXME: Remove this
-            # print('Index list is ', node.index_list)
-            # Look for changes across this function
-
             self._split(node)
             if node.pos is not None and node.neg is not None:
                 self._balanced_split += 1
@@ -161,10 +150,6 @@ class BSP_Tree:
 
     def _split(self, node):
         """Split the remaining polygons using current node selection"""
-        # Heuristic weights
-        # split_weight = 1
-        # balance_weight = 0.3
-
         # Generate up to 10 indices to try out for splitting
         # Can contain duplicates. Generates up to 10 indices
         index_pile = node.index_list[np.random.randint(0, node.index_list.shape[0], size=min(10, node.index_list.shape[0]))]
@@ -178,40 +163,22 @@ class BSP_Tree:
             # Get every unique vertex in list
             trial_node_vertices = np.copy(self._vertices[np.unique(trial_node_simplices)])
 
-            # I think the wheels fall off because trial_node_equation is still an array
-            # So this is just a pointer to the original array, rather than a copy
-            # Thus the original array gets modified
-            # But where is this getting modified?
             trial_node_equation = np.copy(self._equations[trial_index])
             trial_node_value = self._values[trial_index]
-            # trial_node_results = trial_node_equation[0]*trial_node_vertices[:, 0] \
-            #     + trial_node_equation[1]*trial_node_vertices[:, 1] \
-            #     + trial_node_equation[2]*trial_node_vertices[:, 2] \
-            #     - trial_node_value
 
             # Find the vectors from the first vertex of the simplex to the query nodes
             trial_position_vectors = trial_node_vertices - self._vertices[self._simplices[trial_index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(trial_position_vectors, trial_node_equation)
-            # trial_node_sides = np.sign(dot_normal.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_node_sides = fsign(dot_normal[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
 
-            # The .round() here exists to kill any div by zero errors
-            # These come about when a vertex on the plane gets pushed to one halfspace by float errors
-            # This causes the plane to be earmarked for splitting then produces a div by zero
-            # Might want increasing in the future, but fine for now
-            # 2 is safest. If recursion limit hit, this is probably why
-            # trial_node_sides = np.sign(trial_node_results.round(2)[np.searchsorted(np.unique(trial_node_simplices), trial_node_simplices)]).astype(np.int)
             trial_straddle = np.logical_and(np.any(trial_node_sides > 0, axis=1), np.any(trial_node_sides < 0, axis=1))
             # Quality of a split (smaller is better)
             trial_split_q = np.count_nonzero(trial_straddle)
-            # Normalised mismatch between size of the two branches
-            trial_balance_q = abs(np.count_nonzero(trial_node_sides == 1) - np.count_nonzero(trial_node_sides == -1))  # /(trial_node_simplices.shape[0] + 1)
-            # trial_heuristic_q = trial_split_q*trial_balance_q
+            # Mismatch between size of the two branches
+            trial_balance_q = abs(np.count_nonzero(trial_node_sides == 1) - np.count_nonzero(trial_node_sides == -1))
             trial_heuristic_q = max(trial_split_q, 1)*max(trial_balance_q, 1)
-            # print('Weighted trial_split_q is', split_weight*trial_split_q)
-            # print('Weighted trial_balance_q is', balance_weight*trial_balance_q)
-            # print('The unweighted product is', trial_split_q*trial_balance_q)
+
             if i == 0:  # Could be moved outside the loop
                 index = trial_index
                 node_simplices = trial_node_simplices
@@ -237,7 +204,6 @@ class BSP_Tree:
         node.index = index
 
         if split_q != 0:
-            # print(node_sides[straddle])
             # Grab all the details of the simplices to split
             # Two simplex variants
             # a -> [1, 1, -1]    b -> [1, 0, -1]
@@ -245,7 +211,6 @@ class BSP_Tree:
             type_a = np.logical_not(type_b)
             if np.any(type_a):
                 simplices_a = node_simplices[straddle][type_a]
-                # I think I forgot to swap to self._simplices
 
                 # -ve sum along axis 1 returns the side with a single point
                 lonely_sides = -np.sum(node_sides[straddle][type_a], axis=1)
@@ -260,7 +225,6 @@ class BSP_Tree:
                 neg_lp_positions = np.where(node_sides[straddle][type_a][lonely_sides == 1] == -1)
                 pos_ln_positions = np.where(node_sides[straddle][type_a][lonely_sides == -1] == 1)
 
-                # I think this produces a shuffling effect
                 lonely_vert = np.concatenate((simplices_a_pos[pos_lp_positions], simplices_a_neg[neg_ln_positions]))
                 other_vert_1 = np.concatenate((simplices_a_pos[neg_lp_positions][::2], simplices_a_neg[pos_ln_positions][::2]))
                 other_vert_2 = np.concatenate((simplices_a_pos[neg_lp_positions][1::2], simplices_a_neg[pos_ln_positions][1::2]))
@@ -268,10 +232,7 @@ class BSP_Tree:
                 # Vectors connecting the lonely vertex with the other two
                 vector_1 = self._vertices[other_vert_1] - self._vertices[lonely_vert]
                 vector_2 = self._vertices[other_vert_2] - self._vertices[lonely_vert]
-                # FIXME: Occasionally get very small values. Probably due to floating point errors
-                # Want to do something to check the value if everything is going to catch fire
-                # These points should be on the plane I think
-                # Also causes div by zero errors
+
                 line_param_1 = ((node_value - node_equation[0]*self._vertices[lonely_vert][:, 0]
                                  - node_equation[1]*self._vertices[lonely_vert][:, 1]
                                  - node_equation[2]*self._vertices[lonely_vert][:, 2])
@@ -308,17 +269,12 @@ class BSP_Tree:
 
                 intersect_b = self._vertices[non_plane_vert_2] + vector_b*np.tile(line_param_b, (3, 1)).T
 
-            if np.any(type_a) and np.any(type_b):  # FIXME: Will occasionally go wonky
-                # Need to extend self._equations and self._values
-                # equations_a and values_a have the concatenate to assemble them in the same order as the simplices
-                # This is due to the way the type A simplices are split and reconcatenated
-                # equations_a = np.tile(self._equations[node.index_list[straddle][type_a]], (3, 1))
+            if np.any(type_a) and np.any(type_b):
                 equations_a = np.tile(np.concatenate((self._equations[node.index_list[straddle][type_a][lonely_sides == 1]],
                                                       self._equations[node.index_list[straddle][type_a][lonely_sides == -1]])), (3, 1))
                 equations_b = np.tile(self._equations[node.index_list[straddle][type_b]], (2, 1))
                 self._equations = np.concatenate((self._equations, equations_a, equations_b))
 
-                # values_a = np.tile(self._values[node.index_list[straddle][type_a]], 3)
                 values_a = np.tile(np.concatenate((self._values[node.index_list[straddle][type_a][lonely_sides == 1]],
                                                    self._values[node.index_list[straddle][type_a][lonely_sides == -1]])), 3)
                 values_b = np.tile(self._values[node.index_list[straddle][type_b]], 2)
@@ -365,52 +321,25 @@ class BSP_Tree:
                 # Append new vertices to self._vertices
                 self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2, intersect_b))
 
-                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                # ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
-                #                       - node_value)
-                # ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
-                #                       - node_value)
-                # ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
-                #                       - node_value)
-                # ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
-                #                       - node_value)
-                # ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
-                #                       - node_value)
-
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
                 ns_a1_sides = fsign(np.dot(ns_a1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
                 ns_a2_sides = fsign(np.dot(ns_a2_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
                 ns_a3_sides = fsign(np.dot(ns_a3_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
                 ns_b1_sides = fsign(np.dot(ns_b1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
                 ns_b2_sides = fsign(np.dot(ns_b2_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
@@ -458,33 +387,17 @@ class BSP_Tree:
                 # Append new vertices to self._vertices
                 self._vertices = np.concatenate((self._vertices, intersect_1, intersect_2))
 
-                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                # ns_a1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a1[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a1[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a1[:, 2]]
-                #                       - node_value)
-                # ns_a2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a2[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a2[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a2[:, 2]]
-                #                       - node_value)
-                # ns_a3_sides = np.sign(node_equation[0]*self._vertices[new_simplices_a3[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_a3[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_a3[:, 2]]
-                #                       - node_value)
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a1_position_vectors = self._vertices[new_simplices_a1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a1_sides = np.sign(np.dot(ns_a1_position_vectors, node_equation))
                 ns_a1_sides = fsign(np.dot(ns_a1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a2_position_vectors = self._vertices[new_simplices_a2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a2_sides = np.sign(np.dot(ns_a2_position_vectors, node_equation))
                 ns_a2_sides = fsign(np.dot(ns_a2_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_a3_position_vectors = self._vertices[new_simplices_a3] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_a3_sides = np.sign(np.dot(ns_a3_position_vectors, node_equation))
                 ns_a3_sides = fsign(np.dot(ns_a3_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
@@ -524,31 +437,19 @@ class BSP_Tree:
                 # Append new vertices to self._vertices
                 self._vertices = np.concatenate((self._vertices, intersect_b))
 
-                # Extend node_sides with new polygons (can do with an any check, since they are never going to straddle)
-                # ns_b1_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b1[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_b1[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_b1[:, 2]]
-                #                       - node_value)
-                # ns_b2_sides = np.sign(node_equation[0]*self._vertices[new_simplices_b2[:, 0]]
-                #                       + node_equation[1]*self._vertices[new_simplices_b2[:, 1]]
-                #                       + node_equation[2]*self._vertices[new_simplices_b2[:, 2]]
-                #                       - node_value)
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b1_position_vectors = self._vertices[new_simplices_b1] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_b1_sides = np.sign(np.dot(ns_b1_position_vectors, node_equation))
                 ns_b1_sides = fsign(np.dot(ns_b1_position_vectors, node_equation))
                 # Find the vectors from the first vertex of the simplex to the query nodes
                 ns_b2_position_vectors = self._vertices[new_simplices_b2] - self._vertices[self._simplices[index]][0]
                 # Dot this with the normal vector
-                # ns_b2_sides = np.sign(np.dot(ns_b2_position_vectors, node_equation))
                 ns_b2_sides = fsign(np.dot(ns_b2_position_vectors, node_equation))
 
                 node_sides = node_sides[np.logical_not(straddle)]  # Remove split simplices sides
                 node_sides = np.concatenate((node_sides, ns_b1_sides, ns_b2_sides))
 
         # If all points in a simplex == zero, then append to node
-        # Could just do this with a not?
         polygon_in_plane = np.all(node_sides == 0, axis=1)
         node.plane_indices = node.index_list[polygon_in_plane]
 
@@ -731,23 +632,15 @@ class PolySurface:
         qp = self._grid_nodes[query_indices]  # Points to find half spaces of
         if node.pos is not None or node.neg is not None:
             node_equation = self._tree._equations[node.index]
-            node_value = self._tree._values[node.index]
-            # node_results = node_equation[0]*qp[:, 0] \
-            #     + node_equation[1]*qp[:, 1] \
-            #     + node_equation[2]*qp[:, 2] \
-            #     - node_value
             # Find the vectors from the first vertex of the simplex to the query nodes
             position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(position_vectors, node_equation)
-            # point_spaces = np.sign(dot_normal.round(2))
-            point_spaces = fsign(dot_normal)
 
-            # point_spaces = np.sign(node_results.round(2))  # Reduces half spaces to -1, 0, 1
+            point_spaces = fsign(dot_normal)
 
             if node.pos is not None and np.any(point_spaces == 1):
                 self._fd_node_sides(node.pos, query_indices[point_spaces == 1], depth+1)
-            # Need to do something here.
             # I can hit an effective leaf node if all my points are in negative half space but only node.pos exists
             else:
                 # add all query_indices[point_spaces == 1]
@@ -769,7 +662,6 @@ class PolySurface:
             position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
             # Dot this with the normal vector
             dot_normal = np.dot(position_vectors, self._tree._equations[node.index])
-            # dot_normal_sides = np.sign(dot_normal)
             dot_normal_sides = fsign(dot_normal)
             # Set the entry in self._positive_mask
             positive_coords = self._grid_nodes[query_indices[dot_normal_sides >= 0]]
@@ -837,35 +729,24 @@ class PolySurface:
 
     def _query(self, node, query_indices):
         """The recursive traversal for querying the tree"""
-        # if node.plane_indices.size != 0:
-        #     print('There are extra indices at this node', node.plane_indices)
         # Want to find the half spaces of all the query points
         qp = self._query_points[query_indices]  # Points to find half spaces of
         node_equation = self._tree._equations[node.index]
-        node_value = self._tree._values[node.index]
-        # node_results = node_equation[0]*qp[:, 0] \
-        #     + node_equation[1]*qp[:, 1] \if np.any(np.absolute(area) <= 10*np.finfo(np.float).eps):  # This plane is axially aligned
-        #     + node_equation[2]*qp[:, 2] \
-        #     - node_value
+
         # Find the vectors from the first vertex of the simplex to the query nodes
         position_vectors = qp - self._tree._vertices[self._tree._simplices[node.index]][0]
         # Dot this with the normal vector
         dot_normal = np.dot(position_vectors, node_equation)
-        # point_spaces = np.sign(dot_normal.round(2))
         point_spaces = fsign(dot_normal)
 
-        # point_spaces = np.sign(node_results)  # Reduces half spaces to -1, 0, 1
         # Possibly want a round on this to deal with floating point errors
 
         # Check near sides
         # Process the ones where the positive is the near side
-        # FIXME: Wording here could be more clear
-        # if node.pos is not None and query_indices[point_spaces == 1].shape[0] != 0:
         if node.pos is not None and any(point_spaces == 1):
             self._query(node.pos, query_indices[point_spaces == 1])
 
         # Process the ones where the negative is the near side
-        # if node.neg is not None and query_indices[point_spaces == -1].shape[0] != 0:
         if node.neg is not None and np.any(point_spaces == -1):
             self._query(node.neg, query_indices[point_spaces == -1])
 
@@ -876,7 +757,6 @@ class PolySurface:
             z_occluded = self._occludes(self._query_points[query_indices[no_z_distance]],
                                         np.append(node.plane_indices, node.index), 'z')
             # Measure distance to occluded points
-            # if np.nonzero(z_occluded) != 0:
             if np.any(z_occluded):
                 new_z_dists = self._distance(self._query_points[query_indices[no_z_distance][z_occluded]],
                                              node.index, 'z')
@@ -890,7 +770,6 @@ class PolySurface:
             y_occluded = self._occludes(self._query_points[query_indices[no_y_distance]],
                                         np.append(node.plane_indices, node.index), 'y')
             # Measure distance to occluded points
-            # if np.nonzero(y_occluded) != 0:
             if np.any(y_occluded):
                 new_y_dists = self._distance(self._query_points[query_indices[no_y_distance][y_occluded]],
                                              node.index, 'y')
@@ -905,7 +784,6 @@ class PolySurface:
             x_occluded = self._occludes(self._query_points[query_indices[no_x_distance]],
                                         np.append(node.plane_indices, node.index), 'x')
             # Measure distance to occluded points
-            # if np.nonzero(x_occluded) != 0:
             if np.any(x_occluded):
                 new_x_dists = self._distance(self._query_points[query_indices[no_x_distance][x_occluded]],
                                              node.index, 'x')
@@ -914,12 +792,10 @@ class PolySurface:
 
         # Check far sides
         # Process the ones where the positive is the near side
-        # if node.neg is not None and query_indices[point_spaces == 1].shape[0] != 0:
         if node.neg is not None and np.any(point_spaces == 1):
             self._query(node.neg, query_indices[point_spaces == 1])
 
         # Process the ones where the negative is the near side
-        # if node.pos is not None and query_indices[point_spaces == -1].shape[0] != 0:
         if node.pos is not None and np.any(point_spaces == -1):
             self._query(node.pos, query_indices[point_spaces == -1])
 
@@ -928,8 +804,6 @@ class PolySurface:
         A function to check whether a set of points are occluded by a simplex
         on a specified axis.
         """
-        # FIXME: Make this check for occlusion on an array of simplices
-        # We are fine down to line 428 atm
 
         vertices = self._tree._vertices[self._tree._simplices[simplices]]
         p0 = vertices[:, 0]
@@ -939,7 +813,6 @@ class PolySurface:
         if axis == 'x':
             # p0, p1, p2 are vertices, pt is the array of test points
             area = -p1[:, 1]*p2[:, 2] + p0[:, 1]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 1] - p2[:, 1]) + p1[:, 2]*p2[:, 1]
-            # if np.any(area == 0):  # This plane is axially aligned
             if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
@@ -959,7 +832,6 @@ class PolySurface:
 
         if axis == 'y':
             area = -p1[:, 0]*p2[:, 2] + p0[:, 0]*(-p1[:, 2] + p2[:, 2]) + p0[:, 2]*(p1[:, 0] - p2[:, 0]) + p1[:, 2]*p2[:, 0]
-            # if np.any(area == 0):  # This plane is axially aligned
             if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 false_array = np.empty((pt.shape[0]), dtype=np.bool)
                 false_array[:] = False
@@ -980,7 +852,6 @@ class PolySurface:
         if axis == 'z':
             area = -p1[:, 0]*p2[:, 1] + p0[:, 0]*(-p1[:, 1] + p2[:, 1]) + p0[:, 1]*(p1[:, 0] - p2[:, 0]) + p1[:, 1]*p2[:, 0]
 
-            # if np.any(area == 0):  # This plane is axially aligned
             if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
                 print('Everything has gone wrong, area should not be zero in the z plane')
                 print(vertices)
