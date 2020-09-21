@@ -1,32 +1,36 @@
 import numpy as np
-import pandas as pd
+import matplotlib.pyplot as plt
 
 from devitoboundary import ImmersedBoundarySurface
-from devito import Grid, TimeFunction, Eq
+from devito import Grid, TimeFunction, Eq, ConditionalDimension, solve, Operator
+from examples.seismic import TimeAxis, RickerSource
 from sys import setrecursionlimit
 
-setrecursionlimit(3000)
+# setrecursionlimit(3000)
 
 # Topography config
 SUBSAMPLE = 5  # 5
 PMLS = 0
 
+C = 0.01
 VP = 1.2
 
-grid = Grid(shape=(26, 26, 26), extent=(1000, 1000, 1000))
+# Goal is 126, 126, 126 (medium was 81, 81, 81)
+grid = Grid(shape=(81, 81, 81), extent=(1000, 1000, 1000))
 
-# t0 = 0.  # Simulation starts at t=0
+t0 = 0.  # Simulation starts at t=0
+tn = 75.
 # tn = 170.  # Simulation length in ms
-# dt = model.critical_dt*0.01  # Time step from model grid spacing
+dt = C*grid.spacing[0]/VP
 
-# steps = int((t0+tn)/dt)+2
-# nsnaps = 200
-# factor = round(steps / nsnaps)
+steps = int((t0+tn)/dt)+2
+nsnaps = 100  # 50
+factor = round(steps / nsnaps)
 
-# time_subsampled = ConditionalDimension(
-#     't_sub', parent=model.grid.time_dim, factor=factor)
-# usave = TimeFunction(name='usave', grid=model.grid, time_order=2, space_order=2,
-#                      save=(steps + factor - 1) // factor, time_dim=time_subsampled)
+time_subsampled = ConditionalDimension(
+    't_sub', parent=grid.time_dim, factor=factor)
+usave = TimeFunction(name='usave', grid=grid, time_order=2, space_order=2,
+                     save=(steps + factor - 1) // factor, time_dim=time_subsampled)
 
 u = TimeFunction(name='u', grid=grid, time_order=2,
                  space_order=4, coefficients='symbolic')
@@ -73,35 +77,36 @@ surface.plot_boundary()
 
 # boundary_obj.plot_nodes(save=True, save_path="images/boundary_plot")
 
-# time_range = TimeAxis(start=t0, stop=tn, step=dt)
+time_range = TimeAxis(start=t0, stop=tn, step=dt)
 
-# f0 = 0.100
-# src = RickerSource(name='src', grid=model.grid, f0=f0,
-#                    npoint=1, time_range=time_range)
+f0 = 0.100  # 100Hz
+src = RickerSource(name='src', grid=grid, f0=f0,
+                   npoint=1, time_range=time_range)
 
 # First, position source centrally in all dimensions, then set depth
-# src.coordinates.data[0, :] = 500
-# src.coordinates.data[0, -1] = 800
+src.coordinates.data[0, :] = 500
+src.coordinates.data[0, -1] = 800
 
 # Dictionary of derivatives needed
-deriv = {u : 2}
+deriv = {u: 2}
 
 # We can now write the PDE
 pde = VP*u.dt2 - u.laplace
 eq = Eq(pde, 0, coefficients=surface.subs(deriv))
 
-# stencil = solve(eq.evaluate, u.forward)
-# src_term = src.inject(field=u.forward, expr=src*dt**2/model.m)
-# op = Operator([Eq(u.forward, stencil)] + [Eq(usave, u)] + src_term)
-# op.apply(dt=dt)
+stencil = solve(eq.evaluate, u.forward)
+src_term = src.inject(field=u.forward, expr=src*dt**2/VP)
+op = Operator([Eq(u.forward, stencil)] + [Eq(usave, u)] + src_term)
+op.apply(dt=dt)
 
-# for i in range(nsnaps):
-#     fig = plt.figure()
-#     plt.imshow(np.swapaxes(usave.data[i, PMLS:-PMLS, int(model.grid.shape[1]/2), PMLS:-PMLS], 0, 1),
-#                origin="upper", extent=[0, model.grid.extent[0] - 2*PMLS*model.grid.spacing[0], model.grid.extent[2] - 2*PMLS*model.grid.spacing[2], 0],
-#                vmin=-0.005, vmax=0.005)
-#     plt.colorbar()
-#     plt.xlabel("x (m)")
-#     plt.ylabel("z (m)")
-#     plt.savefig("images/image-%s" % str(i))
-#     plt.close()
+for i in range(nsnaps):
+    fig = plt.figure()
+    plt.imshow(np.swapaxes(usave.data[i, :, int(grid.shape[1]/2), :], 0, 1),
+               origin="upper", extent=[0, grid.extent[0], grid.extent[2], 0],
+               vmin=-0.005, vmax=0.005, cmap='seismic')
+    plt.colorbar()
+    plt.xlabel("x (m)")
+    plt.ylabel("z (m)")
+    plt.savefig("images/image-%s" % str(i))
+    # plt.show()
+    plt.close()

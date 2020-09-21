@@ -200,9 +200,21 @@ class ImmersedBoundarySurface(GenericSurface):
 
         detect_op = Operator([detect_eq], name='DetectBoundary')
         detect_op.apply(time_M=1)
-        # 1e-9 deals with floating point errors
-        edge_mask = (edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size] > 1e-9)
+        plt.imshow(edge_detect.data[1, 20])
+        plt.colorbar()
+        plt.show()
+        # 1e-8 deals with floating point errors
+        edge_mask = (edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size] > 1e-8)
         self._boundary_node_mask = np.logical_and(self._positive_mask, edge_mask)
+        plt.imshow(self._positive_mask[20])
+        plt.colorbar()
+        plt.show()
+        plt.imshow(edge_mask[20])
+        plt.colorbar()
+        plt.show()
+        plt.imshow(self._boundary_node_mask[20])
+        plt.colorbar()
+        plt.show()
 
     def _distance_calculation(self):
         """
@@ -213,7 +225,7 @@ class ImmersedBoundarySurface(GenericSurface):
         node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
         # vstack these
         self._boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
-        
+
         print(self._boundary_nodes)
         print(self._boundary_nodes.shape[0])
         # Query boundary nodes for distances
@@ -394,34 +406,45 @@ class ImmersedBoundarySurface(GenericSurface):
                 pos_y = self._boundary_nodes[i, 1]
                 pos_z = self._boundary_nodes[i, 2]
                 if not np.isnan(self._z_dist[i]):
-                    w_z.data[pos_x, pos_y, pos_z] \
-                        = self.stencils[function.name].subs(eta_r=self._z_dist[i]) 
+                    if self._z_dist[i] <= 0:
+                        w_z.data[pos_x, pos_y, pos_z] = 0.
+                    else:
+                        w_z.data[pos_x, pos_y, pos_z] \
+                            = self.stencils[function.name].subs(eta_r=self._z_dist[i])
                 else:
                     warnings.warn("Encountered missing z distance during stencil generation.")
 
                 if not np.isnan(self._yp_dist[i]) or not np.isnan(self._yn_dist[i]):
                     if np.isnan(self._yp_dist[i]):
                         eta_r = None
+                    elif self._yp_dist[i] <= 0:
+                        w_y.data[pos_x, pos_y, pos_z] = 0.
                     else:
                         eta_r = self._yp_dist[i]
                     if np.isnan(self._yn_dist[i]):
                         eta_l = None
+                    elif self._yn_dist[i] >= 0:
+                        w_y.data[pos_x, pos_y, pos_z] = 0.
                     else:
                         eta_l = self._yn_dist[i]
-                    
+
                     w_y.data[pos_x, pos_y, pos_z] \
                         = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
 
                 if not np.isnan(self._xp_dist[i]) or not np.isnan(self._xn_dist[i]):
                     if np.isnan(self._xp_dist[i]):
                         eta_r = None
+                    elif self._xp_dist[i] <= 0:
+                        w_x.data[pos_x, pos_y, pos_z] = 0.
                     else:
                         eta_r = self._xp_dist[i]
                     if np.isnan(self._xn_dist[i]):
                         eta_l = None
+                    elif self._xn_dist[i] >= 0:
+                        w_x.data[pos_x, pos_y, pos_z] = 0.
                     else:
                         eta_l = self._xn_dist[i]
-                    
+
                     w_x.data[pos_x, pos_y, pos_z] \
                         = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
 
@@ -439,12 +462,10 @@ class ImmersedBoundarySurface(GenericSurface):
             weights.append(Coefficient(spec[function],
                            function,
                            self._grid.dimensions[1],
-                           w_y))                     
+                           w_y))
             weights.append(Coefficient(spec[function],
                            function,
                            self._grid.dimensions[2],
                            w_z))
 
         return Substitutions(*tuple(weights))
-
-

@@ -853,10 +853,14 @@ class PolySurface:
             area = -p1[:, 0]*p2[:, 1] + p0[:, 0]*(-p1[:, 1] + p2[:, 1]) + p0[:, 1]*(p1[:, 0] - p2[:, 0]) + p1[:, 1]*p2[:, 0]
 
             if np.any(np.absolute(area) <= 1e-6):  # This plane is axially aligned
-                print('Everything has gone wrong, area should not be zero in the z plane')
-                print(vertices)
-                print(self._tree._equations[simplices])
-                print(self._tree._values[simplices])
+                # Might want to do something more sophisticated here
+                # print('Everything has gone wrong, area should not be zero in the z plane')
+                # print(vertices)
+                # print(self._tree._equations[simplices])
+                # print(self._tree._values[simplices])
+                false_array = np.empty((pt.shape[0]), dtype=np.bool)
+                false_array[:] = False
+                return false_array
             # S calculation is split into parts as it is very messy for the array version
             s1 = np.broadcast_to((p0[:, 0]*p2[:, 1] - p0[:, 1]*p2[:, 0])[:, np.newaxis], (p0.shape[0], pt.shape[0]))
             s2 = np.outer((p2[:, 0] - p0[:, 0]), pt[:, 1])

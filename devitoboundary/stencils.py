@@ -75,7 +75,7 @@ class StencilGen:
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
-         
+
         if stencil_file is None:
             self._stencil_dict = {}
         else:
@@ -215,7 +215,7 @@ class StencilGen:
                 warnings.warn("No file specified for caching generated stencils.")
             if stencil_out is not None and self._stencil_file is not None:
                 warnings.warn("File already specified for caching stencils. Defaulting to {}".format(self._stencil_file))
-            
+
             warnings.warn("Generating new stencils, this may take some time.")
             self._all_variants(deriv)
 
@@ -437,7 +437,7 @@ class StencilGen:
             sub_l = 0  # Placeholder to stop subs() encountering None
         else:
             if eta_l >= 0:
-                raise ValueError("eta_l must be negative. Current value is %.2f" % eta_l)
+                raise ValueError("eta_l must be negative. Current value is %.6f" % eta_l)
             # Turn eta into the relevent le index in the stencil list
             dist_l = self._s_o - np.ceil(abs(eta_l)*2).astype(np.int) + 1
             sub_l = eta_l
@@ -447,7 +447,7 @@ class StencilGen:
             sub_r = 0  # Placeholder to stop subs() encountering None
         else:
             if eta_r <= 0:
-                raise ValueError("eta_r must be positive. Current value is %.2f" % eta_r)
+                raise ValueError("eta_r must be positive. Current value is %.6f" % eta_r)
             # Turn eta into the relevent ri index in the stencil list
             dist_r = self._s_o - np.ceil(eta_r*2).astype(np.int) + 1
             sub_r = eta_r
