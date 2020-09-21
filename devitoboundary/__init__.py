@@ -1,4 +1,5 @@
 from .structures import *
+from .geometry import *
 from .stencils import *
 from .topography import *
 
