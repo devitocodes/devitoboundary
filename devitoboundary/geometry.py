@@ -12,7 +12,7 @@ import numpy as np
 from vtk.numpy_interface import dataset_adapter as dsa
 
 
-__all__ = ['PolyReader']
+__all__ = ['PolyReader', 'NormalCalculator', 'SDFGenerator']
 
 
 class PolyReader:
@@ -60,6 +60,12 @@ class PolyReader:
         """
         return self._reader.GetOutputPort()
 
+    def Update(self):
+        """
+        Update the state of the reader.
+        """
+        return self._reader.Update()
+
 
 class NormalCalculator:
     """
@@ -100,6 +106,12 @@ class NormalCalculator:
         """
         return self._norms.GetOutputPort()
 
+    def Update(self):
+        """
+        Update the state of the normal calculator.
+        """
+        return self._norms.Update()
+
 
 class SDFGenerator:
     """
@@ -115,14 +127,15 @@ class SDFGenerator:
         The grid onto which the SDF should be discretized
     radius : int
         The radius from the boundary over which the SDF should be calculated,
-        specified in grid increments. Warning, setting large values here may
-        significantly slow SDF calculation. Default is 2.
+        specified in grid increments (dx). Warning, setting large values here
+        may significantly slow SDF calculation. Default is 2.
     toggle_normals : bool
         Flip the direction of the estimated point normals. This has the effect
         of reversing the side of the surface which is considered to be the
-        interior (positively valued).
+        interior (positively valued). Default is False.
     sample : int
-        The number of sample points used for the PCA normal estimation.
+        The number of sample points used for the PCA normal estimation. Default
+        is 20.
     """
     def __init__(self, infile, grid, radius=2, toggle_normals=False, sample=20):
         # Catch non-3D grids
@@ -133,13 +146,14 @@ class SDFGenerator:
 
         self._grid = grid
         self._reader = PolyReader(infile)
-        self._norms = NormalCalculator(self._reader)
+        self._norms = NormalCalculator(self._reader, toggle_normals, sample)
 
         self._dist = vtk.vtkSignedDistance()
         self._dist.SetInputConnection(self._norms.GetOutputPort())
 
-        self._dist.SetRadius(radius)
-        self._dist.SetBounds(self._get_bounds)
+        self._dist.SetRadius(radius*grid.spacing[0])
+
+        self._dist.SetBounds(self._get_bounds())
         self._dist.SetDimensions(self._grid.shape)
         self._dist.Update()
 
@@ -151,7 +165,7 @@ class SDFGenerator:
                               self._grid.shape[::-1])
 
         # Swap axis to get [x, y, z] order
-        self._array = np.swapaxes[sdf_cube, 0, 2]
+        self._array = np.swapaxes(sdf_cube, 0, 2)
 
     @property
     def grid(self):
