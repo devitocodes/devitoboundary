@@ -185,9 +185,8 @@ class SDFGenerator:
         """
         Gets the bounds of the SDF from the Devito grid.
         """
-        # Replace this once 1461 goes through
         # Lower bounds are the origin
-        min_bound = np.array([i.data for i in self._grid.origin])
+        min_bound = np.array([value for value in self._grid.origin_map.values()])
         max_bound = min_bound + np.array(self._grid.extent)
 
         return min_bound[0], max_bound[0], \
