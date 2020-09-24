@@ -12,13 +12,13 @@ class TestPipeline:
     pipeline used to generate signed distance functions
     """
 
-    trial_surfaces_ply = ['trial_surfaces/x_neg_slope.ply',
-                          'trial_surfaces/x_pos_slope.ply',
-                          'trial_surfaces/x_step.ply',
-                          'trial_surfaces/y_neg_slope.ply',
-                          'trial_surfaces/y_pos_slope.ply',
-                          'trial_surfaces/y_step.ply',
-                          'trial_surfaces/z_flat.ply']
+    trial_surfaces_ply = ['tests/trial_surfaces/x_neg_slope.ply',
+                          'tests/trial_surfaces/x_pos_slope.ply',
+                          'tests/trial_surfaces/x_step.ply',
+                          'tests/trial_surfaces/y_neg_slope.ply',
+                          'tests/trial_surfaces/y_pos_slope.ply',
+                          'tests/trial_surfaces/y_step.ply',
+                          'tests/trial_surfaces/z_flat.ply']
 
     toggle_normals = [True, False]
 
@@ -62,13 +62,13 @@ class TestNormals:
     measured.
     """
 
-    trial_surfaces_ply = ['trial_surfaces/x_neg_slope.ply',
-                          'trial_surfaces/x_pos_slope.ply',
-                          'trial_surfaces/x_step.ply',
-                          'trial_surfaces/y_neg_slope.ply',
-                          'trial_surfaces/y_pos_slope.ply',
-                          'trial_surfaces/y_step.ply',
-                          'trial_surfaces/z_flat.ply']
+    trial_surfaces_ply = ['tests/trial_surfaces/x_neg_slope.ply',
+                          'tests/trial_surfaces/x_pos_slope.ply',
+                          'tests/trial_surfaces/x_step.ply',
+                          'tests/trial_surfaces/y_neg_slope.ply',
+                          'tests/trial_surfaces/y_pos_slope.ply',
+                          'tests/trial_surfaces/y_step.ply',
+                          'tests/trial_surfaces/z_flat.ply']
 
     radii = [2, 4, 6]
 
@@ -100,14 +100,14 @@ class TestOrientation:
     functions, and ensure that they are correctly mapped to the grid.
     """
 
-    trial_surfaces_orientation = ['trial_surfaces/x_neg_slope.ply',
-                                  'trial_surfaces/x_pos_slope.ply',
-                                  'trial_surfaces/y_neg_slope.ply',
-                                  'trial_surfaces/y_pos_slope.ply',
-                                  'trial_surfaces/z_flat.ply']
+    trial_surfaces_orientation = ['tests/trial_surfaces/x_neg_slope.ply',
+                                  'tests/trial_surfaces/x_pos_slope.ply',
+                                  'tests/trial_surfaces/y_neg_slope.ply',
+                                  'tests/trial_surfaces/y_pos_slope.ply',
+                                  'tests/trial_surfaces/z_flat.ply']
 
-    trial_surfaces_position = ['trial_surfaces/x_step.ply',
-                               'trial_surfaces/y_step.ply']
+    trial_surfaces_position = ['tests/trial_surfaces/x_step.ply',
+                               'tests/trial_surfaces/y_step.ply']
 
     x_offset = (10., 20., 30.)
     y_offset = (10., 20., 30.)
