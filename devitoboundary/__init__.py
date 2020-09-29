@@ -1,5 +1,6 @@
 from .structures import *
 from .geometry import *
+from .distance import *
 from .stencils import *
 from .topography import *
 
