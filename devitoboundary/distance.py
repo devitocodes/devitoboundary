@@ -62,6 +62,7 @@ class SignedDistanceFunction:
         # Search radius of the SDF is equal to the highest function order.
         self._order = max([function.space_order for function in self._functions])
         # Calculate the signed distance function
+        # FIXME: Can scale down the radius here
         self._sdfgen = SDFGenerator(infile, self._grid, radius=self._order,
                                     toggle_normals=toggle_normals)
 
@@ -150,7 +151,8 @@ class AxialDistanceFunction(SignedDistanceFunction):
         d = sdf_grad.dot(pos - pad_sdf*sdf_grad)
 
         # Only need to calculate where abs(SDF) <= dx*M/2 (otherwise out of AOE)
-        close_sdf = Le(sp.Abs(pad_sdf), h_x*self._order/2)
+        # close_sdf = Le(sp.Abs(pad_sdf), h_x*self._order/2)
+        close_sdf = Le(sp.Abs(pad_sdf), h_x)
 
         # Conditional mask for calculation
         mask = ConditionalDimension(name='mask', parent=z, condition=close_sdf)
@@ -276,22 +278,22 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
 
         # Conditions for filling from known values
         xn_cond = sp.And(Le(self._axial[0], 0.),
-                         Ge(self._axial[0], -self._order*h_x))
+                         Ge(self._axial[0], -h_x))  # Think just -h_x is fine
 
         xp_cond = sp.And(Ge(self._axial[0], 0.),
-                         Le(self._axial[0], self._order*h_x))
+                         Le(self._axial[0], h_x))
 
         yn_cond = sp.And(Le(self._axial[1], 0.),
-                         Ge(self._axial[1], -self._order*h_y))
+                         Ge(self._axial[1], -h_y))
 
         yp_cond = sp.And(Ge(self._axial[1], 0.),
-                         Le(self._axial[1], self._order*h_y))
+                         Le(self._axial[1], h_y))
 
         zn_cond = sp.And(Le(self._axial[2], 0.),
-                         Ge(self._axial[2], -self._order*h_z))
+                         Ge(self._axial[2], -h_z))
 
         zp_cond = sp.And(Ge(self._axial[2], 0.),
-                         Le(self._axial[2], self._order*h_z))
+                         Le(self._axial[2], h_z))
 
         # Form conditional dimensions
         xn_mask = ConditionalDimension(name='xn_mask', parent=z,
@@ -405,6 +407,45 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         h_x, h_y, h_z = self._pad.spacing
 
         # Conditions under which values can be filled from adjecent nodes
+        xn_cond = sp.And(CondEq(self._directional[0], -self._order*h_x),
+                         Gt(self._directional[0][x-1, y, z], (1-self._order)*h_x))
+
+        xp_cond = sp.And(CondEq(self._directional[1][x-1, y, z], self._order*h_x),
+                         Lt(self._directional[1], (self._order-1)*h_x))
+
+        yn_cond = sp.And(CondEq(self._directional[2], -self._order*h_y),
+                         Gt(self._directional[2][x, y-1, z], (1-self._order)*h_y))
+
+        yp_cond = sp.And(CondEq(self._directional[3][x, y-1, z], self._order*h_y),
+                         Lt(self._directional[3], (self._order-1)*h_y))
+
+        zn_cond = sp.And(CondEq(self._directional[4], -self._order*h_z),
+                         Gt(self._directional[4][x, y, z-1], (1-self._order)*h_z))
+
+        zp_cond = sp.And(CondEq(self._directional[5][x, y, z-1], self._order*h_z),
+                         Lt(self._directional[5], (self._order-1)*h_z))
+
+        # Form conditional dimensions
+        xn_mask = ConditionalDimension(name='xn_mask', parent=z,
+                                       condition=xn_cond)
+
+        xp_mask = ConditionalDimension(name='xp_mask', parent=z,
+                                       condition=xp_cond)
+
+        yn_mask = ConditionalDimension(name='yn_mask', parent=z,
+                                       condition=yn_cond)
+
+        yp_mask = ConditionalDimension(name='yp_mask', parent=z,
+                                       condition=yp_cond)
+
+        zn_mask = ConditionalDimension(name='zn_mask', parent=z,
+                                       condition=zn_cond)
+
+        zp_mask = ConditionalDimension(name='zp_mask', parent=z,
+                                       condition=zp_cond)
+
+        # Just need to sort the eqs and operator now
+        # Then can reduce sdf radius accordingly
 
     @property
     def directional(self):
