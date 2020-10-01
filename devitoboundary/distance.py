@@ -7,10 +7,12 @@ import numpy as np
 import sympy as sp
 
 from devito import Function, VectorFunction, grad, ConditionalDimension, \
-    Le, Eq, Operator, Grid
+    Le, Ge, Lt, Gt, Eq, Operator, Grid
+from devito.symbolics import CondEq
 from devitoboundary import SDFGenerator
 
-__all__ = ['SignedDistanceFunction', 'AxialDistanceFunction']
+__all__ = ['SignedDistanceFunction', 'AxialDistanceFunction',
+           'DirectionalDistanceFunction']
 
 
 class SignedDistanceFunction:
@@ -185,7 +187,6 @@ class AxialDistanceFunction(SignedDistanceFunction):
     @property
     def axial(self):
         """Get the axial distances"""
-        # FIXME: Update to account for padding
         m_size = int(self._order/2)
         axial = VectorFunction(name='axial', grid=self._grid,
                                space_order=self._order,
@@ -256,19 +257,179 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         self._fill_initial()
 
         # Fill reciprocal values
+        self._fill_reciprocal()
 
     def _fill_initial(self):
         """
         Initialise the values in the directional distance function.
         """
+        x, y, z = self._pad.dimensions
         h_x, h_y, h_z = self._pad.spacing
 
-        # Set negative directions to -M*dx
+        # Initialise each field
         self._directional[0].data[:] = -self._order*h_x
-        self._directional[2].data[:] = -self._order*h_y
-        self._directional[4].data[:] = -self._order*h_z
-
-        # Set positive directions to M*dx
         self._directional[1].data[:] = self._order*h_x
+        self._directional[2].data[:] = -self._order*h_y
         self._directional[3].data[:] = self._order*h_y
+        self._directional[4].data[:] = -self._order*h_z
         self._directional[5].data[:] = self._order*h_z
+
+        # Conditions for filling from known values
+        xn_cond = sp.And(Le(self._axial[0], 0.),
+                         Ge(self._axial[0], -self._order*h_x))
+
+        xp_cond = sp.And(Ge(self._axial[0], 0.),
+                         Le(self._axial[0], self._order*h_x))
+
+        yn_cond = sp.And(Le(self._axial[1], 0.),
+                         Ge(self._axial[1], -self._order*h_y))
+
+        yp_cond = sp.And(Ge(self._axial[1], 0.),
+                         Le(self._axial[1], self._order*h_y))
+
+        zn_cond = sp.And(Le(self._axial[2], 0.),
+                         Ge(self._axial[2], -self._order*h_z))
+
+        zp_cond = sp.And(Ge(self._axial[2], 0.),
+                         Le(self._axial[2], self._order*h_z))
+
+        # Form conditional dimensions
+        xn_mask = ConditionalDimension(name='xn_mask', parent=z,
+                                       condition=xn_cond)
+
+        xp_mask = ConditionalDimension(name='xp_mask', parent=z,
+                                       condition=xp_cond)
+
+        yn_mask = ConditionalDimension(name='yn_mask', parent=z,
+                                       condition=yn_cond)
+
+        yp_mask = ConditionalDimension(name='yp_mask', parent=z,
+                                       condition=yp_cond)
+
+        zn_mask = ConditionalDimension(name='zn_mask', parent=z,
+                                       condition=zn_cond)
+
+        zp_mask = ConditionalDimension(name='zp_mask', parent=z,
+                                       condition=zp_cond)
+
+        # Equations to fill distances from known values
+        eq_xn = Eq(self._directional[0], self._axial[0], implicit_dims=xn_mask)
+        eq_xp = Eq(self._directional[1], self._axial[0], implicit_dims=xp_mask)
+
+        eq_yn = Eq(self._directional[2], self._axial[1], implicit_dims=yn_mask)
+        eq_yp = Eq(self._directional[3], self._axial[1], implicit_dims=yp_mask)
+
+        eq_zn = Eq(self._directional[4], self._axial[2], implicit_dims=zn_mask)
+        eq_zp = Eq(self._directional[5], self._axial[2], implicit_dims=zp_mask)
+
+        op_init = Operator([eq_xn, eq_xp, eq_yn, eq_yp, eq_zn, eq_zp],
+                           name='DistanceInit')
+        op_init.apply()
+
+    def _fill_reciprocal(self):
+        """
+        Fill in negative distances using adjacent positive distances and vice
+        versa. Based of assumption that eta_xp[i] = dx + eta_xn[i+1] when
+        positions i and i+1 straddle a boundary.
+        """
+        x, y, z = self._pad.dimensions
+        h_x, h_y, h_z = self._pad.spacing
+
+        # Conditions under which values can be filled from other fields
+        xn_cond = sp.And(CondEq(self._directional[0], -self._order*h_x),
+                         Lt(self._directional[1][x-1, y, z], h_x))
+
+        xp_cond = sp.And(CondEq(self._directional[1], self._order*h_x),
+                         Gt(self._directional[0][x+1, y, z], -h_x))
+
+        yn_cond = sp.And(CondEq(self._directional[2], -self._order*h_y),
+                         Lt(self._directional[3][x, y-1, z], h_y))
+
+        yp_cond = sp.And(CondEq(self._directional[3], self._order*h_y),
+                         Gt(self._directional[2][x, y+1, z], -h_y))
+
+        zn_cond = sp.And(CondEq(self._directional[4], -self._order*h_z),
+                         Lt(self._directional[5][x, y, z-1], h_z))
+
+        zp_cond = sp.And(CondEq(self._directional[5], self._order*h_z),
+                         Gt(self._directional[4][x, y, z+1], -h_z))
+
+        # Form conditional dimensions
+        xn_mask = ConditionalDimension(name='xn_mask', parent=z,
+                                       condition=xn_cond)
+
+        xp_mask = ConditionalDimension(name='xp_mask', parent=z,
+                                       condition=xp_cond)
+
+        yn_mask = ConditionalDimension(name='yn_mask', parent=z,
+                                       condition=yn_cond)
+
+        yp_mask = ConditionalDimension(name='yp_mask', parent=z,
+                                       condition=yp_cond)
+
+        zn_mask = ConditionalDimension(name='zn_mask', parent=z,
+                                       condition=zn_cond)
+
+        zp_mask = ConditionalDimension(name='zp_mask', parent=z,
+                                       condition=zp_cond)
+
+        # Equations to fill values from reciprocal distances
+        eq_xn = Eq(self._directional[0], self._directional[1][x-1, y, z] - h_x,
+                   implicit_dims=xn_mask)
+
+        eq_xp = Eq(self._directional[1], self._directional[0][x+1, y, z] + h_x,
+                   implicit_dims=xp_mask)
+
+        eq_yn = Eq(self._directional[2], self._directional[3][x, y-1, z] - h_y,
+                   implicit_dims=yn_mask)
+
+        eq_yp = Eq(self._directional[3], self._directional[2][x, y-1, z] + h_y,
+                   implicit_dims=yp_mask)
+
+        eq_zn = Eq(self._directional[4], self._directional[5][x, y, z-1] - h_z,
+                   implicit_dims=zn_mask)
+
+        eq_zp = Eq(self._directional[5], self._directional[4][x, y, z+1] + h_z,
+                   implicit_dims=zp_mask)
+
+        op_recip = Operator([eq_xn, eq_xp, eq_yn, eq_yp, eq_zn, eq_zp],
+                            name='DistanceReciprocal')
+
+        op_recip.apply()
+
+    def _fill_backfill(self):
+        """
+        Backfill distances based on known values.
+        """
+
+    @property
+    def directional(self):
+        """
+        Get the directional distances. Distances greater than M grid
+        increments default to positive or negative M*grid_increment where M
+        is the space order.
+        """
+        m_size = int(self._order/2)
+
+        # Create functions for all 6 eta values
+        eta_xn = Function(name='eta_xn', grid=self._grid, space_order=self._order)
+        eta_xp = Function(name='eta_xp', grid=self._grid, space_order=self._order)
+
+        eta_yn = Function(name='eta_yn', grid=self._grid, space_order=self._order)
+        eta_yp = Function(name='eta_yp', grid=self._grid, space_order=self._order)
+
+        eta_zn = Function(name='eta_zn', grid=self._grid, space_order=self._order)
+        eta_zp = Function(name='eta_zp', grid=self._grid, space_order=self._order)
+
+        # Combine into a single VectorFunction
+        components = [eta_xn, eta_xp, eta_yn, eta_yp, eta_zn, eta_zp]
+        direct = VectorFunction(name='directional',
+                                components=components,
+                                grid=self._grid)
+
+        for i in range(6):
+            direct[i].data[:] = self._directional[i].data[m_size:-m_size,
+                                                          m_size:-m_size,
+                                                          m_size:-m_size]
+
+        return direct
