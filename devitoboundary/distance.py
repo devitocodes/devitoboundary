@@ -401,6 +401,10 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         """
         Backfill distances based on known values.
         """
+        x, y, z = self._pad.dimensions
+        h_x, h_y, h_z = self._pad.spacing
+
+        # Conditions under which values can be filled from adjecent nodes
 
     @property
     def directional(self):
