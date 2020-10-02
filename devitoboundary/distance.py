@@ -62,8 +62,9 @@ class SignedDistanceFunction:
         # Search radius of the SDF is equal to the highest function order.
         self._order = max([function.space_order for function in self._functions])
         # Calculate the signed distance function
-        # FIXME: Can scale down the radius here
-        self._sdfgen = SDFGenerator(infile, self._grid, radius=self._order,
+        # Radius of M/2+1 grid increments
+        radius = int(self._order/2)+1
+        self._sdfgen = SDFGenerator(infile, self._grid, radius=radius,
                                     toggle_normals=toggle_normals)
 
         # Create a Devito function to store and manipulate the sdf
@@ -261,12 +262,17 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         # Fill reciprocal values
         self._fill_reciprocal()
 
+        # Backfill values
+        self._fill_backfill()
+
     def _fill_initial(self):
         """
         Initialise the values in the directional distance function.
         """
+        # Useful values
         x, y, z = self._pad.dimensions
         h_x, h_y, h_z = self._pad.spacing
+        m_size = int(self._order/2)
 
         # Initialise each field
         self._directional[0].data[:] = -self._order*h_x
@@ -326,7 +332,14 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
 
         op_init = Operator([eq_xn, eq_xp, eq_yn, eq_yp, eq_zn, eq_zp],
                            name='DistanceInit')
-        op_init.apply()
+
+        # Shift loop bounds as don't want any values in padding
+        x_M = self._pad.shape[0] - 1 - m_size
+        y_M = self._pad.shape[1] - 1 - m_size
+        z_M = self._pad.shape[2] - 1 - m_size
+        op_init.apply(x_m=m_size, x_M=x_M,
+                      y_m=m_size, y_M=y_M,
+                      z_m=m_size, z_M=z_M)
 
     def _fill_reciprocal(self):
         """
@@ -336,6 +349,7 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         """
         x, y, z = self._pad.dimensions
         h_x, h_y, h_z = self._pad.spacing
+        m_size = int(self._order/2)
 
         # Conditions under which values can be filled from other fields
         xn_cond = sp.And(CondEq(self._directional[0], -self._order*h_x),
@@ -385,7 +399,7 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         eq_yn = Eq(self._directional[2], self._directional[3][x, y-1, z] - h_y,
                    implicit_dims=yn_mask)
 
-        eq_yp = Eq(self._directional[3], self._directional[2][x, y-1, z] + h_y,
+        eq_yp = Eq(self._directional[3], self._directional[2][x, y+1, z] + h_y,
                    implicit_dims=yp_mask)
 
         eq_zn = Eq(self._directional[4], self._directional[5][x, y, z-1] - h_z,
@@ -397,7 +411,13 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         op_recip = Operator([eq_xn, eq_xp, eq_yn, eq_yp, eq_zn, eq_zp],
                             name='DistanceReciprocal')
 
-        op_recip.apply()
+        # Shift loop bounds as don't want any values in padding
+        x_M = self._pad.shape[0] - 1 - m_size
+        y_M = self._pad.shape[1] - 1 - m_size
+        z_M = self._pad.shape[2] - 1 - m_size
+        op_recip.apply(x_m=m_size, x_M=x_M,
+                       y_m=m_size, y_M=y_M,
+                       z_m=m_size, z_M=z_M)
 
     def _fill_backfill(self):
         """
@@ -405,6 +425,7 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         """
         x, y, z = self._pad.dimensions
         h_x, h_y, h_z = self._pad.spacing
+        m_size = int(self._order/2)
 
         # Conditions under which values can be filled from adjecent nodes
         xn_cond = sp.And(CondEq(self._directional[0], -self._order*h_x),
@@ -444,7 +465,37 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         zp_mask = ConditionalDimension(name='zp_mask', parent=z,
                                        condition=zp_cond)
 
-        # Just need to sort the eqs and operator now
+        # Equations to fill distances from known values
+        eq_xn = Eq(self._directional[0], self._directional[0][x-1, y, z] - h_x,
+                   implicit_dims=xn_mask)
+
+        eq_xp = Eq(self._directional[1][x-1, y, z], self._directional[1] + h_x,
+                   implicit_dims=xp_mask)
+
+        eq_yn = Eq(self._directional[2], self._directional[2][x, y-1, z] - h_y,
+                   implicit_dims=yn_mask)
+
+        eq_yp = Eq(self._directional[3][x, y-1, z], self._directional[3] + h_y,
+                   implicit_dims=yp_mask)
+
+        eq_zn = Eq(self._directional[4], self._directional[4][x, y, z-1] - h_z,
+                   implicit_dims=zn_mask)
+
+        eq_zp = Eq(self._directional[5][x, y, z-1], self._directional[5] + h_z,
+                   implicit_dims=zp_mask)
+
+        # Create the operator and run
+        op_back = Operator([eq_xn, eq_xp, eq_yn, eq_yp, eq_zn, eq_zp],
+                           name='DistanceBackfill')
+
+        # Shift loop bounds as don't want any values in padding
+        x_M = self._pad.shape[0] - 1 - m_size
+        y_M = self._pad.shape[1] - 1 - m_size
+        z_M = self._pad.shape[2] - 1 - m_size
+        op_back.apply(x_m=m_size, x_M=x_M,
+                      y_m=m_size, y_M=y_M,
+                      z_m=m_size, z_M=z_M)
+
         # Then can reduce sdf radius accordingly
 
     @property
