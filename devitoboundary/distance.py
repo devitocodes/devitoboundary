@@ -43,8 +43,8 @@ class SignedDistanceFunction:
     def __init__(self, functions, infile, toggle_normals=False):
         # Check variable type
         is_tuple = isinstance(functions, tuple)
-        is_function = issubclass(type(functions), Function) \
-            or issubclass(type(functions), VectorFunction)
+        is_function = issubclass(type(functions), Function)
+        is_vfunction = issubclass(type(functions), VectorFunction)
 
         if is_tuple:
             # Multiple functions supplied
@@ -56,6 +56,10 @@ class SignedDistanceFunction:
             self._functions = functions
         elif is_function:
             self._grid = functions.grid
+            # Put single functions in a tuple for consistency
+            self._functions = (functions,)
+        elif is_vfunction:
+            self._grid = functions[0].grid
             # Put single functions in a tuple for consistency
             self._functions = (functions,)
 
@@ -155,9 +159,12 @@ class AxialDistanceFunction(SignedDistanceFunction):
         close_sdf = Le(sp.Abs(pad_sdf), h_x)
 
         # Also only want values smaller than one increment
-        small_x = Lt(sp.Abs((d - b*pos[1] - c*pos[2])/a - pos[0]), h_x)
-        small_y = Lt(sp.Abs((d - a*pos[0] - c*pos[2])/b - pos[1]), h_y)
-        small_z = Lt(sp.Abs((d - a*pos[0] - b*pos[1])/c - pos[2]), h_z)
+        small_x = sp.And(Lt((d - b*pos[1] - c*pos[2])/a - pos[0], h_x),
+                         Gt((d - b*pos[1] - c*pos[2])/a - pos[0], -h_x))
+        small_y = sp.And(Lt((d - a*pos[0] - c*pos[2])/b - pos[1], h_y),
+                         Gt((d - a*pos[0] - c*pos[2])/b - pos[1], -h_y))
+        small_z = sp.And(Lt((d - a*pos[0] - b*pos[1])/c - pos[2], h_z),
+                         Gt((d - a*pos[0] - b*pos[1])/c - pos[2], -h_z))
 
         # Conditional mask for calculation
         mask_x = ConditionalDimension(name='mask_x', parent=z,
