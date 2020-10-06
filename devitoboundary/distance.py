@@ -151,16 +151,25 @@ class AxialDistanceFunction(SignedDistanceFunction):
         c = sdf_grad[2]
         d = sdf_grad.dot(pos - pad_sdf*sdf_grad)
 
-        # Only need to calculate where abs(SDF) <= dx*M/2 (otherwise out of AOE)
-        # close_sdf = Le(sp.Abs(pad_sdf), h_x*self._order/2)
+        # Only need to calculate adjacent to boundary
         close_sdf = Le(sp.Abs(pad_sdf), h_x)
 
-        # Conditional mask for calculation
-        mask = ConditionalDimension(name='mask', parent=z, condition=close_sdf)
+        # Also only want values smaller than one increment
+        small_x = Lt(sp.Abs((d - b*pos[1] - c*pos[2])/a - pos[0]), h_x)
+        small_y = Lt(sp.Abs((d - a*pos[0] - c*pos[2])/b - pos[1]), h_y)
+        small_z = Lt(sp.Abs((d - a*pos[0] - b*pos[1])/c - pos[2]), h_z)
 
-        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask)
-        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask)
-        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask)
+        # Conditional mask for calculation
+        mask_x = ConditionalDimension(name='mask_x', parent=z,
+                                      condition=sp.And(close_sdf, small_x))
+        mask_y = ConditionalDimension(name='mask_y', parent=z,
+                                      condition=sp.And(close_sdf, small_y))
+        mask_z = ConditionalDimension(name='mask_z', parent=z,
+                                      condition=sp.And(close_sdf, small_z))
+
+        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask_x)
+        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask_y)
+        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask_z)
 
         op_axial = Operator([eq_x, eq_y, eq_z], name='Axial')
         op_axial.apply()
