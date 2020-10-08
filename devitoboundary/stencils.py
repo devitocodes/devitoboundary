@@ -13,6 +13,7 @@ import warnings
 
 __all__ = ['StencilGen']
 
+
 class StencilGen:
     """
     Stencil_Gen(space_order, stencil_file=None)
@@ -212,9 +213,11 @@ class StencilGen:
             self._stencil_list = self._stencil_dict[str(self._bcs)+str(self._s_o)+str(deriv)+'ns']
         except KeyError:
             if stencil_out is None and self._stencil_file is None:
-                warnings.warn("No file specified for caching generated stencils.")
+                no_warn = "No file specified for caching generated stencils."
+                warnings.warn(no_warn)
             if stencil_out is not None and self._stencil_file is not None:
-                warnings.warn("File already specified for caching stencils. Defaulting to {}".format(self._stencil_file))
+                dupe_warn = "File already specified for caching stencils. Defaulting to {}"
+                warnings.warn(dupe_warn.format(self._stencil_file))
 
             warnings.warn("Generating new stencils, this may take some time.")
             self._all_variants(deriv)
@@ -226,7 +229,6 @@ class StencilGen:
                 with open(stencil_out, 'wb') as f:
                     pickle.dump(self._stencil_dict, f)
 
-
     def _all_variants(self, deriv):
         """
         Calculate the stencil coefficients of all possible stencil variants
@@ -237,9 +239,6 @@ class StencilGen:
         deriv : int
             The derivative for which stencils should be calculated
         """
-
-        # Want to check the json here for the relevent nested list
-
         # Want to start by calculating standard stencil expansions
         base_coeffs = sp.finite_diff_weights(deriv,
                                              range(-int(self._s_o/2), int(self._s_o/2)+1),

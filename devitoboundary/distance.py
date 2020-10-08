@@ -47,18 +47,36 @@ class SignedDistanceFunction:
         is_vfunction = issubclass(type(functions), VectorFunction)
 
         if is_tuple:
-            # Multiple functions supplied
+            # Multiple Functions supplied
+            if issubclass(type(functions[0]), VectorFunction):
+                # First function is a VectorFunction
+                check_grid = functions[0][0].grid
+            else:
+                check_grid = functions[0].grid
+
             for function in functions:
-                if function.grid is not functions[0].grid:
+                # Check if the current function is a Vectorfunction
+                if issubclass(type(function), VectorFunction):
+                    # Need first component to get grid
+                    f_grid = function[0].grid
+                else:
+                    f_grid = function.grid
+
+                if f_grid is not check_grid:
                     grid_err = "Functions do not share a grid."
                     raise ValueError(grid_err)
-            self._grid = functions[0].grid
-            self._functions = functions
+
+            self._grid = check_grid  # Set boundary grid
+            self._functions = functions  # Set boundary functions
+
         elif is_function:
+            # Single Function
             self._grid = functions.grid
             # Put single functions in a tuple for consistency
             self._functions = (functions,)
+
         elif is_vfunction:
+            # Single VectorFunction
             self._grid = functions[0].grid
             # Put single functions in a tuple for consistency
             self._functions = (functions,)
@@ -511,8 +529,6 @@ class DirectionalDistanceFunction(AxialDistanceFunction):
         op_back.apply(x_m=m_size, x_M=x_M,
                       y_m=m_size, y_M=y_M,
                       z_m=m_size, z_M=z_M)
-
-        # Then can reduce sdf radius accordingly
 
     @property
     def directional(self):

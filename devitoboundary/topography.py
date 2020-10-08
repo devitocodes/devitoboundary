@@ -2,62 +2,57 @@
 A module for implementation of topography in Devito via the immersed
 boundary method.
 """
+import os
 
 import numpy as np
-import matplotlib.pyplot as plt
+import sympy as sp
 import warnings
 
-from scipy.spatial import Delaunay
-from scipy.interpolate import griddata
-from sympy import finite_diff_weights, Max
-from devito import Function, Dimension, Substitutions, Coefficient, TimeFunction, Eq, Operator, Grid
-from devito.tools import as_tuple
-from devitoboundary import PolySurface, StencilGen
-from mpl_toolkits.mplot3d import Axes3D
+from devito import Function, VectorFunction, Dimension
+from devitoboundary import __file__, StencilGen, DirectionalDistanceFunction
 
-__all__ = ['GenericSurface', 'ImmersedBoundarySurface']
+__all__ = ['ImmersedBoundary']
 
 
-class GenericSurface():
+class ImmersedBoundary:
     """
-    A generic object attatched to one or more Devito Functions, used to contain
-    data relevant for implementing 2.5D internal boundaries within a given 3D
-    domain. A faceted surface is constructed from the topography data. This
-    surface can be queried for axial distances to the boundary, simplifying
-    implementation of immersed boundaries in finite difference models.
+    An immersed boundary object for implementation of surface topography in a 3D
+    domain. The surface on which boundary conditions are to be imposed is
+    supplied as a polygon file.
 
     Parameters
     ----------
-    boundary_data : array_like
-        Array of topography points grouped as [[x, y, z], [x, y, z], ...]
-    functions : tuple of Devito Function or TimeFunction objects
-        The function(s) to which the boundary is to be attached. Note that these
-        must all have the same space order.
+    infile : str
+        Path to the surface polygon file.
+    functions : Devito Function, VectorFunction, or tuple thereof
+        The function(s) to which the boundary is to be attached.
+    toggle_normals : bool
+        Swap the interior and exterior regions of the model domain. Default is
+        False.
     """
 
-    def __init__(self, boundary_data, functions):
-        self._boundary_data = np.array(boundary_data)
-        # Check that boundary data has correct formatting
-        assert len(self._boundary_data.shape) == 2, "Boundary data incorrectly formatted"
-        assert self._boundary_data.shape[1] == 3, "GenericSurface is for 3D boundaries only"
-        # Assert functions supplied as tuple
-        assert isinstance(functions, tuple), "Functions must be supplied as tuple"
-        # Check that all the functions share a grid
-        # Check that all the functions have the same space order
-        for function in functions:
-            assert function.grid is functions[0].grid, "All functions must share the same grid"
-            assert function.space_order == functions[0].space_order, "All functions must have the same space order"
-        # Want to check that this grid is 3D
-        self._grid = functions[0].grid
-        assert len(self._grid.dimensions) == 3, "GenericSurface is for 3D grids only"
-        self._functions = functions
+    def __init__(self, infile, functions, toggle_normals=False):
+        # Cache file is stencil_cache.dat
+        self._cache = os.path.dirname(__file__) + '/stencil_cache.dat'
 
-        self._surface = PolySurface(self._boundary_data, self._grid)
+        # Want to create a Stencil_Gen for each function
+        # Store these in a dictionary
+        self._stencils = {}
+        for function in functions:  # Loop over functions
+            # Check that functions have symbolic coefficients set
+            if function.coefficients != 'symbolic':
+                sym_err = "Function {} does not have symbolic coefficients set"
+                raise ValueError(sym_err.format(function.name))
 
-    @property
-    def boundary_data(self):
-        """The topography data for the boundary"""
-        return self._boundary_data
+            self._stencils[function.name] = StencilGen(function.space_order,
+                                                       stencil_file=self._cache)
+
+        # Get the grid and function list
+        self._get_functions(functions)
+
+        # Calculate distances
+        self._dist = DirectionalDistanceFunction(functions, infile,
+                                                 toggle_normals)
 
     @property
     def grid(self):
@@ -69,206 +64,51 @@ class GenericSurface():
         """The functions to which the boundary is attached"""
         return self._functions
 
-    def plot_boundary(self, invert_z=True, save=False, save_path=None):
+    def _get_functions(self, functions):
         """
-        Plot the boundary surface as a triangular mesh.
+        Put supplied functions into a tuple and extract the grid, checking that
+        all supplied functions are defined on the same grid. Sets the variables
+        self._grid and self._functions
         """
+        # Check variable type
+        is_tuple = isinstance(functions, tuple)
+        is_function = issubclass(type(functions), Function)
+        is_vfunction = issubclass(type(functions), VectorFunction)
 
-        fig = plt.figure()
-        plot_axes = fig.add_subplot(111, projection='3d')
-        plot_axes.plot_trisurf(self._boundary_data[:, 0],
-                               self._boundary_data[:, 1],
-                               self._boundary_data[:, 2],
-                               color='aquamarine')
-
-        plot_axes.set_xlabel("x")
-        plot_axes.set_ylabel("y")
-        plot_axes.set_zlabel("z")
-        plot_axes.set_zlim(0, self._grid.extent[2], False)
-        if invert_z:
-            plot_axes.invert_zaxis()
-        if save:
-            if save_path is not None:
-                plt.savefig(save_path)
+        if is_tuple:
+            # Multiple Functions supplied
+            if issubclass(type(functions[0]), VectorFunction):
+                # First function is a VectorFunction
+                check_grid = functions[0][0].grid
             else:
-                raise OSError("Invalid filepath.")
-        plt.show()
+                check_grid = functions[0].grid
 
-    def query(self, q_points, index_input=False):
-        """
-        Query a set of points to find axial distances to the boundary surface.
-        Distances are returned in grid increments.
+            for function in functions:
+                # Check if the current function is a Vectorfunction
+                if issubclass(type(function), VectorFunction):
+                    # Need first component to get grid
+                    f_grid = function[0].grid
+                else:
+                    f_grid = function.grid
 
-        Parameters
-        ----------
-        q_points : array_like
-            Array of points to query grouped as [[x, y, z], [x, y, z], ...]
+                if f_grid is not check_grid:
+                    grid_err = "Functions do not share a grid."
+                    raise ValueError(grid_err)
 
-        Returns
-        -------
-        z_dist : ndarray
-            Distance to the surface in the z direction for the respective points
-            in q_points. Values of NaN indicate that the surface does not
-            occlude the point in this direction.
-        y_pos_dist : ndarray
-            Distances to the surface in the positive y direction. Same behaviours
-            as z_dist
-        y_neg_dist : ndarray
-            Distances to the surface in the negative y direction. Same behaviours
-            as z_dist
-        x_pos_dist : ndarray
-            Distances to the surface in the positive x direction. Same behaviours
-            as z_dist
-        x_neg_dist : ndarray
-            Distances to the surface in the negative x direction. Same behaviours
-            as z_dist
-        """
-        return self._surface.query(q_points, index_input)
+            self._grid = check_grid  # Set boundary grid
+            self._functions = functions  # Set boundary functions
 
-    def fd_node_sides(self):
-        """
-        Check all nodes in the grid and determine if they are outside or inside the
-        boundary surface.
+        elif is_function:
+            # Single Function
+            self._grid = functions.grid
+            # Put single functions in a tuple for consistency
+            self._functions = (functions,)
 
-        Returns
-        -------
-        positive_mask : ndarray
-            A boolean mask matching the size of the grid. True where the respective
-            node lies on the positive (outside) of the boundary surface.
-        """
-        return self._surface.fd_node_sides()
-
-
-class ImmersedBoundarySurface(GenericSurface):
-    """
-    An immersed boundary object for implementation of surface topography in a 3D
-    domain. The boundary surface is reconstructed from an appropriately-formatted
-    cloud of topography measurements.
-
-    Parameters
-    ----------
-    boundary_data : array_like
-        Array of topography points grouped as [[x, y, z], [x, y, z], ...]
-    functions : tuple of Devito Function or TimeFunction objects
-        The function(s) to which the boundary is to be attached.
-    stencil_file : str
-        The file where a cache of stencils is stored. If none provided, then
-        any stencils will be calculated from scratch. Default is None.
-    """
-
-    def __init__(self, boundary_data, functions, stencil_file=None):
-        super().__init__(boundary_data, functions)
-        # Want to create an appropriately named Stencil_Gen for each function
-        # Store these in a dictionary
-        self.stencils = {}
-        for function in functions:
-            if function.coefficients != 'symbolic':
-                raise ValueError("Function {} does not have symbolic coefficients set".format(function.name))
-            self.stencils[function.name] = StencilGen(function.space_order,
-                                                      stencil_file=stencil_file)
-
-        self._node_id()
-        self._distance_calculation()
-
-    def _node_id(self):
-        """
-        Identifies the nodes within the area of effect of the boundary, where
-        stencils will require modification. Axial distances are calculated during
-        this process.
-        """
-
-        print('Node ID started')
-        self._positive_mask = self.fd_node_sides()
-
-        m_size = int(self._functions[0].space_order/2)
-
-        # Edge detection
-        # Want to add M/2 layers of padding on every edge
-        # FIXME: would be more efficient to use a subdomainset here
-        pg_shape = np.array(self._grid.shape) + 2*m_size
-        pg_extent = (self._grid.extent[0] + 2*m_size*self._grid.spacing[0],
-                     self._grid.extent[1] + 2*m_size*self._grid.spacing[1],
-                     self._grid.extent[2] + 2*m_size*self._grid.spacing[2])
-        padded_grid = Grid(shape=pg_shape, extent=pg_extent)
-        edge_detect = TimeFunction(name='edge_detect', grid=padded_grid,
-                                   space_order=self._functions[0].space_order)
-
-        edge_detect.data[:] = np.pad(self._positive_mask, (m_size,), 'edge')
-
-        # detect_eq = Eq(edge_detect.forward, edge_detect.div)
-        detect_eq = Eq(edge_detect.forward, Max(abs(edge_detect.dx), abs(edge_detect.dy), abs(edge_detect.dz)))
-
-        detect_op = Operator([detect_eq], name='DetectBoundary')
-        detect_op.apply(time_M=1)
-        plt.imshow(edge_detect.data[1, 20])
-        plt.colorbar()
-        plt.show()
-        # 1e-8 deals with floating point errors
-        edge_mask = (edge_detect.data[1, m_size:-m_size, m_size:-m_size, m_size:-m_size] > 1e-8)
-        self._boundary_node_mask = np.logical_and(self._positive_mask, edge_mask)
-        plt.imshow(self._positive_mask[20])
-        plt.colorbar()
-        plt.show()
-        plt.imshow(edge_mask[20])
-        plt.colorbar()
-        plt.show()
-        plt.imshow(self._boundary_node_mask[20])
-        plt.colorbar()
-        plt.show()
-
-    def _distance_calculation(self):
-        """
-        Calculates the axial distances between the identified boundary nodes and the
-        boundary surface.
-        """
-        # Node x, y, and z indices
-        node_xind, node_yind, node_zind = np.where(self._boundary_node_mask)
-        # vstack these
-        self._boundary_nodes = np.vstack((node_xind, node_yind, node_zind)).T
-
-        print(self._boundary_nodes)
-        print(self._boundary_nodes.shape[0])
-        # Query boundary nodes for distances
-        axial_distances = self.query(self._boundary_nodes, index_input=True)
-        # Set distances as variables
-        self._z_dist = axial_distances[0]
-        self._yp_dist = axial_distances[1]
-        self._yn_dist = axial_distances[2]
-        self._xp_dist = axial_distances[3]
-        self._xn_dist = axial_distances[4]
-
-        # FIXME: Occasionally z_dist contains nan (which shouldn't be the case)
-
-    def plot_nodes(self, show_boundary=True, show_nodes=True, save=False, save_path=None):
-        """
-        Plots the boundary surface and the nodes identified as needing modification
-        to their weights.
-        """
-
-        fig = plt.figure()
-        plot_axes = fig.add_subplot(111, projection='3d')
-        if show_boundary:
-            plot_axes.plot_trisurf(self._boundary_data[:, 0],
-                                   self._boundary_data[:, 1],
-                                   self._boundary_data[:, 2],
-                                   color='aquamarine')
-
-        if show_nodes:
-            plot_axes.scatter(self._boundary_nodes[:, 0]*self._grid.spacing[0],
-                              self._boundary_nodes[:, 1]*self._grid.spacing[1],
-                              self._boundary_nodes[:, 2]*self._grid.spacing[2],
-                              marker='^', color='orangered')
-        plot_axes.set_xlabel("x")
-        plot_axes.set_ylabel("y")
-        plot_axes.set_zlabel("z")
-        plot_axes.set_zlim(-1*self._pmls*self._spacing[2], self._extent[2] - self._pmls*self._spacing[2], False)
-        plot_axes.invert_zaxis()
-        if save:
-            if save_path is not None:
-                plt.savefig(save_path)
-            else:
-                raise OSError("Invalid filepath.")
-        plt.show()
+        elif is_vfunction:
+            # Single VectorFunction
+            self._grid = functions[0].grid
+            # Put single functions in a tuple for consistency
+            self._functions = (functions,)
 
     def x_b(self, function):
         """
@@ -302,7 +142,7 @@ class ImmersedBoundarySurface(GenericSurface):
 
     def add_bcs(self, function, bc_list):
         """
-        Attatch boundary conditions to be imposed on the specified function on
+        Attach boundary conditions to be imposed on the specified function on
         the boundary surface.
 
         Parameters
@@ -315,15 +155,15 @@ class ImmersedBoundarySurface(GenericSurface):
         """
         self.stencils[function.name].add_bcs(bc_list)
 
-    def has_bcs(self, function):
+    def has_bcs(self, f_name):
         """
         Checks that a function attatched to the boundary has boundary
         conditions.
 
         Parameters
         ----------
-        function : Devito function
-            The function to be checked
+        f_name : string
+            The name of function to be checked
 
         Returns
         -------
@@ -331,130 +171,65 @@ class ImmersedBoundarySurface(GenericSurface):
             True if the specified function has boundary conditions
             attatched.
         """
-        if self.stencils[function.name].bc_list is None:
+        if self.stencils[f_name].bc_list is None:
             return False
         return True
 
-    def _calculate_stencils(self, function, deriv, stencil_out=None):
+    def _calculate_stencils(self, f_name, deriv):
         """
         Calculate or retrieve the set of stencils required for the specified
         derivative and function.
         """
-        if not self.has_bcs(function):
+        if not self.has_bcs(f_name):
             raise RuntimeError("Function has no boundary conditions set")
-        self.stencils[function.name].all_variants(deriv, stencil_out=stencil_out)
-        # May get odd behaviour if calling this function for multiple different
-        # derivatives of the same function repeatedly.
+        self.stencils[f_name].all_variants(deriv, stencil_out=self._cache)
+        # Calling this function multiple times for different derivatives
+        # will overwrite stencils each time
 
-    def subs(self, spec, stencil_out=None):
+    def subs(self, spec):
         """
         Return a Substitutions object for all stencil modifications associated
         with the boundary, given the derivatives specified.
 
         Parameters
         ----------
-        spec : dict
-            Dictionary containing pairs of functions and their derivatives.
-            E.g. {u : 2, v : 1} for second derivative of u and first of v.
-        stencil_out : str
-            Filepath to cache stencils if no file was specified for caching
-            at initialisation. Default is None (no caching)
+        spec : tuple
+            Desired derivatives supplied as strings e.g. ('f.d2', 'g.d1') for
+            second derivative of f and first derivative of g.
         """
+        # Recurring value for tidiness
         m_size = int(self._functions[0].space_order/2)
 
         # List to store weight functions for each function
         weights = []
 
+        # Additional dimension for storing weights
         s_dim = Dimension(name='s')
         ncoeffs = self._functions[0].space_order+1
 
         wshape = self._grid.shape + (ncoeffs,)
         wdims = self._grid.dimensions + (s_dim,)
 
-        # Can't have two derivatives of the same function due to matching keys
-        # Unpack the dictionary
-        for function in spec:
+        for specification in spec:
+            # Loop over each specification
+            f_name, deriv = specification.split(".d")
+            deriv = int(deriv)
+
             # Loop over every item in the dictionary
-            self._calculate_stencils(function, spec[function], stencil_out=stencil_out)
+            self._calculate_stencils(f_name, deriv)
 
             # Set up weight functions for this function
-            w_x = Function(name=function.name+"_w_x",
+            w_x = Function(name=f_name+"_w_x",
                            dimensions=wdims,
                            shape=wshape)
-            w_y = Function(name=function.name+"_w_y",
+            w_y = Function(name=f_name+"_w_y",
                            dimensions=wdims,
                            shape=wshape)
-            w_z = Function(name=function.name+"_w_z",
+            w_z = Function(name=f_name+"_w_z",
                            dimensions=wdims,
                            shape=wshape)
 
-            # Initialise function data with standard FD weights
-            exterior_mask = np.logical_not(self._positive_mask)
-
-            # Construct standard stencils
-            std_coeffs = finite_diff_weights(spec[function], range(-m_size, m_size+1), 0)[-1][-1]
-            std_coeffs = np.array(std_coeffs)
-
-            w_x.data[:, :, :] = std_coeffs[:]
-            w_y.data[:, :, :] = std_coeffs[:]
-            w_z.data[:, :, :] = std_coeffs[:]
-
-            # Loop over set of points
-            # Call self.stencils[function.name].subs() for each dimension for each modified point
-            for i in range(self._boundary_nodes.shape[0]):
-                pos_x = self._boundary_nodes[i, 0]
-                pos_y = self._boundary_nodes[i, 1]
-                pos_z = self._boundary_nodes[i, 2]
-                if not np.isnan(self._z_dist[i]):
-                    if self._z_dist[i] <= 0:
-                        w_z.data[pos_x, pos_y, pos_z] = 0.
-                    else:
-                        w_z.data[pos_x, pos_y, pos_z] \
-                            = self.stencils[function.name].subs(eta_r=self._z_dist[i])
-                else:
-                    warnings.warn("Encountered missing z distance during stencil generation.")
-
-                if not np.isnan(self._yp_dist[i]) or not np.isnan(self._yn_dist[i]):
-                    if np.isnan(self._yp_dist[i]):
-                        eta_r = None
-                    elif self._yp_dist[i] <= 0:
-                        w_y.data[pos_x, pos_y, pos_z] = 0.
-                    else:
-                        eta_r = self._yp_dist[i]
-                    if np.isnan(self._yn_dist[i]):
-                        eta_l = None
-                    elif self._yn_dist[i] >= 0:
-                        w_y.data[pos_x, pos_y, pos_z] = 0.
-                    else:
-                        eta_l = self._yn_dist[i]
-
-                    w_y.data[pos_x, pos_y, pos_z] \
-                        = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
-
-                if not np.isnan(self._xp_dist[i]) or not np.isnan(self._xn_dist[i]):
-                    if np.isnan(self._xp_dist[i]):
-                        eta_r = None
-                    elif self._xp_dist[i] <= 0:
-                        w_x.data[pos_x, pos_y, pos_z] = 0.
-                    else:
-                        eta_r = self._xp_dist[i]
-                    if np.isnan(self._xn_dist[i]):
-                        eta_l = None
-                    elif self._xn_dist[i] >= 0:
-                        w_x.data[pos_x, pos_y, pos_z] = 0.
-                    else:
-                        eta_l = self._xn_dist[i]
-
-                    w_x.data[pos_x, pos_y, pos_z] \
-                        = self.stencils[function.name].subs(eta_r=eta_r, eta_l=eta_l)
-
-            # Zero weights in the exterior
-            # weights[function.name+"_x"]
-            w_x.data[exterior_mask] = 0
-            w_y.data[exterior_mask] = 0
-            w_z.data[exterior_mask] = 0
-
-            # derivative, dimension, function, weights
+        """
             weights.append(Coefficient(spec[function],
                            function,
                            self._grid.dimensions[0],
@@ -469,3 +244,4 @@ class ImmersedBoundarySurface(GenericSurface):
                            w_z))
 
         return Substitutions(*tuple(weights))
+        """
