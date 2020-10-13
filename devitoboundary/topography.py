@@ -8,7 +8,8 @@ import numpy as np
 import sympy as sp
 import warnings
 
-from devito import Function, VectorFunction, Dimension
+from devito import Function, VectorFunction, Dimension, ConditionalDimension, Eq
+from devito.symbolics import CondEq
 from devitoboundary import __file__, StencilGen, DirectionalDistanceFunction
 
 __all__ = ['ImmersedBoundary']
@@ -35,10 +36,19 @@ class ImmersedBoundary:
         # Cache file is stencil_cache.dat
         self._cache = os.path.dirname(__file__) + '/stencil_cache.dat'
 
+        # Get the grid and function list
+        self._get_functions(functions)
+
+        # Check all functions have the same space order
+        for function in self._functions:
+            if function.space_order != self._functions[0].space_order:
+                ord_err = "All functions must share a space order"
+                raise ValueError(ord_err)
+
         # Want to create a Stencil_Gen for each function
         # Store these in a dictionary
         self._stencils = {}
-        for function in functions:  # Loop over functions
+        for function in self._functions:  # Loop over functions
             # Check that functions have symbolic coefficients set
             if function.coefficients != 'symbolic':
                 sym_err = "Function {} does not have symbolic coefficients set"
@@ -47,12 +57,12 @@ class ImmersedBoundary:
             self._stencils[function.name] = StencilGen(function.space_order,
                                                        stencil_file=self._cache)
 
-        # Get the grid and function list
-        self._get_functions(functions)
-
         # Calculate distances
         self._dist = DirectionalDistanceFunction(functions, infile,
                                                  toggle_normals)
+        # Handy shortcuts
+        self._sdf = self._dist.sdf
+        self._directional = self._dist.directional
 
     @property
     def grid(self):
@@ -120,7 +130,7 @@ class ImmersedBoundary:
         function : Devito function
             The function to which x_b refers
         """
-        return self.stencils[function.name].x_b
+        return self._stencils[function.name].x_b
 
     def u(self, function, x, deriv=0):
         """
@@ -138,7 +148,7 @@ class ImmersedBoundary:
             The order of the derivative of the function. Default
             is zero (no derivative taken)
         """
-        return self.stencils[function.name].u(x, deriv)
+        return self._stencils[function.name].u(x, deriv)
 
     def add_bcs(self, function, bc_list):
         """
@@ -153,7 +163,7 @@ class ImmersedBoundary:
             The set of boundary conditions, specified in terms of 'u' and
             'x_b'
         """
-        self.stencils[function.name].add_bcs(bc_list)
+        self._stencils[function.name].add_bcs(bc_list)
 
     def has_bcs(self, f_name):
         """
@@ -171,7 +181,7 @@ class ImmersedBoundary:
             True if the specified function has boundary conditions
             attatched.
         """
-        if self.stencils[f_name].bc_list is None:
+        if self._stencils[f_name].bc_list is None:
             return False
         return True
 
@@ -182,7 +192,7 @@ class ImmersedBoundary:
         """
         if not self.has_bcs(f_name):
             raise RuntimeError("Function has no boundary conditions set")
-        self.stencils[f_name].all_variants(deriv, stencil_out=self._cache)
+        self._stencils[f_name].all_variants(deriv, stencil_out=self._cache)
         # Calling this function multiple times for different derivatives
         # will overwrite stencils each time
 
@@ -197,7 +207,7 @@ class ImmersedBoundary:
             Desired derivatives supplied as strings e.g. ('f.d2', 'g.d1') for
             second derivative of f and first derivative of g.
         """
-        # Recurring value for tidiness
+        # Recurring values for tidiness
         m_size = int(self._functions[0].space_order/2)
 
         # List to store weight functions for each function
@@ -205,7 +215,9 @@ class ImmersedBoundary:
 
         # Additional dimension for storing weights
         s_dim = Dimension(name='s')
-        ncoeffs = self._functions[0].space_order+1
+        # FIXME: should this be based off the current spec, or do I flag
+        # inconsistent orders?
+        ncoeffs = self._functions[0].space_order + 1
 
         wshape = self._grid.shape + (ncoeffs,)
         wdims = self._grid.dimensions + (s_dim,)
@@ -229,6 +241,18 @@ class ImmersedBoundary:
                            dimensions=wdims,
                            shape=wshape)
 
+            # Initialise empty list for eqs
+            eqs = []
+
+            # Loop over left and right values
+            for l in range(self._functions[0].space_order + 1):
+                for r in range(self._functions[0].space_order + 1):
+                    eqs += self._get_eqs(f_name, 'x', l, r, w_x)
+                    eqs += self._get_eqs(f_name, 'y', l, r, w_y)
+                    eqs += self._get_eqs(f_name, 'z', l, r, w_z)
+
+            # Create an operator to fill the weights, and run
+
         """
             weights.append(Coefficient(spec[function],
                            function,
@@ -245,3 +269,75 @@ class ImmersedBoundary:
 
         return Substitutions(*tuple(weights))
         """
+
+    def _get_eqs(self, f_name, dim, left, right, weights):
+        """
+        Return a list of space_order + 1 Eq objects evaluating each weight in
+        terms of eta_l and eta_r for that dimension for a given left and right
+        index.
+
+        Parameters
+        ----------
+        f_name : str
+            The name of the function
+        dim : str
+            The dimension for which the stencils should be calculated
+        left : int
+            The left index in the stencil list
+        right : int
+            The right index in the stencil list
+        weights : Devito Function
+            The weight function for which equations should be made
+        """
+
+        s_o = self._stencils[f_name].space_order
+        x, y, z, s = weights.dimensions
+        h_x, h_y, h_z = self._grid.spacing
+
+        f = self._stencils[f_name]._f
+        eta_l = self._stencils[f_name]._eta_l
+        eta_r = self._stencils[f_name]._eta_r
+        stencil = self._stencils[f_name].stencil_list[left][right]
+
+        # The indices of the left and right eta in the distance function
+        if dim == 'x':
+            l_key = 0
+            r_key = 1
+            spacing = h_x
+        elif dim == 'y':
+            l_key = 2
+            r_key = 3
+            spacing = h_y
+        elif dim == 'z':
+            l_key = 4
+            r_key = 5
+            spacing = h_z
+
+        # Create a mask for where the left-right stencil variant is valid
+        left_cond = CondEq(s_o - sp.ceiling(-2*self._directional[l_key]/spacing) + 1, left)
+        right_cond = CondEq(s_o - sp.ceiling(2*self._directional[r_key]/spacing) + 1, right)
+        cond = sp.And(left_cond, right_cond)
+
+        mask = ConditionalDimension(name='mask', parent=z, condition=cond)
+
+        # Create a master list of substitutions
+        # This will be used to extract single weights
+        subs_master = [(f[i-int(s_o/2)], 0) for i in range(s_o+1)]
+
+        # Also need the two substitutions for eta
+        subs_eta = [(eta_l, self._directional[l_key]),
+                    (eta_r, self._directional[r_key])]
+
+        eqs = []  # Initialise empty list for eqs
+
+        # Create M+1 equations here
+        for i in range(s_o+1):
+            # Substitution which will isolate a single coefficient of f
+            subs_coeff = subs_master.copy()
+            subs_coeff[i] = (f[i-int(s_o/2)], 1)
+
+            eqs.append(Eq(weights[x, y, z, i-int(s_o/2)],
+                          stencil.subs(subs_coeff + subs_eta),
+                          implicit_dims=mask))
+
+        return eqs
