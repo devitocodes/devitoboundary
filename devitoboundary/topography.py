@@ -6,9 +6,9 @@ import os
 
 import numpy as np
 import sympy as sp
-import warnings
 
-from devito import Function, VectorFunction, Dimension, ConditionalDimension, Eq
+from devito import Function, VectorFunction, Dimension, ConditionalDimension, \
+    Eq, Operator, switchconfig, Coefficient, Substitutions
 from devito.symbolics import CondEq
 from devitoboundary import __file__, StencilGen, DirectionalDistanceFunction
 
@@ -44,6 +44,11 @@ class ImmersedBoundary:
             if function.space_order != self._functions[0].space_order:
                 ord_err = "All functions must share a space order"
                 raise ValueError(ord_err)
+
+        # Create a function map to relate function names to functions
+        self.function_map = {}
+        for function in self._functions:
+            self.function_map[function.name] = function
 
         # Want to create a Stencil_Gen for each function
         # Store these in a dictionary
@@ -210,6 +215,8 @@ class ImmersedBoundary:
         # Recurring values for tidiness
         m_size = int(self._functions[0].space_order/2)
 
+        x, y, z = self._grid.dimensions
+
         # List to store weight functions for each function
         weights = []
 
@@ -241,34 +248,48 @@ class ImmersedBoundary:
                            dimensions=wdims,
                            shape=wshape)
 
-            # Initialise empty list for eqs
-            eqs = []
+            # Initialise these functions with standard stencils
+            std_coeffs = sp.finite_diff_weights(deriv,
+                                                range(-m_size, m_size+1),
+                                                0)[-1][-1]
+            std_coeffs = np.array(std_coeffs)
 
+            w_x.data[:, :, :] = std_coeffs[:]
+            w_y.data[:, :, :] = std_coeffs[:]
+            w_z.data[:, :, :] = std_coeffs[:]
+
+            print("Calculating stencil weights")
             # Loop over left and right values
             for l in range(self._functions[0].space_order + 1):
                 for r in range(self._functions[0].space_order + 1):
+                    # Initialise empty list for eqs
+                    eqs = []
                     eqs += self._get_eqs(f_name, 'x', l, r, w_x)
                     eqs += self._get_eqs(f_name, 'y', l, r, w_y)
                     eqs += self._get_eqs(f_name, 'z', l, r, w_z)
+                    # Operator is run in batches as operators with large
+                    # numbers of equations take some time to initialise
+                    op_weights = Operator(eqs, name='Weights')
+                    # op_weights.apply()
+                    switchconfig(log_level='ERROR')(op_weights.apply())
+                    # DIY Progress Bar
+                    print('■', end='', flush=True)
+            print("\n Weight calculation complete.")
 
-            # Create an operator to fill the weights, and run
-
-        """
-            weights.append(Coefficient(spec[function],
-                           function,
+            weights.append(Coefficient(deriv,
+                           self.function_map[f_name],
                            self._grid.dimensions[0],
                            w_x))
-            weights.append(Coefficient(spec[function],
-                           function,
+            weights.append(Coefficient(deriv,
+                           self.function_map[f_name],
                            self._grid.dimensions[1],
                            w_y))
-            weights.append(Coefficient(spec[function],
-                           function,
+            weights.append(Coefficient(deriv,
+                           self.function_map[f_name],
                            self._grid.dimensions[2],
                            w_z))
 
         return Substitutions(*tuple(weights))
-        """
 
     def _get_eqs(self, f_name, dim, left, right, weights):
         """
@@ -325,8 +346,8 @@ class ImmersedBoundary:
         subs_master = [(f[i-int(s_o/2)], 0) for i in range(s_o+1)]
 
         # Also need the two substitutions for eta
-        subs_eta = [(eta_l, self._directional[l_key]),
-                    (eta_r, self._directional[r_key])]
+        subs_eta = [(eta_l, self._directional[l_key]/spacing),
+                    (eta_r, self._directional[r_key]/spacing)]
 
         eqs = []  # Initialise empty list for eqs
 
@@ -336,7 +357,7 @@ class ImmersedBoundary:
             subs_coeff = subs_master.copy()
             subs_coeff[i] = (f[i-int(s_o/2)], 1)
 
-            eqs.append(Eq(weights[x, y, z, i-int(s_o/2)],
+            eqs.append(Eq(weights[x, y, z, i],
                           stencil.subs(subs_coeff + subs_eta),
                           implicit_dims=mask))
 

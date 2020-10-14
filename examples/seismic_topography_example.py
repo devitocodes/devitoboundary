@@ -1,5 +1,3 @@
-import matplotlib.pyplot as plt
-
 from devito import Grid, TimeFunction, Eq
 from devitoboundary import ImmersedBoundary
 
