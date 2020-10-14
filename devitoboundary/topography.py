@@ -271,10 +271,10 @@ class ImmersedBoundary:
                     # numbers of equations take some time to initialise
                     op_weights = Operator(eqs, name='Weights')
                     # op_weights.apply()
-                    switchconfig(log_level='ERROR')(op_weights.apply())
+                    switchconfig(log_level='ERROR')(op_weights.apply)()
                     # DIY Progress Bar
                     print('■', end='', flush=True)
-            print("\n Weight calculation complete.")
+            print("\nWeight calculation complete.")
 
             weights.append(Coefficient(deriv,
                            self.function_map[f_name],
