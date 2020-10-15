@@ -4,6 +4,7 @@ boundary method.
 """
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 import sympy as sp
 
@@ -212,6 +213,7 @@ class ImmersedBoundary:
             Desired derivatives supplied as strings e.g. ('f.d2', 'g.d1') for
             second derivative of f and first derivative of g.
         """
+        print('Started substitutions')
         # Recurring values for tidiness
         m_size = int(self._functions[0].space_order/2)
 
@@ -235,7 +237,9 @@ class ImmersedBoundary:
             deriv = int(deriv)
 
             # Loop over every item in the dictionary
+            print('Started stencil calculation')
             self._calculate_stencils(f_name, deriv)
+            print('Finished stencil calculation')
 
             # Set up weight functions for this function
             w_x = Function(name=f_name+"_w_x",
@@ -249,14 +253,20 @@ class ImmersedBoundary:
                            shape=wshape)
 
             # Initialise these functions with standard stencils
+            """
+            print('Started base coefficients')
             std_coeffs = sp.finite_diff_weights(deriv,
                                                 range(-m_size, m_size+1),
                                                 0)[-1][-1]
             std_coeffs = np.array(std_coeffs)
+            print('Finished base coefficients')
 
+            print('Started base coefficient filling')
             w_x.data[:, :, :] = std_coeffs[:]
             w_y.data[:, :, :] = std_coeffs[:]
             w_z.data[:, :, :] = std_coeffs[:]
+            print('Initialised function')
+            """
 
             print("Calculating stencil weights")
             # Loop over left and right values
@@ -274,6 +284,9 @@ class ImmersedBoundary:
                     switchconfig(log_level='ERROR')(op_weights.apply)()
                     # DIY Progress Bar
                     print('■', end='', flush=True)
+            plt.imshow(w_x.data[:, 100, :, 2])
+            plt.colorbar()
+            plt.show()
             print("\nWeight calculation complete.")
 
             weights.append(Coefficient(deriv,
