@@ -9,8 +9,8 @@ import numpy as np
 import sympy as sp
 
 from devito import Function, VectorFunction, Dimension, ConditionalDimension, \
-    Eq, Operator, switchconfig, Coefficient, Substitutions
-from devito.symbolics import CondEq
+    Eq, Operator, switchconfig, Coefficient, Substitutions, Ge, Gt, Le, Lt
+# from devito.symbolics import CondEq
 from devitoboundary import __file__, StencilGen, DirectionalDistanceFunction
 
 __all__ = ['ImmersedBoundary']
@@ -284,9 +284,10 @@ class ImmersedBoundary:
                     switchconfig(log_level='ERROR')(op_weights.apply)()
                     # DIY Progress Bar
                     print('■', end='', flush=True)
-            plt.imshow(w_x.data[:, 100, :, 2])
-            plt.colorbar()
-            plt.show()
+            for i in range(5):
+                plt.imshow(w_x.data[:, 100, :, i])
+                plt.colorbar()
+                plt.show()
             print("\nWeight calculation complete.")
 
             weights.append(Coefficient(deriv,
@@ -348,8 +349,20 @@ class ImmersedBoundary:
             spacing = h_z
 
         # Create a mask for where the left-right stencil variant is valid
-        left_cond = CondEq(s_o - sp.ceiling(-2*self._directional[l_key]/spacing) + 1, left)
-        right_cond = CondEq(s_o - sp.ceiling(2*self._directional[r_key]/spacing) + 1, right)
+        if right == 0:
+            right_cond = Ge(self._directional[r_key]/spacing, int(s_o/2))
+        else:
+            rcond_lo = Ge(self._directional[r_key]/spacing, int(s_o/2)-right/2)
+            rcond_hi = Lt(self._directional[r_key]/spacing, int(s_o/2)-(right-1)/2)
+            right_cond = sp.And(rcond_lo, rcond_hi)
+
+        if left == 0:
+            left_cond = Le(self._directional[l_key]/spacing, -int(s_o/2))
+        else:
+            lcond_lo = Gt(self._directional[l_key]/spacing, (left-1)/2 - int(s_o/2))
+            lcond_hi = Le(self._directional[l_key]/spacing, left/2 - int(s_o/2))
+            left_cond = sp.And(lcond_lo, lcond_hi)
+
         cond = sp.And(left_cond, right_cond)
 
         mask = ConditionalDimension(name='mask', parent=z, condition=cond)

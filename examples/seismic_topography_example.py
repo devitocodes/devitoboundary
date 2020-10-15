@@ -65,7 +65,7 @@ deriv = ('u.d2',)
 # We can now write the PDE
 pde = VP*u.dt2 - u.laplace
 eq = Eq(pde, 0, coefficients=surface.subs(deriv))
-"""
+
 # And set up the update
 stencil = solve(eq.evaluate, u.forward)
 
@@ -91,4 +91,3 @@ for i in range(usave.data.shape[0] - 1):
     plt.savefig("images/image-%s" % str(i))
     # plt.show()
     plt.close()
-"""
