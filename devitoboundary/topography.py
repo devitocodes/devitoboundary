@@ -274,9 +274,9 @@ class ImmersedBoundary:
                 for r in range(self._functions[0].space_order + 1):
                     # Initialise empty list for eqs
                     eqs = []
-                    eqs += self._get_eqs(f_name, 'x', l, r, w_x)
-                    eqs += self._get_eqs(f_name, 'y', l, r, w_y)
-                    eqs += self._get_eqs(f_name, 'z', l, r, w_z)
+                    eqs += self._get_eqs(f_name, 'x', deriv, l, r, w_x)
+                    eqs += self._get_eqs(f_name, 'y', deriv, l, r, w_y)
+                    eqs += self._get_eqs(f_name, 'z', deriv, l, r, w_z)
                     # Operator is run in batches as operators with large
                     # numbers of equations take some time to initialise
                     op_weights = Operator(eqs, name='Weights')
@@ -305,7 +305,7 @@ class ImmersedBoundary:
 
         return Substitutions(*tuple(weights))
 
-    def _get_eqs(self, f_name, dim, left, right, weights):
+    def _get_eqs(self, f_name, dim, deriv, left, right, weights):
         """
         Return a list of space_order + 1 Eq objects evaluating each weight in
         terms of eta_l and eta_r for that dimension for a given left and right
@@ -317,6 +317,8 @@ class ImmersedBoundary:
             The name of the function
         dim : str
             The dimension for which the stencils should be calculated
+        deriv : int
+            The derivative being calculated
         left : int
             The left index in the stencil list
         right : int
@@ -384,7 +386,7 @@ class ImmersedBoundary:
             subs_coeff[i] = (f[i-int(s_o/2)], 1)
 
             eqs.append(Eq(weights[x, y, z, i],
-                          stencil.subs(subs_coeff + subs_eta),
+                          stencil.subs(subs_coeff + subs_eta)/spacing**deriv,
                           implicit_dims=mask))
 
         return eqs

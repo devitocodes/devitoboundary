@@ -79,11 +79,11 @@ op = Operator([Eq(u.forward, stencil)] + [Eq(usave, u)] + src_term)
 op.apply(dt=dt)
 
 plot_extent = [0, grid.extent[0],
-               grid.origin[2], grid.extent[2] + grid.origin[0]]
+               origin[2], grid.extent[2] + origin[2]]
 for i in range(usave.data.shape[0] - 1):
     fig = plt.figure()
     plt.imshow(usave.data[i, :, int(grid.shape[1]/2), :].T,
-               origin='lower',
+               origin='lower', extent=plot_extent,
                vmin=-6, vmax=6, cmap='seismic')
     plt.colorbar()
     plt.xlabel("x (m)")
