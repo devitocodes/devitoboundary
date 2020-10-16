@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from devito import Grid, TimeFunction, Eq, solve, Operator, ConditionalDimension
 from devitoboundary import ImmersedBoundary
@@ -78,6 +79,9 @@ op = Operator([Eq(u.forward, stencil)] + [Eq(usave, u)] + src_term)
 # And run
 op.apply(dt=dt)
 
+outfile = 'data/seismic_topography_wavefield.npy'
+np.save(outfile, usave.data)
+"""
 plot_extent = [0, grid.extent[0],
                origin[2], grid.extent[2] + origin[2]]
 for i in range(usave.data.shape[0] - 1):
@@ -91,3 +95,4 @@ for i in range(usave.data.shape[0] - 1):
     plt.savefig("images/image-%s" % str(i))
     # plt.show()
     plt.close()
+"""

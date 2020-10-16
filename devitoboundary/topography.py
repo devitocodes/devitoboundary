@@ -261,10 +261,6 @@ class ImmersedBoundary:
                     switchconfig(log_level='ERROR')(op_weights.apply)()
                     # DIY Progress Bar
                     print('■', end='', flush=True)
-            for i in range(5):
-                plt.imshow(w_x.data[:, 100, :, i])
-                plt.colorbar()
-                plt.show()
             print("\nWeight calculation complete.")
 
             weights.append(Coefficient(deriv,
