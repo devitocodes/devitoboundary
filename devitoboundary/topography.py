@@ -268,7 +268,7 @@ class ImmersedBoundary:
             print('Initialised function')
             """
 
-            print("Calculating stencil weights")
+            print("Calculating {} stencil weights".format(f_name))
             # Loop over left and right values
             for l in range(self._functions[0].space_order + 1):
                 for r in range(self._functions[0].space_order + 1):
