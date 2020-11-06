@@ -108,18 +108,31 @@ class TestStencils:
         def quadratic(x, eta_l, eta_r):
             return (x - eta_r*dx)*(x - eta_l*dx)
 
-        l_vals = np.linspace(-0.75, -1.75, 10)
-        r_vals = np.linspace(0.75, 1.75, 10)
+        # l_vals = np.linspace(-0.75, -1.75, 10)
+        # r_vals = np.linspace(0.75, 1.75, 10)
+        l_vals = np.linspace(-1.05, -1.95, 19)
+        r_vals = np.linspace(1.05, 1.95, 19)
         avg_tol = 0
 
         for i in range(l_vals.shape[0]):
             for j in range(r_vals.shape[0]):
-                stencil = ext.subs(eta_l=l_vals[i], eta_r=r_vals[j])
+                # stencil = ext.subs(eta_l=l_vals[i], eta_r=r_vals[j])
+                dist_l = s_o - np.ceil(abs(l_vals[i])*2).astype(np.int) + 1
+                sub_l = l_vals[i]
+                dist_r = s_o - np.ceil(r_vals[j]*2).astype(np.int) + 1
+                sub_r = r_vals[j]
+                stencil_expr = ext._stencil_list[dist_l][dist_r].subs([(ext._eta_l, sub_l),
+                                                                       (ext._eta_r, sub_r)])
+
+                stencil = np.empty(s_o+1)
+                for i in range(s_o+1):
+                    stencil[i] = float(stencil_expr.coeff(ext._f[i-int(s_o/2)], 1))
+
                 stencil /= dx**2
                 derivative = 0
                 for k in range(stencil.shape[0]):
                     derivative += stencil[k]*quadratic(k*dx - dx*s_o/2, l_vals[i], r_vals[j])
-                assert 100*abs(derivative-2)/2 < 16., "Accuracy of calculated derivative insufficient"
+                assert 100*abs(derivative-2)/2 < 20, "Accuracy of calculated derivative insufficient"
                 avg_tol += abs(derivative-2)
 
-        assert 100*(avg_tol/100)/2 < 8, "Average accuracy of calculated derivatives insufficient"
+        assert 100*(avg_tol/(19**2))/2 < 9, "Average accuracy of calculated derivatives insufficient"
