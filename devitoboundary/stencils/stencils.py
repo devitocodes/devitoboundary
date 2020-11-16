@@ -4,19 +4,19 @@ order.
 """
 import numpy as np
 import sympy as sp
-from devito import Eq
 import pickle
 import warnings
-# TODO: Allow for stencil lists for each derivative rather than having a single
-#       global list.
-# Currently cannot calculate first and second derivative stencils for the same function
+
+from devito import Eq
+from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a)
+
 
 __all__ = ['StencilGen']
 
 
 class StencilGen:
     """
-    Stencil_Gen(space_order, stencil_file=None)
+    Stencil_Gen(space_order, staggered=False, stencil_file=None)
 
     Modified stencils for an immersed boundary at which a set of boundary conditions
     are to be imposed.
@@ -25,6 +25,8 @@ class StencilGen:
     ----------
     space_order : int
         The order of the desired spatial discretization.
+    staggered : bool
+        Switch to stagger stencils. Default is False.
     stencil_file : str
         The filepath of the stencil cache.
 
@@ -46,19 +48,16 @@ class StencilGen:
         The generic function, to be used for specifying bounday conditions.
     add_bcs(bc_list)
         Add a list of boundary conditions constructed using u and x_b. Must be
-        called before all_variants() and subs().
+        called before all_variants().
     all_variants(deriv)
         Calculate the stencil coefficients of all possible stencil variants
-        required for a given derivative. Must be called before subs().
-    subs(eta_l=None, eta_r=None)
-        Obtain a numpy array of the stencil coefficients given values of eta_l
-        and eta_r. This is the offset between the central stencil point and
-        the boundary on the respective side. As such eta_l should always be
-        negative and eta_r positive.
+        required for a given derivative.
     """
 
-    def __init__(self, s_o, stencil_file=None):
+    def __init__(self, s_o, staggered=False, stencil_file=None):
         self._s_o = s_o
+        self._staggered = staggered
+
         self._x = sp.IndexedBase('x')  # Arbitrary values of x
         self._u_x = sp.IndexedBase('u_x')  # Respective values of the function
 
@@ -137,29 +136,66 @@ class StencilGen:
 
     def _coeff_gen(self, n_pts, bcs=None):
         """Generate the polynomial coefficients for the specification"""
+
+        def point_count(n_bcs, n_pts):
+            """
+            The number of points used by the polynomial, given number of bcs
+            and points available.
+            """
+            # Points to be used can be no larger than number available
+            # Points required is equal to space_order - number of bcs
+            # At least one point must be used
+            return min(max(self._s_o - n_bcs + 1, 1), n_pts)
+
+        def extr_poly_order(n_bcs, n_p_used):
+            """
+            The order of the polynomial required given number of boundary
+            conditions and points to be used.
+            """
+            return n_bcs + n_p_used - 1
+
+        def reduce_order(bcs, poly_order):
+            """
+            Return a reduction in polynomial order, since boundary conditions
+            which evaluate to zero will result in polynomial coefficients which
+            are functions of one another otherwise.
+            """
+            eval_bcs = [Eq(bcs[i].lhs.subs(n_max, poly_order).doit(),
+                           bcs[i].rhs) for i in range(len(bcs))]
+            return eval_bcs.count(Eq(0, 0))
+
+        def evaluate_equations(equations, poly_order):
+            """
+            Evaluate the sums in the equation list to the specified order.
+            """
+            for i in range(len(equations)):
+                equations[i] = Eq(equations[i].lhs.subs(n_max, poly_order).doit(),
+                                  equations[i].rhs)
+
+        def solve_for_coeffs(equations, poly_order):
+            """
+            Return the coefficients of the extrapolation polynomial
+            """
+            solve_variables = tuple(a[i] for i in range(poly_order+1))
+            return sp.solve(equations, solve_variables)
+
         if bcs is None:
             bcs = self._bcs
         n_bcs = len(bcs)
-        n_p_used = min(max(self._s_o - n_bcs + 1, 1), n_pts)  # Number of points used for the polynomial
 
-        poly_order = n_bcs + n_p_used - 1
+        n_p_used = point_count(n_bcs, n_pts)
+
+        poly_order = extr_poly_order(n_bcs, n_p_used)
+        poly_order -= reduce_order(bcs, poly_order)
 
         # Generate additional equations for each point used
-        eq_list = [Eq(self.u(self._x[i]), self._u_x[i]) for i in range(n_p_used)]
+        eq_list = [Eq(self.u(x_a[i]), u_x_a[i]) for i in range(n_p_used)]
 
-        short_bcs = bcs.copy()
-        main_bcs = [None for i in range(len(short_bcs))]
-        for i in range(len(bcs)):
-            main_bcs[i] = Eq(bcs[i].lhs.subs(self._n_max, poly_order).doit(), bcs[i].rhs)
-        poly_order -= main_bcs.count(Eq(0, 0))  # Truncate illegible bcs
         equations = bcs + eq_list
 
-        for i in range(len(equations)):
-            equations[i] = Eq(equations[i].lhs.subs(self._n_max, poly_order).doit(), equations[i].rhs)
+        evaluate_equations(equations, poly_order)
 
-        solve_variables = tuple(self._a[i] for i in range(poly_order+1))
-
-        return sp.solve(equations, solve_variables)
+        return solve_for_coeffs(equations, poly_order)
 
     def _poly_variants(self):
         """
