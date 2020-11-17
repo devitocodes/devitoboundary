@@ -8,7 +8,8 @@ import pickle
 import warnings
 
 from devito import Eq
-from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a)
+from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a, x_b, x_l,
+                                              x_r, x_c)
 
 
 __all__ = ['StencilGen']
@@ -119,7 +120,8 @@ class StencilGen:
             The order of the derivative. Default is zero.
         """
         x_poly = sp.symbols('x_poly')
-        polynomial = sp.Sum(self._a[self._n]*x_poly**self._n, (self._n, 0, self._n_max))
+        polynomial = sp.Sum(self._a[self._n]*x_poly**self._n,
+                            (self._n, 0, self._n_max))
         return sp.diff(polynomial, x_poly, deriv).subs(x_poly, val)
 
     def add_bcs(self, bc_list):
@@ -207,8 +209,54 @@ class StencilGen:
         a single polynomial generated for the independent case, and
         one for each unified case as available points are depleted.
         """
+
+        def double_sided_bcs(bcs):
+            """Turn single sided set of bcs into double sided"""
+            double_bcs = []
+            for i in range(len(bcs)):
+                double_bcs.append(self._bcs[i].subs(x_b, x_l))
+                double_bcs.append(self._bcs[i].subs(x_b, x_r))
+            return double_bcs
+
+        def generate_double_sided(bcs):
+            """
+            Generate double sided polynomials based on boundary conditions
+            imposed at both ends of a stencil.
+            """
+            ds_poly = []
+
+            # Set up double-sided boundary conditions list
+            ds_bcs = double_sided_bcs(bcs)
+
+            # Unique extrapolation for each number of interior points available
+            # Can't have less than one interior point
+            # Maximum number of interior points required is one more than the
+            # space order minus the number of boundary conditions
+            n_bcs = len(self._bcs)
+            for i in range(1, self._s_o - n_bcs + 1):
+                ds_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1 - i,
+                                                 bcs=ds_bcs)
+
+                ds_poly.append(sum([ds_poly_coeffs[a[j]]*x_c**j
+                               for j in range(len(ds_poly_coeffs))]))
+
+            return ds_poly
+
+        def generate_single_sided(bcs):
+            """
+            Generate a single-sided polynomial based on boundary conditions
+            imposed.
+            """
+            n_bcs = len(self._bcs)
+            ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
+            ss_poly = [ss_poly_coeffs[a[i]]*x_c**i
+                       for i in range(len(ss_poly_coeffs))]
+
+            return ss_poly
+
         n_bcs = len(self._bcs)
 
+        # Package into function generate_double_sided
         # Initialise list for storing polynomials
         ds_poly = []
         # Set up ds_bc_list
@@ -225,6 +273,7 @@ class StencilGen:
                 ds_poly_i += ds_poly_coeffs[self._a[j]]*self._x_c**j
             ds_poly.append(ds_poly_i)
 
+        # Package into function generate_single_sided
         ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
         ss_poly = 0
         for i in range(len(ss_poly_coeffs)):
