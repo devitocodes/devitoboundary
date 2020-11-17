@@ -135,7 +135,10 @@ class StencilGen:
         self._bcs = bc_list
 
     def _coeff_gen(self, n_pts, bcs=None):
-        """Generate the polynomial coefficients for the specification"""
+        """
+        Generate extrapolation polynomial coefficients given the number of
+        interior points available.
+        """
 
         def point_count(n_bcs, n_pts):
             """
