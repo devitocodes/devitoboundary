@@ -9,7 +9,8 @@ import warnings
 
 from devito import Eq
 from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a, x_b, x_l,
-                                              x_r, x_c)
+                                              x_r, x_c, f, h_x)
+from devitoboundary.stencils.stencil_utils import standard_stencil
 
 
 __all__ = ['StencilGen']
@@ -276,13 +277,15 @@ class StencilGen:
         """
 
         try:
-            self._stencil_list = self._stencil_dict[str(self._bcs)+str(self._s_o)+str(deriv)+'ns']
+            key = str(self._bcs)+str(self._s_o)+str(deriv)+'ns'
+            self._stencil_list = self._stencil_dict[key]
         except KeyError:
             if stencil_out is None and self._stencil_file is None:
                 no_warn = "No file specified for caching generated stencils."
                 warnings.warn(no_warn)
             if stencil_out is not None and self._stencil_file is not None:
-                dupe_warn = "File already specified for caching stencils. Defaulting to {}"
+                dupe_warn = "File already specified for caching stencils." \
+                    + " Defaulting to {}"
                 warnings.warn(dupe_warn.format(self._stencil_file))
 
             warnings.warn("Generating new stencils, this may take some time.")
@@ -305,19 +308,40 @@ class StencilGen:
         deriv : int
             The derivative for which stencils should be calculated
         """
-        # Want to start by calculating standard stencil expansions
-        base_coeffs = sp.finite_diff_weights(deriv,
-                                             range(-int(self._s_o/2), int(self._s_o/2)+1),
-                                             0)[-1][-1]
-        base_stencil = 0
-        for i in range(len(base_coeffs)):
-            base_stencil += base_coeffs[i]*self._f[i-int(self._s_o/2)]
+
+        def get_unusable(variant):
+            """Get the number of unusable points on a side given the variant"""
+            return min(variant, int(variant/2+1))
+
+        def get_outside(variant):
+            """Get the number of exterior points on a side given the variant"""
+            return int(np.ceil(variant/2))
+
+        def sub_x_u(expr, unavailable, side):
+            """
+            Replace x_a and u_x_a with grid increments from stencil center
+            point and values of f at respective positions.
+            """
+            # Need to multiply indices etc by -1 for left (negative) side
+            if side == 'left':
+                index = -1*(int(self._s_o/2)-unavailable-n)
+            elif side == 'right':
+                index = int(self._s_o/2)-unavailable-n
+
+            substitutions = [(u_x_a[n], f[index]),
+                             (x_a[n], index*h_x)]
+
+            return expr.subs(substitutions)
+
+        # FIXME: Will want an offset added in the future
+        base_stencil = standard_stencil(deriv, self._s_o)
 
         # Get the polynomial variants
         self._poly_variants()
 
         # Set up empty nested list of size MxM
-        self._stencil_list = [[None for i in range(self._s_o+1)] for j in range(self._s_o+1)]
+        self._stencil_list = [[None for i in range(self._s_o+1)]
+                              for j in range(self._s_o+1)]
 
         # Number of boundary conditions
         n_bcs = len(self._bcs)
@@ -331,13 +355,14 @@ class StencilGen:
                     stencil_entry = base_stencil
 
                     # Points unusable on right
-                    right_u = min(ri, int(ri/2+1))
+                    right_u = get_unusable(ri)
                     # Points outside on right
-                    right_o = int(np.ceil(ri/2))
+                    right_o = get_outside(ri)
                     # Points unusable on left
-                    left_u = min(le, int(le/2+1))
+                    left_u = get_unusable(le)
                     # Points outside on left
-                    left_o = int(np.ceil(le/2))
+                    left_o = get_outside(le)
+
                     # Available points for right poly
                     a_p_right = self._s_o + 1 - right_u - left_o
                     # Available points for left poly
@@ -356,9 +381,9 @@ class StencilGen:
                             r_poly = self._i_poly_variants
 
                             for n in range(u_p_right+1):
+                                # This wants to be a function sub_x_u(expr):
                                 # Substitute in correct values of x and u_x
-                                r_poly = r_poly.subs([(self._u_x[n], self._f[int(self._s_o/2)-right_u-n]),
-                                                     (self._x[n], (int(self._s_o/2)-right_u-n)*self._h_x)])
+                                r_poly = sub_x_u(r_poly, right_u, 'right')
 
                             # Also need to replace x_b with eta_r*h_x
                             r_poly = r_poly.subs(self._x_b, self._eta_r*self._h_x)
@@ -375,8 +400,7 @@ class StencilGen:
 
                             for n in range(u_p_left+1):
                                 # Substitute in correct values of x and u_x
-                                l_poly = l_poly.subs([(self._u_x[n], self._f[n+left_u-int(self._s_o/2)]),
-                                                     (self._x[n], (n+left_u-int(self._s_o/2))*self._h_x)])
+                                l_poly = sub_x_u(l_poly, left_u, 'left')
 
                             # Also need to replace x_b with eta_l*h_x
                             l_poly = l_poly.subs(self._x_b, self._eta_l*self._h_x)
