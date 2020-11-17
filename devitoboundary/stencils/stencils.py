@@ -9,7 +9,7 @@ import warnings
 
 from devito import Eq
 from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a, x_b, x_l,
-                                              x_r, x_c, f, h_x)
+                                              x_r, x_c, f, h_x, eta_l, eta_r)
 from devitoboundary.stencils.stencil_utils import standard_stencil
 
 
@@ -324,14 +324,30 @@ class StencilGen:
             """
             # Need to multiply indices etc by -1 for left (negative) side
             if side == 'left':
-                index = -1*(int(self._s_o/2)-unavailable-n)
+                for i in range(unavailable+1):
+                    index = -1*(int(self._s_o/2)-unavailable-i)
+                    substitutions = [(u_x_a[n], f[index]),
+                                     (x_a[n], index*h_x)]
+                    expr = expr.subs(substitutions)  # Update with new subs
             elif side == 'right':
-                index = int(self._s_o/2)-unavailable-n
+                for i in range(unavailable+1):
+                    index = int(self._s_o/2)-unavailable-i
+                    substitutions = [(u_x_a[n], f[index]),
+                                     (x_a[n], index*h_x)]
+                    expr = expr.subs(substitutions)  # Update with new subs
 
-            substitutions = [(u_x_a[n], f[index]),
-                             (x_a[n], index*h_x)]
+            return expr
 
-            return expr.subs(substitutions)
+        def sub_x_b(expr, side):
+            """
+            Replace x_b with the specified eta multiplied by the grid increment.
+            """
+            if side == 'left':
+                eta = eta_l
+            elif side == 'right':
+                eta = eta_r
+
+            return expr.subs(x_b, eta*h_x)
 
         # FIXME: Will want an offset added in the future
         base_stencil = standard_stencil(deriv, self._s_o)
@@ -380,13 +396,11 @@ class StencilGen:
                         if ri != 0:
                             r_poly = self._i_poly_variants
 
-                            for n in range(u_p_right+1):
-                                # This wants to be a function sub_x_u(expr):
-                                # Substitute in correct values of x and u_x
-                                r_poly = sub_x_u(r_poly, right_u, 'right')
+                            # Substitute in correct values of x and u_x
+                            r_poly = sub_x_u(r_poly, right_u, 'right')
 
                             # Also need to replace x_b with eta_r*h_x
-                            r_poly = r_poly.subs(self._x_b, self._eta_r*self._h_x)
+                            r_poly = sub_x_b(r_poly, 'right')
 
                             for n in range(right_o):
                                 stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
@@ -398,12 +412,11 @@ class StencilGen:
                         if le != 0:
                             l_poly = self._i_poly_variants
 
-                            for n in range(u_p_left+1):
-                                # Substitute in correct values of x and u_x
-                                l_poly = sub_x_u(l_poly, left_u, 'left')
+                            # Substitute in correct values of x and u_x
+                            l_poly = sub_x_u(l_poly, left_u, 'left')
 
                             # Also need to replace x_b with eta_l*h_x
-                            l_poly = l_poly.subs(self._x_b, self._eta_l*self._h_x)
+                            l_poly = sub_x_b(l_poly, 'left')
 
                             for n in range(left_o):
                                 stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
