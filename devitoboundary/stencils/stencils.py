@@ -317,20 +317,22 @@ class StencilGen:
             """Get the number of exterior points on a side given the variant"""
             return int(np.ceil(variant/2))
 
-        def sub_x_u(expr, unavailable, side):
+        def sub_x_u(expr, unavailable, points_used, side):
             """
             Replace x_a and u_x_a with grid increments from stencil center
             point and values of f at respective positions.
             """
             # Need to multiply indices etc by -1 for left (negative) side
             if side == 'left':
-                for i in range(unavailable+1):
+                # FIXME: Not sure this needs to be +1?
+                for i in range(points_used+1):
                     index = -1*(int(self._s_o/2)-unavailable-i)
                     substitutions = [(u_x_a[n], f[index]),
                                      (x_a[n], index*h_x)]
                     expr = expr.subs(substitutions)  # Update with new subs
             elif side == 'right':
-                for i in range(unavailable+1):
+                # FIXME: Not sure this needs to be +1?
+                for i in range(points_used+1):
                     index = int(self._s_o/2)-unavailable-i
                     substitutions = [(u_x_a[n], f[index]),
                                      (x_a[n], index*h_x)]
@@ -348,6 +350,27 @@ class StencilGen:
                 eta = eta_r
 
             return expr.subs(x_b, eta*h_x)
+
+        def sub_exterior_points(stencil, poly, exterior_points, side):
+            """
+            Replace exterior stencil points with polynomial extrapolations.
+            """
+            if side == 'left':
+                # FIXME: Might be better to create a list then substitute?
+                for i in range(exterior_points):
+                    # Index from left
+                    index = -1*(int(self._s_o/2)-i)
+                    node_position = index*h_x
+                    poly_substitution = poly.subs(x_c, node_position)
+                    stencil = stencil.subs(self._f[index], poly_substitution)
+            elif side == 'right':
+                for i in range(exterior_points):
+                    index = int(self._s_o/2)-i
+                    node_position = index*h_x
+                    poly_substitution = poly.subs(x_c, node_position)
+                    stencil = stencil.subs(self._f[index], poly_substitution)
+
+            return stencil
 
         # FIXME: Will want an offset added in the future
         base_stencil = standard_stencil(deriv, self._s_o)
@@ -397,14 +420,16 @@ class StencilGen:
                             r_poly = self._i_poly_variants
 
                             # Substitute in correct values of x and u_x
-                            r_poly = sub_x_u(r_poly, right_u, 'right')
+                            r_poly = sub_x_u(r_poly, right_u,
+                                             u_p_right, 'right')
 
                             # Also need to replace x_b with eta_r*h_x
                             r_poly = sub_x_b(r_poly, 'right')
 
-                            for n in range(right_o):
-                                stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
-                                                                   r_poly.subs(self._x_c, (int(self._s_o/2)-n)*self._h_x))
+                            # Replace exterior points with extrapolate values
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                r_poly, right_o,
+                                                                'right')
                         else:
                             r_poly = None
 
@@ -413,14 +438,16 @@ class StencilGen:
                             l_poly = self._i_poly_variants
 
                             # Substitute in correct values of x and u_x
-                            l_poly = sub_x_u(l_poly, left_u, 'left')
+                            l_poly = sub_x_u(l_poly, left_u,
+                                             u_p_left, 'left')
 
                             # Also need to replace x_b with eta_l*h_x
                             l_poly = sub_x_b(l_poly, 'left')
 
-                            for n in range(left_o):
-                                stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
-                                                                   l_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
+                            # Replace exterior points with extrapolate values
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                l_poly, left_o,
+                                                                'left')
                         else:
                             l_poly = None
 
