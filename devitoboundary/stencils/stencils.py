@@ -214,11 +214,11 @@ class StencilGen:
             """Turn single sided set of bcs into double sided"""
             double_bcs = []
             for i in range(len(bcs)):
-                double_bcs.append(self._bcs[i].subs(x_b, x_l))
-                double_bcs.append(self._bcs[i].subs(x_b, x_r))
+                double_bcs.append(bcs[i].subs(x_b, x_l))
+                double_bcs.append(bcs[i].subs(x_b, x_r))
             return double_bcs
 
-        def generate_double_sided(bcs):
+        def generate_double_sided():
             """
             Generate double sided polynomials based on boundary conditions
             imposed at both ends of a stencil.
@@ -226,7 +226,7 @@ class StencilGen:
             ds_poly = []
 
             # Set up double-sided boundary conditions list
-            ds_bcs = double_sided_bcs(bcs)
+            ds_bcs = double_sided_bcs(self._bcs)
 
             # Unique extrapolation for each number of interior points available
             # Can't have less than one interior point
@@ -242,44 +242,22 @@ class StencilGen:
 
             return ds_poly
 
-        def generate_single_sided(bcs):
+        def generate_single_sided():
             """
             Generate a single-sided polynomial based on boundary conditions
             imposed.
             """
             n_bcs = len(self._bcs)
             ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
-            ss_poly = [ss_poly_coeffs[a[i]]*x_c**i
-                       for i in range(len(ss_poly_coeffs))]
+            ss_poly = sum([ss_poly_coeffs[a[i]]*x_c**i
+                           for i in range(len(ss_poly_coeffs))])
 
             return ss_poly
 
-        n_bcs = len(self._bcs)
-
-        # Package into function generate_double_sided
-        # Initialise list for storing polynomials
-        ds_poly = []
-        # Set up ds_bc_list
-        ds_bc_list = []
-        for i in range(n_bcs):
-            ds_bc_list.append(self._bcs[i].subs(self._x_b, self._x_l))
-            ds_bc_list.append(self._bcs[i].subs(self._x_b, self._x_r))
-
-        for i in range(1, self._s_o - n_bcs + 1):
-            ds_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1 - i,
-                                             bcs=ds_bc_list)
-            ds_poly_i = 0
-            for j in range(len(ds_poly_coeffs)):
-                ds_poly_i += ds_poly_coeffs[self._a[j]]*self._x_c**j
-            ds_poly.append(ds_poly_i)
-
-        # Package into function generate_single_sided
-        ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
-        ss_poly = 0
-        for i in range(len(ss_poly_coeffs)):
-            ss_poly += ss_poly_coeffs[self._a[i]]*self._x_c**i
-        self._i_poly_variants = ss_poly
-        self._u_poly_variants = ds_poly
+        # i -> sides are independent from one another
+        self._i_poly_variants = generate_single_sided()
+        # u -> sides are unified with one another
+        self._u_poly_variants = generate_double_sided()
 
     def all_variants(self, deriv, stencil_out=None):
         """
