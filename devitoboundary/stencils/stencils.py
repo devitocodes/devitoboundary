@@ -320,7 +320,8 @@ class StencilGen:
         def get_available(outside, unusable):
             """
             Get the number of points available for extrapolation given the
-            number of exterior and unusable stencil points.
+            number of exterior and unusable stencil points. Applicable to
+            individual extrapolations, but not unified ones.
             """
             return self._s_o + 1 - unusable - outside
 
@@ -407,15 +408,15 @@ class StencilGen:
 
             return stencil
 
-        def get_individual_stencil(left_variant, right_variant, stencil):
+        def modify_individual_stencil(left_variant, right_variant, stencil):
             """
-            Get stencil for the case that individual polynomials are to be used.
+            Modify stencil for the case that individual polynomials are to be
+            used.
             """
             # Right side polynomial
             if right_variant != 0:
                 stencil = apply_individual_extrapolation(right_variant,
                                                          stencil, 'right')
-
             # Left side polynomial
             if left_variant != 0:
                 stencil = apply_individual_extrapolation(left_variant,
@@ -466,8 +467,8 @@ class StencilGen:
 
                     if a_p_right >= self._s_o - n_bcs + 1 and a_p_left >= self._s_o - n_bcs + 1:
                         # Use separate polynomials
-                        stencil_entry = get_individual_stencil(le, ri,
-                                                               stencil_entry)
+                        stencil_entry = modify_individual_stencil(le, ri,
+                                                                  stencil_entry)
 
                     elif self._s_o >= 4:
                         # Available points for unified polynomial construction
