@@ -325,6 +325,14 @@ class StencilGen:
             """
             return self._s_o + 1 - unusable - outside
 
+        def get_available_unified(left_unusable, right_unusable):
+            """
+            Get the number of points available for the extrapolation given the
+            number of unusable points on each side. For unified polynomials
+            only.
+            """
+            return self._s_o + 1 - right_unusable - left_unusable
+
         def get_points_to_use(available_points):
             """Get the number of points to use in the polynomial"""
             n_bcs = len(self._bcs)
@@ -363,6 +371,24 @@ class StencilGen:
                 eta = eta_r
 
             return expr.subs(x_b, eta*h_x)
+
+        def sub_x_lr(expr, left_variant, right_variant, floor=False):
+            """
+            Replace x_l and x_r with eta_l and eta_r multiplied by grid
+            increment. Apply a floor of 0.5 if specified.
+            """
+            # Even variant number when "floor" engaged corresponds with case
+            # where boundary is within 0.5 grid increments of stencil center.
+            if right_variant % 2 == 0 and floor:
+                expr = expr.subs(x_r, 0.5*h_x)
+            else:
+                expr = expr.subs(x_r, eta_r*h_x)
+            if left_variant % 2 == 0 and floor:
+                expr = expr.subs(x_l, -0.5*h_x)
+            else:
+                expr = expr.subs(x_l, eta_l*h_x)
+
+            return expr
 
         def sub_exterior_points(stencil, poly, exterior_points, side):
             """
@@ -472,7 +498,7 @@ class StencilGen:
 
                     elif self._s_o >= 4:
                         # Available points for unified polynomial construction
-                        a_p_uni = self._s_o + 1 - right_u - left_u
+                        a_p_uni = get_available_unified(left_u, right_u)
                         # Special case when points available for unified polynomial are zero (or smaller)
                         if a_p_uni <= 0:
                             # Grab the unified polynomial for one point
@@ -482,24 +508,15 @@ class StencilGen:
                             u_poly = u_poly.subs([(self._u_x[0], self._f[0]),
                                                   (self._x[0], 0)])
 
-                            # If r is even, then set eta_r to 0.5*h_x
-                            if ri % 2 == 0:
-                                u_poly = u_poly.subs(self._x_r, 0.5*self._h_x)
-                            else:
-                                u_poly = u_poly.subs(self._x_r, self._eta_r*self._h_x)
-                            # If l is even, then set eta_l to -0.5+*h_x
-                            if le % 2 == 0:
-                                u_poly = u_poly.subs(self._x_l, -0.5*self._h_x)
-                            else:
-                                u_poly = u_poly.subs(self._x_l, self._eta_l*self._h_x)
+                            u_poly = sub_x_lr(u_poly, le, ri, floor=True)
 
-                            for n in range(right_o):
-                                stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
-                                                                   u_poly.subs(self._x_c, (int(self._s_o/2)-n)*self._h_x))
-                            for n in range(left_o):
-                                stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
-                                                                   u_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                u_poly, right_o,
+                                                                'right')
 
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                u_poly, left_o,
+                                                                'left')
                         else:
                             # Grab the polynomial for that number of points
                             u_poly = self._u_poly_variants[a_p_uni - 1]
@@ -508,12 +525,13 @@ class StencilGen:
                                                       (self._x[n], (left_u+n-int(self._s_o/2))*self._h_x)])
                             u_poly = u_poly.subs(self._x_r, self._eta_r*self._h_x)
                             u_poly = u_poly.subs(self._x_l, self._eta_l*self._h_x)
-                            for n in range(right_o):
-                                stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
-                                                                   u_poly.subs(self._x_c, (int(self._s_o/2)-n)*self._h_x))
-                            for n in range(left_o):
-                                stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
-                                                                   u_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                u_poly, right_o,
+                                                                'right')
+
+                            stencil_entry = sub_exterior_points(stencil_entry,
+                                                                u_poly, left_o,
+                                                                'left')
                     else:
                         # Order 2 edge case (use separate polynomials)
                         # For order 2, the double sided polynomial is never needed.
