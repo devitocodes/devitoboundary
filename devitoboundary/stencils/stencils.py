@@ -317,6 +317,18 @@ class StencilGen:
             """Get the number of exterior points on a side given the variant"""
             return int(np.ceil(variant/2))
 
+        def get_available(outside, unusable):
+            """
+            Get the number of points available for extrapolation given the
+            number of exterior and unusable stencil points.
+            """
+            return self._s_o + 1 - unusable - outside
+
+        def get_points_to_use(available_points):
+            """Get the number of points to use in the polynomial"""
+            n_bcs = len(self._bcs)
+            return min(self._s_o - n_bcs + 1, available_points)
+
         def sub_x_u(expr, unavailable, points_used, side):
             """
             Replace x_a and u_x_a with grid increments from stencil center
@@ -372,6 +384,45 @@ class StencilGen:
 
             return stencil
 
+        def apply_individual_extrapolation(variant, stencil, side):
+            """
+            Return a modified version of the stencil, applying the
+            extrapolation for the specified side.
+            """
+            poly = self._i_poly_variants
+
+            unusable = get_unusable(variant)
+            outside = get_outside(variant)
+            available = get_available(outside, unusable)
+            to_use = get_points_to_use(available)
+
+            # Substitute in correct values of x and u_x
+            poly = sub_x_u(poly, unusable, to_use, side)
+
+            # Also need to replace x_b with eta*h_x
+            poly = sub_x_b(poly, side)
+
+            # Replace exterior points with extrapolate values
+            stencil = sub_exterior_points(stencil, poly, outside, side)
+
+            return stencil
+
+        def get_individual_stencil(left_variant, right_variant, stencil):
+            """
+            Get stencil for the case that individual polynomials are to be used.
+            """
+            # Right side polynomial
+            if right_variant != 0:
+                stencil = apply_individual_extrapolation(right_variant,
+                                                         stencil, 'right')
+
+            # Left side polynomial
+            if left_variant != 0:
+                stencil = apply_individual_extrapolation(left_variant,
+                                                         stencil, 'left')
+
+            return stencil
+
         # FIXME: Will want an offset added in the future
         base_stencil = standard_stencil(deriv, self._s_o)
 
@@ -415,41 +466,8 @@ class StencilGen:
 
                     if a_p_right >= self._s_o - n_bcs + 1 and a_p_left >= self._s_o - n_bcs + 1:
                         # Use separate polynomials
-                        # Right side polynomial
-                        if ri != 0:
-                            r_poly = self._i_poly_variants
-
-                            # Substitute in correct values of x and u_x
-                            r_poly = sub_x_u(r_poly, right_u,
-                                             u_p_right, 'right')
-
-                            # Also need to replace x_b with eta_r*h_x
-                            r_poly = sub_x_b(r_poly, 'right')
-
-                            # Replace exterior points with extrapolate values
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                r_poly, right_o,
-                                                                'right')
-                        else:
-                            r_poly = None
-
-                        # Left side polynomial
-                        if le != 0:
-                            l_poly = self._i_poly_variants
-
-                            # Substitute in correct values of x and u_x
-                            l_poly = sub_x_u(l_poly, left_u,
-                                             u_p_left, 'left')
-
-                            # Also need to replace x_b with eta_l*h_x
-                            l_poly = sub_x_b(l_poly, 'left')
-
-                            # Replace exterior points with extrapolate values
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                l_poly, left_o,
-                                                                'left')
-                        else:
-                            l_poly = None
+                        stencil_entry = get_individual_stencil(le, ri,
+                                                               stencil_entry)
 
                     elif self._s_o >= 4:
                         # Available points for unified polynomial construction
