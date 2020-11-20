@@ -333,10 +333,10 @@ class StencilGen:
             """
             return self._s_o + 1 - right_unusable - left_unusable
 
-        def get_points_to_use(available_points):
+        def get_points_to_use():
             """Get the number of points to use in the polynomial"""
             n_bcs = len(self._bcs)
-            return min(self._s_o - n_bcs + 1, available_points)
+            return self._s_o - n_bcs + 1
 
         def sub_x_u(expr, unavailable, points_used, side):
             """
@@ -348,16 +348,40 @@ class StencilGen:
                 # FIXME: Not sure this needs to be +1?
                 for i in range(points_used+1):
                     index = -1*(int(self._s_o/2)-unavailable-i)
-                    substitutions = [(u_x_a[n], f[index]),
-                                     (x_a[n], index*h_x)]
+                    substitutions = [(u_x_a[i], f[index]),
+                                     (x_a[i], index*h_x)]
                     expr = expr.subs(substitutions)  # Update with new subs
             elif side == 'right':
                 # FIXME: Not sure this needs to be +1?
                 for i in range(points_used+1):
                     index = int(self._s_o/2)-unavailable-i
-                    substitutions = [(u_x_a[n], f[index]),
-                                     (x_a[n], index*h_x)]
+                    substitutions = [(u_x_a[i], f[index]),
+                                     (x_a[i], index*h_x)]
                     expr = expr.subs(substitutions)  # Update with new subs
+
+            return expr
+
+        def sub_x_u_center(expr):
+            """
+            Replace x_a and u_x_a with position and respective value of f for
+            the center stencil point only. For polynomials where only a single
+            interior point is used for extrapolation.
+            """
+            expr = expr.subs([(u_x_a[0], f[0]),
+                              (x_a[0], 0)])
+
+            return expr
+
+        def sub_x_u_unified(expr, left_unusable, right_unusable):
+            """
+            Replace x_a and u_x_a with positions relative to center stencil
+            point and respective function values. For unified polynomials.
+            """
+            for i in range(1 + self._s_o - right_unusable - left_unusable):
+                index = left_unusable+i-int(self._s_o/2)
+                substitutions = [(u_x_a[i], f[index]),
+                                 (x_a[i], index*h_x)]
+                expr = expr.subs(substitutions)
 
             return expr
 
@@ -387,6 +411,28 @@ class StencilGen:
                 expr = expr.subs(x_l, -0.5*h_x)
             else:
                 expr = expr.subs(x_l, eta_l*h_x)
+
+            return expr
+
+        def sub_x_b_floor(expr, variant, side):
+            """
+            Replace x_b with the specified eta multiplied by grid increment.
+            For cases where eta < 0.5, eta is replaced with 0.5. Used for the
+            order 2 edge case, where individual polynomials are used in a double
+            sided stencil.
+            """
+            if side == 'left':
+                # If variant = 2, then apply a floor
+                if variant == 2:
+                    expr = expr.subs(x_b, -0.5*h_x)
+                else:
+                    expr = expr.subs(x_b, eta_l*h_x)
+            elif side == 'right':
+                # If variant = 2, then apply a floor
+                if variant == 2:
+                    expr = expr.subs(x_b, 0.5*h_x)
+                else:
+                    expr = expr.subs(x_b, eta_r*h_x)
 
             return expr
 
@@ -420,8 +466,7 @@ class StencilGen:
 
             unusable = get_unusable(variant)
             outside = get_outside(variant)
-            available = get_available(outside, unusable)
-            to_use = get_points_to_use(available)
+            to_use = get_points_to_use()
 
             # Substitute in correct values of x and u_x
             poly = sub_x_u(poly, unusable, to_use, side)
@@ -450,6 +495,112 @@ class StencilGen:
 
             return stencil
 
+        def modify_unified_stencil(left_variant, right_variant, stencil):
+            """
+            Modify stencil for the case that unified polynomials are to be used.
+            """
+            right_o = get_outside(right_variant)
+            left_o = get_outside(left_variant)
+            right_u = get_unusable(right_variant)
+            left_u = get_unusable(left_variant)
+            available = get_available_unified(left_u, right_u)
+            # Special case when points available for unified polynomial are zero (or smaller)
+            if available <= 0:
+                # Grab the unified polynomial for one point
+                poly = self._u_poly_variants[0]
+
+                poly = sub_x_u_center(poly)
+
+                poly = sub_x_lr(poly, left_variant, right_variant, floor=True)
+
+            else:
+                # Grab the polynomial for that number of points
+                poly = self._u_poly_variants[available - 1]
+
+                poly = sub_x_u_unified(poly, left_u, right_u)
+
+                poly = sub_x_lr(poly, left_variant, right_variant, floor=False)
+
+            stencil = sub_exterior_points(stencil,
+                                          poly, right_o,
+                                          'right')
+
+            stencil = sub_exterior_points(stencil,
+                                          poly, left_o,
+                                          'left')
+
+            return stencil
+
+        def modify_edge_stencil(left_variant, right_variant, stencil):
+            """
+            Modify the stencil for the 2nd order edge case where individual
+            extrapolations are to be used.
+            """
+            right_o = get_outside(right_variant)
+            left_o = get_outside(left_variant)
+
+            # Right side polynomial
+            r_poly = self._i_poly_variants
+            # Left side polynomial
+            l_poly = self._i_poly_variants
+
+            r_poly = sub_x_u_center(r_poly)
+            l_poly = sub_x_u_center(l_poly)
+
+            r_poly = sub_x_b_floor(r_poly, right_variant, 'right')
+            l_poly = sub_x_b_floor(l_poly, left_variant, 'left')
+
+            stencil = sub_exterior_points(stencil, r_poly, right_o, 'right')
+            stencil = sub_exterior_points(stencil, r_poly, left_o, 'left')
+
+            return stencil
+
+        def add_stencil_entry(left_variant, right_variant, base_stencil, n_bcs):
+            """
+            Add the stencil entry for the specified variant combination to the
+            stencil list.
+            """
+            stencil_entry = base_stencil
+            if (left_variant != 0 or right_variant != 0):
+                # Points unusable on right
+                right_u = get_unusable(right_variant)
+                # Points outside on right
+                right_o = get_outside(right_variant)
+                # Points unusable on left
+                left_u = get_unusable(left_variant)
+                # Points outside on left
+                left_o = get_outside(left_variant)
+                # Available points for right poly
+                a_p_right = get_available(left_o, right_u)
+                # Available points for left poly
+                a_p_left = get_available(right_o, left_u)
+
+                use_separate = (a_p_right >= self._s_o - n_bcs + 1
+                                and a_p_left >= self._s_o - n_bcs + 1)
+
+                if use_separate:
+                    # Use separate polynomials
+                    stencil_entry = modify_individual_stencil(left_variant,
+                                                              right_variant,
+                                                              stencil_entry)
+
+                elif self._s_o >= 4:
+                    stencil_entry = modify_unified_stencil(left_variant,
+                                                           right_variant,
+                                                           stencil_entry)
+
+                else:
+                    # Order 2 edge case (use separate polynomials)
+                    # For order 2, the double sided polynomial is never
+                    # needed.
+                    stencil_entry = modify_edge_stencil(left_variant,
+                                                        right_variant,
+                                                        stencil_entry)
+
+            # Set stencil entry
+            self._stencil_list[left_variant][right_variant] \
+                = sp.simplify(stencil_entry)
+
         # FIXME: Will want an offset added in the future
         base_stencil = standard_stencil(deriv, self._s_o)
 
@@ -463,113 +614,13 @@ class StencilGen:
         # Number of boundary conditions
         n_bcs = len(self._bcs)
 
+        # FIXME: Can this loop be performed with DASK?
         for le in range(self._s_o+1):
             # Left interval
             for ri in range(self._s_o+1):
                 # Right interval
-                # Set stencil [le, ri]
-                if (le != 0 or ri != 0):
-                    stencil_entry = base_stencil
+                add_stencil_entry(le, ri, base_stencil, n_bcs)
 
-                    # Points unusable on right
-                    right_u = get_unusable(ri)
-                    # Points outside on right
-                    right_o = get_outside(ri)
-                    # Points unusable on left
-                    left_u = get_unusable(le)
-                    # Points outside on left
-                    left_o = get_outside(le)
-
-                    # Available points for right poly
-                    a_p_right = self._s_o + 1 - right_u - left_o
-                    # Available points for left poly
-                    a_p_left = self._s_o + 1 - left_u - right_o
-                    # Use a unified polynomial if less than s_o - n_bcs + 1 points available
-
-                    # Points to use for right poly
-                    u_p_right = min(self._s_o - n_bcs + 1, a_p_right)
-                    # Points to use for left poly
-                    u_p_left = min(self._s_o - n_bcs + 1, a_p_left)
-
-                    if a_p_right >= self._s_o - n_bcs + 1 and a_p_left >= self._s_o - n_bcs + 1:
-                        # Use separate polynomials
-                        stencil_entry = modify_individual_stencil(le, ri,
-                                                                  stencil_entry)
-
-                    elif self._s_o >= 4:
-                        # Available points for unified polynomial construction
-                        a_p_uni = get_available_unified(left_u, right_u)
-                        # Special case when points available for unified polynomial are zero (or smaller)
-                        if a_p_uni <= 0:
-                            # Grab the unified polynomial for one point
-                            u_poly = self._u_poly_variants[0]
-                            # Substitute u_x[0] with single available f
-                            # Substitute x[0] with position*h_x
-                            u_poly = u_poly.subs([(self._u_x[0], self._f[0]),
-                                                  (self._x[0], 0)])
-
-                            u_poly = sub_x_lr(u_poly, le, ri, floor=True)
-
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                u_poly, right_o,
-                                                                'right')
-
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                u_poly, left_o,
-                                                                'left')
-                        else:
-                            # Grab the polynomial for that number of points
-                            u_poly = self._u_poly_variants[a_p_uni - 1]
-                            for n in range(1+self._s_o-right_u - left_u):
-                                u_poly = u_poly.subs([(self._u_x[n], self._f[left_u+n-int(self._s_o/2)]),
-                                                      (self._x[n], (left_u+n-int(self._s_o/2))*self._h_x)])
-                            u_poly = u_poly.subs(self._x_r, self._eta_r*self._h_x)
-                            u_poly = u_poly.subs(self._x_l, self._eta_l*self._h_x)
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                u_poly, right_o,
-                                                                'right')
-
-                            stencil_entry = sub_exterior_points(stencil_entry,
-                                                                u_poly, left_o,
-                                                                'left')
-                    else:
-                        # Order 2 edge case (use separate polynomials)
-                        # For order 2, the double sided polynomial is never needed.
-                        # Right side polynomial
-                        r_poly = self._i_poly_variants
-
-                        # Substitute in correct values of x and u_x
-                        r_poly = r_poly.subs([(self._u_x[0], self._f[0]),
-                                              (self._x[0], 0)])
-
-                        # If ri is 2, then set eta_r to 0.5*h_x
-                        if ri == 2:
-                            r_poly = r_poly.subs(self._x_b, 0.5*self._h_x)
-                        else:
-                            r_poly = r_poly.subs(self._x_b, self._eta_r*self._h_x)
-
-                        for n in range(right_o):
-                            stencil_entry = stencil_entry.subs(self._f[int(self._s_o/2)-n],
-                                                               r_poly.subs(self._x_c, (int(self._s_o/2)-n)*self._h_x))
-
-                        # Left side polynomial
-                        l_poly = self._i_poly_variants
-
-                        # Substitute in correct values of x and u_x
-                        l_poly = l_poly.subs([(self._u_x[0], self._f[0]),
-                                              (self._x[0], 0)])
-
-                        # If le is 2, then set eta_r to 0.5*h_x
-                        if le == 2:
-                            l_poly = l_poly.subs(self._x_b, -0.5*self._h_x)
-                        else:
-                            l_poly = l_poly.subs(self._x_b, self._eta_l*self._h_x)
-
-                        for n in range(left_o):
-                            stencil_entry = stencil_entry.subs(self._f[n-int(self._s_o/2)],
-                                                               l_poly.subs(self._x_c, (n-int(self._s_o/2))*self._h_x))
-                else:
-                    stencil_entry = base_stencil
-                self._stencil_list[le][ri] = sp.simplify(stencil_entry)
-
-        self._stencil_dict[str(self._bcs)+str(self._s_o)+str(deriv)+'ns'] = self._stencil_list
+        # FIXME: Will want to use the offset when implemented
+        key = str(self._bcs)+str(self._s_o)+str(deriv)+'ns'
+        self._stencil_dict[key] = self._stencil_list
