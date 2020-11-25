@@ -168,6 +168,10 @@ class StencilGen:
             """
             eval_bcs = [Eq(bcs[i].lhs.subs(n_max, poly_order).doit(),
                            bcs[i].rhs) for i in range(len(bcs))]
+            # FIXME: Should check for lhs of 0?
+            # FIXME: Also want to remove these boundary conditions rather than
+            # just relying on the reduction in polynomial order to prevent
+            # 0 = 1 type equations.
             return eval_bcs.count(Eq(0, 0))
 
         def evaluate_equations(equations, poly_order):
