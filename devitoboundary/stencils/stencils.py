@@ -19,7 +19,7 @@ __all__ = ['StencilGen']
 
 class StencilGen:
     """
-    Stencil_Gen(space_order, staggered=False, stencil_file=None)
+    Stencil_Gen(space_order, bcs, stencil_file=None)
 
     Modified stencils for an immersed boundary at which a set of boundary conditions
     are to be imposed.
@@ -28,8 +28,8 @@ class StencilGen:
     ----------
     space_order : int
         The order of the desired spatial discretization.
-    staggered : bool
-        Switch to stagger stencils. Default is False.
+    bcs : list of Sympy Eq
+        The list of boundary conditions.
     stencil_file : str
         The filepath of the stencil cache.
 
@@ -41,26 +41,18 @@ class StencilGen:
         which the stencil is truncated by the boundary.
     space_order : int
         The order of the stencils.
-    x_b : Sympy symbol
-        The generic boundary position to be used for specifying boundary
-        conditions.
 
     Methods
     -------
-    u(val, deriv=0)
-        The generic function, to be used for specifying bounday conditions.
-    add_bcs(bc_list)
-        Add a list of boundary conditions constructed using u and x_b. Must be
-        called before all_variants().
     all_variants(deriv)
         Calculate the stencil coefficients of all possible stencil variants
         required for a given derivative.
     """
 
-    def __init__(self, s_o, stencil_file=None):
+    def __init__(self, s_o, bcs, stencil_file=None):
         self._s_o = s_o
 
-        self._bcs = None
+        self._bcs = bcs
         self._stencil_list = None
         self._i_poly_variants = None
         self._u_poly_variants = None
@@ -89,18 +81,6 @@ class StencilGen:
     def space_order(self):
         """The formal order of the stencils"""
         return self._s_o
-
-    def add_bcs(self, bc_list):
-        """
-        Add a list of boundary conditions. These conditions should be formed as
-        devito Eq objects equating some u(x_b) to a given value.
-
-        Parameters
-        ----------
-        bc_list : list
-            The list of boundary conditions.
-        """
-        self._bcs = bc_list
 
     def _coeff_gen(self, n_pts, bcs=None):
         """
@@ -245,6 +225,7 @@ class StencilGen:
             the filepath supplied here will be used. If both are missing,
             then stencils will not be cached.
         """
+        # FIXME: Add an offset to the arguments
 
         try:
             key = str(self._bcs)+str(self._s_o)+str(deriv)+'ns'
