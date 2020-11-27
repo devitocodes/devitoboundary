@@ -10,7 +10,8 @@ import warnings
 from devito import Eq
 from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a, x_b, x_l,
                                               x_r, x_c, f, h_x, eta_l, eta_r)
-from devitoboundary.stencils.stencil_utils import standard_stencil
+from devitoboundary.stencils.stencil_utils import (standard_stencil,
+                                                   generic_function)
 
 
 __all__ = ['StencilGen']
@@ -89,28 +90,6 @@ class StencilGen:
         """The formal order of the stencils"""
         return self._s_o
 
-    @property
-    def x_b(self):
-        """The generic boundary position"""
-        return self._x_b
-
-    def u(self, val, deriv=0):
-        """
-        Returns specified derivative of the extrapolations polynomial. To be used
-        for specification of boundary conditions.
-
-        Parameters
-        ----------
-        val : Sympy symbol
-            The variable of the function. Should typically be x_b.
-        deriv : int
-            The order of the derivative. Default is zero.
-        """
-        x_poly = sp.symbols('x_poly')
-        polynomial = sp.Sum(self._a[self._n]*x_poly**self._n,
-                            (self._n, 0, self._n_max))
-        return sp.diff(polynomial, x_poly, deriv).subs(x_poly, val)
-
     def add_bcs(self, bc_list):
         """
         Add a list of boundary conditions. These conditions should be formed as
@@ -185,7 +164,8 @@ class StencilGen:
         poly_order -= reduce_order(bcs, poly_order)
 
         # Generate additional equations for each point used
-        eq_list = [Eq(self.u(x_a[i]), u_x_a[i]) for i in range(n_p_used)]
+        eq_list = [Eq(generic_function(x_a[i]), u_x_a[i])
+                   for i in range(n_p_used)]
 
         equations = bcs + eq_list
 
@@ -437,13 +417,13 @@ class StencilGen:
                     index = -1*(int(self._s_o/2)-i)
                     node_position = index*h_x
                     poly_substitution = poly.subs(x_c, node_position)
-                    stencil = stencil.subs(self._f[index], poly_substitution)
+                    stencil = stencil.subs(f[index], poly_substitution)
             elif side == 'right':
                 for i in range(exterior_points):
                     index = int(self._s_o/2)-i
                     node_position = index*h_x
                     poly_substitution = poly.subs(x_c, node_position)
-                    stencil = stencil.subs(self._f[index], poly_substitution)
+                    stencil = stencil.subs(f[index], poly_substitution)
 
             return stencil
 
