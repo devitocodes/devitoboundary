@@ -56,22 +56,8 @@ class StencilGen:
         required for a given derivative.
     """
 
-    def __init__(self, s_o, staggered=False, stencil_file=None):
+    def __init__(self, s_o, stencil_file=None):
         self._s_o = s_o
-        self._staggered = staggered
-
-        self._x = sp.IndexedBase('x')  # Arbitrary values of x
-        self._u_x = sp.IndexedBase('u_x')  # Respective values of the function
-
-        self._a = sp.IndexedBase('a')
-        self._n, self._n_max = sp.symbols('n, n_max')  # Maximum polynomial order
-
-        self._x_b, self._x_r, self._x_l = sp.symbols('x_b, x_r, x_l')
-        self._x_c = sp.symbols('x_c')  # Continuous x
-
-        self._f = sp.IndexedBase('f')  # Function values at particular points
-        self._h_x = sp.symbols('h_x')  # Grid spacing
-        self._eta_l, self._eta_r = sp.symbols('eta_l, eta_r')  # Distance to boundary
 
         self._bcs = None
         self._stencil_list = None
