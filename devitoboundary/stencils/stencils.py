@@ -112,10 +112,12 @@ class StencilGen:
             are functions of one another otherwise.
             """
             eval_lhs = [bcs[i].lhs.subs(n_max, poly_order).doit() for i in range(len(bcs))]
-            # FIXME: Also want to remove these boundary conditions rather than
-            # just relying on the reduction in polynomial order to prevent
-            # 0 = 1 type equations.
-            return eval_lhs.count(0)
+            count = eval_lhs.count(0)
+            # Remove all bcs where LHS = 0
+            for bc in range(count):
+                del bcs[eval_lhs.index(0)]
+
+            return count
 
         def evaluate_equations(equations, poly_order):
             """
