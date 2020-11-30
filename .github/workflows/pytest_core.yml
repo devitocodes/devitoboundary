@@ -5,7 +5,11 @@ name: CI-Core
 # Trigger on push or pull request
 on:
   push:
+    branches:
+      - master
   pull_request:
+    branches:
+      - master
 
 jobs:
   build:
@@ -17,7 +21,7 @@ jobs:
       matrix:
         python-version: [3.8, 3.7, 3.6]
         os: [ubuntu-latest, macos-latest]
-    
+
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{matrix.python-version}}
@@ -31,4 +35,3 @@ jobs:
     - name: Test using Pytest
       run: |
         python -m pytest tests/
-
