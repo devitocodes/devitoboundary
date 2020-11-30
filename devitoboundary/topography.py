@@ -124,36 +124,6 @@ class ImmersedBoundary:
             # Put single functions in a tuple for consistency
             self._functions = (functions,)
 
-    def x_b(self, function):
-        """
-        The boundary position used for specifying boundary conditions.
-        Shortcut for self.stencils[function.name].x_b
-
-        Parameters
-        ----------
-        function : Devito function
-            The function to which x_b refers
-        """
-        return self._stencils[function.name].x_b
-
-    def u(self, function, x, deriv=0):
-        """
-        The generic function for specifying boundary conditions.
-        Shortcut for self.stencils[function.name].u(x, deriv)
-
-        Parameters
-        ----------
-        function : Devito function
-            The function which u represents
-        x : sympy symbol
-            The variable used for the boundary condtion (should
-            always be x_b)
-        deriv : int
-            The order of the derivative of the function. Default
-            is zero (no derivative taken)
-        """
-        return self._stencils[function.name].u(x, deriv)
-
     def add_bcs(self, function, bc_list):
         """
         Attach boundary conditions to be imposed on the specified function on
@@ -164,8 +134,7 @@ class ImmersedBoundary:
         function : Devito function
             The function to attach the boundary conditions to.
         bc_list : list of Devito Eq objects
-            The set of boundary conditions, specified in terms of 'u' and
-            'x_b'
+            The set of boundary conditions
         """
         self._stencils[function.name].add_bcs(bc_list)
 
@@ -188,18 +157,7 @@ class ImmersedBoundary:
         if self._stencils[f_name].bc_list is None:
             return False
         return True
-
-    def _calculate_stencils(self, f_name, deriv):
-        """
-        Calculate or retrieve the set of stencils required for the specified
-        derivative and function.
-        """
-        if not self.has_bcs(f_name):
-            raise RuntimeError("Function has no boundary conditions set")
-        self._stencils[f_name].all_variants(deriv, stencil_out=self._cache)
-        # Calling this function multiple times for different derivatives
-        # will overwrite stencils each time
-
+ 
     def subs(self, spec):
         """
         Return a Substitutions object for all stencil modifications associated
@@ -211,6 +169,18 @@ class ImmersedBoundary:
             Desired derivatives supplied as strings e.g. ('f.d2', 'g.d1') for
             second derivative of f and first derivative of g.
         """
+        def calculate_stencils(f_name, deriv):
+            """
+            Calculate or retrieve the set of stencils required for the specified
+            derivative and function.
+            """
+            if not self.has_bcs(f_name):
+                raise RuntimeError("Function has no boundary conditions set")
+            self._stencils[f_name].all_variants(deriv, stencil_out=self._cache)
+            # Calling this function multiple times for different derivatives
+            # will overwrite stencils each time
+
+        # FIXME: can some generic SymPy derivative be used instead of string?
         # Recurring values for tidiness
         x, y, z = self._grid.dimensions
 
@@ -219,20 +189,19 @@ class ImmersedBoundary:
 
         # Additional dimension for storing weights
         s_dim = Dimension(name='s')
-        # FIXME: should this be based off the current spec, or do I flag
-        # inconsistent orders?
         ncoeffs = self._functions[0].space_order + 1
 
         wshape = self._grid.shape + (ncoeffs,)
         wdims = self._grid.dimensions + (s_dim,)
 
         for specification in spec:
+            # FIXME: can this loop be carried out with dask?
             # Loop over each specification
             f_name, deriv = specification.split(".d")
             deriv = int(deriv)
 
-            # Loop over every item in the dictionary
-            self._calculate_stencils(f_name, deriv)
+            # FIXME: want to get offset from function staggering
+            calculate_stencils(f_name, deriv)
 
             # Set up weight functions for this function
             w_x = Function(name=f_name+"_w_x",
@@ -251,6 +220,7 @@ class ImmersedBoundary:
                 for r in range(self._functions[0].space_order + 1):
                     # Initialise empty list for eqs
                     eqs = []
+                    # FIXME: Think this shouldn't be a class function
                     eqs += self._get_eqs(f_name, 'x', deriv, l, r, w_x)
                     eqs += self._get_eqs(f_name, 'y', deriv, l, r, w_y)
                     eqs += self._get_eqs(f_name, 'z', deriv, l, r, w_z)
