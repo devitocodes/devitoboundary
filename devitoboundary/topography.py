@@ -169,6 +169,22 @@ class ImmersedBoundary:
             Desired derivatives supplied as strings e.g. ('f.d2', 'g.d1') for
             second derivative of f and first derivative of g.
         """
+        def get_offset(f_name, dimension):
+            """
+            Get the offset for the stencil given the staggering of the function
+            """
+            if self.function_map[f_name].is_Staggered:
+                stagger = self.function_map[f_name].staggered
+                if isinstance(stagger, tuple):
+                    if dimension in stagger:
+                        return -0.5
+                    return 0.5
+                else:
+                    if dimension == stagger:
+                        return -0.5
+                    return 0.5
+            return 0
+
         def calculate_stencils(f_name, deriv):
             """
             Calculate or retrieve the set of stencils required for the specified
@@ -177,8 +193,104 @@ class ImmersedBoundary:
             if not self.has_bcs(f_name):
                 raise RuntimeError("Function has no boundary conditions set")
             self._stencils[f_name].all_variants(deriv, stencil_out=self._cache)
+            # FIXME: Should really be a return.
             # Calling this function multiple times for different derivatives
             # will overwrite stencils each time
+
+        def get_eqs(self, f_name, stencils, dim, deriv, left, right, weights):
+            """
+            Return a list of space_order + 1 Eq objects evaluating each weight in
+            terms of eta_l and eta_r for that dimension for a given left and right
+            index.
+
+            Parameters
+            ----------
+            f_name : str
+                The name of the function
+            stencils : list
+                The stencil portfolio
+            dim : Dimension
+                The dimension for which the stencils should be calculated
+            deriv : int
+                The derivative being calculated
+            left : int
+                The left index in the stencil list
+            right : int
+                The right index in the stencil list
+            weights : Devito Function
+                The weight function for which equations should be made
+            """
+            s_o = self._stencils[f_name].space_order
+            x, y, z, s = weights.dimensions
+            h_x, h_y, h_z = self._grid.spacing
+
+           # The indices of the left and right eta in the distance function
+            if dim == x:
+                l_key = 0
+                r_key = 1
+            elif dim == y:
+                l_key = 2
+                r_key = 3
+            elif dim == z:
+                l_key = 4
+                r_key = 5
+            spacing = dim.spacing
+            
+            stencil = stencils[f_name].stencil_list[left][right]
+            # Create a mask for where the left-right stencil variant is valid
+            if right == 0:
+                right_cond = Ge(self._directional[r_key]/spacing, int(s_o/2))
+            else:
+                rcond_lo = Ge(self._directional[r_key]/spacing, int(s_o/2)-right/2)
+                rcond_hi = Lt(self._directional[r_key]/spacing, int(s_o/2)-(right-1)/2)
+                right_cond = sp.And(rcond_lo, rcond_hi)
+
+            if left == 0:
+                left_cond = Le(self._directional[l_key]/spacing, -int(s_o/2))
+            else:
+                lcond_lo = Gt(self._directional[l_key]/spacing, (left-1)/2 - int(s_o/2))
+                lcond_hi = Le(self._directional[l_key]/spacing, left/2 - int(s_o/2))
+                left_cond = sp.And(lcond_lo, lcond_hi)
+
+            cond = sp.And(left_cond, right_cond)
+
+            mask = ConditionalDimension(name='mask', parent=z, condition=cond)
+
+
+
+        def generate_weights(w_dims, w_shape, f_name, deriv, dimension):
+            """
+            Generate a Coefficients object for a given function, derivative,
+            and dimension.
+            """
+            offset = get_offset(f_name, dimension)
+            # FIXME: Offset not currently a valid argument
+            stencils = calculate_stencils(f_name, deriv, offset)
+            # Set up weight function for this function
+            w = Function(name=f_name+"_w_"+str(dimension),
+                         dimensions=wdims,
+                         shape=wshape)
+            
+            print("Calculating {} {} stencil weights".format(f_name, dimension))
+            # Loop over left and right values
+            for l in range(self._functions[0].space_order + 1):
+               for r in range(self._functions[0].space_order + 1):
+                    # Initialise empty list for eqs
+                    eqs = []
+                    # FIXME: think this shouldn't be a class function
+                    # FIXME: arguments need tweaking
+                    eqs += get_eqs(f_name, stencils, dimension, deriv, l, r, w)
+                    # Operator is run in batches as operators with large
+                    # numbers of equations take some time to initialise
+                    op_weights = Operator(eqs, name='Weights')
+
+                    switchconfig(log_level='ERROR')(op_weights.apply)()
+                    # DIY Progress Bar
+                    print('■', end='', flush=True)
+            print("\nWeight calculation complete.")
+
+            return Coefficient(deriv, self.function_map[f_name],
+                               dimension, w)
 
         # FIXME: can some generic SymPy derivative be used instead of string?
         # Recurring values for tidiness
@@ -201,6 +313,7 @@ class ImmersedBoundary:
             deriv = int(deriv)
 
             # FIXME: want to get offset from function staggering
+            # FIXME: want to do this dimension-by-dimension
             calculate_stencils(f_name, deriv)
 
             # Set up weight functions for this function
