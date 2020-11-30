@@ -210,7 +210,7 @@ class StencilGen:
         # u -> sides are unified with one another
         self._u_poly_variants = generate_double_sided()
 
-    def all_variants(self, deriv, stencil_out=None):
+    def all_variants(self, deriv, offset,  stencil_out=None):
         """
         Calculate the stencil coefficients of all possible stencil variants
         required for a given derivative.
@@ -219,16 +219,18 @@ class StencilGen:
         ----------
         deriv : int
             The derivative for which stencils should be calculated
+        offset : float
+            The offset at which the derivative is to be evaluated
         stencil_out : str
             The filepath to where the stencils should be cached. This will
             default to the filepath set at initialization. If this is not done,
             the filepath supplied here will be used. If both are missing,
             then stencils will not be cached.
         """
-        # FIXME: Add an offset to the arguments
 
         try:
-            key = str(self._bcs)+str(self._s_o)+str(deriv)+'ns'
+            # Create a unique key for the stencil portfolio
+            key = str(self._bcs)+str(self._s_o)+str(deriv)+str(offset)
             self._stencil_list = self._stencil_dict[key]
         except KeyError:
             if stencil_out is None and self._stencil_file is None:
@@ -240,7 +242,7 @@ class StencilGen:
                 warnings.warn(dupe_warn.format(self._stencil_file))
 
             warnings.warn("Generating new stencils, this may take some time.")
-            self._all_variants(deriv)
+            self._all_variants(deriv, offset)
 
             if self._stencil_file is not None:
                 with open(self._stencil_file, 'wb') as f:
@@ -249,7 +251,7 @@ class StencilGen:
                 with open(stencil_out, 'wb') as f:
                     pickle.dump(self._stencil_dict, f)
 
-    def _all_variants(self, deriv):
+    def _all_variants(self, deriv, offset):
         """
         Calculate the stencil coefficients of all possible stencil variants
         required for a given derivative.
@@ -258,6 +260,8 @@ class StencilGen:
         ----------
         deriv : int
             The derivative for which stencils should be calculated
+        offset : float
+            The offset at which the derivative is to be evaluated`
         """
 
         def get_unusable(variant):
@@ -552,8 +556,7 @@ class StencilGen:
             self._stencil_list[left_variant][right_variant] \
                 = sp.simplify(stencil_entry)
 
-        # FIXME: Will want an offset added in the future
-        base_stencil = standard_stencil(deriv, self._s_o)
+        base_stencil = standard_stencil(deriv, self._s_o, offset)
 
         # Get the polynomial variants
         self._poly_variants()
@@ -572,6 +575,5 @@ class StencilGen:
                 # Right interval
                 add_stencil_entry(le, ri, base_stencil, n_bcs)
 
-        # FIXME: Will want to use the offset when implemented
-        key = str(self._bcs)+str(self._s_o)+str(deriv)+'ns'
+        key = str(self._bcs)+str(self._s_o)+str(deriv)+str(offset)
         self._stencil_dict[key] = self._stencil_list
