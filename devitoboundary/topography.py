@@ -26,12 +26,15 @@ class ImmersedBoundary:
         Path to the surface polygon file.
     functions : Devito Function, VectorFunction, or tuple thereof
         The function(s) to which the boundary is to be attached.
+    boundary_conditions : dict
+        Dictionary of boundary conditions in form {u: [bc0, bc2], v: [bc1, bc3]}
     toggle_normals : bool
         Swap the interior and exterior regions of the model domain. Default is
         False.
     """
 
-    def __init__(self, infile, functions, toggle_normals=False):
+    def __init__(self, infile, functions, boundary_conditions,
+                 toggle_normals=False):
         # Cache file is stencil_cache.dat
         self._cache = os.path.dirname(__file__) + '/stencil_cache.dat'
 
@@ -58,7 +61,9 @@ class ImmersedBoundary:
                 sym_err = "Function {} does not have symbolic coefficients set"
                 raise ValueError(sym_err.format(function.name))
 
+            bcs = boundary_conditions[function]
             self._stencils[function.name] = StencilGen(function.space_order,
+                                                       bcs,
                                                        stencil_file=self._cache)
 
         # Calculate distances
@@ -84,6 +89,7 @@ class ImmersedBoundary:
         all supplied functions are defined on the same grid. Sets the variables
         self._grid and self._functions
         """
+        # FIXME: Move to topography_utils.py
         # Check variable type
         is_tuple = isinstance(functions, tuple)
         is_function = issubclass(type(functions), Function)
@@ -124,40 +130,6 @@ class ImmersedBoundary:
             # Put single functions in a tuple for consistency
             self._functions = (functions,)
 
-    def add_bcs(self, function, bc_list):
-        """
-        Attach boundary conditions to be imposed on the specified function on
-        the boundary surface.
-
-        Parameters
-        ----------
-        function : Devito function
-            The function to attach the boundary conditions to.
-        bc_list : list of Devito Eq objects
-            The set of boundary conditions
-        """
-        self._stencils[function.name].add_bcs(bc_list)
-
-    def has_bcs(self, f_name):
-        """
-        Checks that a function attatched to the boundary has boundary
-        conditions.
-
-        Parameters
-        ----------
-        f_name : string
-            The name of function to be checked
-
-        Returns
-        -------
-        bc_bool : bool
-            True if the specified function has boundary conditions
-            attatched.
-        """
-        if self._stencils[f_name].bc_list is None:
-            return False
-        return True
-
     def subs(self, spec):
         """
         Return a Substitutions object for all stencil modifications associated
@@ -184,18 +156,6 @@ class ImmersedBoundary:
                         return -0.5
                     return 0.5
             return 0
-
-        def calculate_stencils(f_name, deriv):
-            """
-            Calculate or retrieve the set of stencils required for the specified
-            derivative and function.
-            """
-            if not self.has_bcs(f_name):
-                raise RuntimeError("Function has no boundary conditions set")
-            self._stencils[f_name].all_variants(deriv, stencil_out=self._cache)
-            # FIXME: Should really be a return.
-            # Calling this function multiple times for different derivatives
-            # will overwrite stencils each time
 
         def get_eqs(self, f_name, stencils, dim, deriv, left, right, weights):
             """
@@ -284,8 +244,8 @@ class ImmersedBoundary:
             and dimension.
             """
             offset = get_offset(f_name, dimension)
-            # FIXME: Offset not currently a valid argument
-            calculate_stencils(f_name, deriv, offset)
+            self._stencils[f_name].all_variants(deriv, offset,
+                                                stencil_out=self._cache)
             stencils = self._stencils[f_name].stencil_list
             # Set up weight function for this function
             w = Function(name=f_name+"_w_"+str(dimension),

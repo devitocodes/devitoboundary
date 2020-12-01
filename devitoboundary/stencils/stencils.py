@@ -210,7 +210,7 @@ class StencilGen:
         # u -> sides are unified with one another
         self._u_poly_variants = generate_double_sided()
 
-    def all_variants(self, deriv, offset,  stencil_out=None):
+    def all_variants(self, deriv, offset, stencil_out=None):
         """
         Calculate the stencil coefficients of all possible stencil variants
         required for a given derivative.

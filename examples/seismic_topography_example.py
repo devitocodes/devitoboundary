@@ -3,6 +3,8 @@ import numpy as np
 
 from devito import Grid, TimeFunction, Eq, solve, Operator, ConditionalDimension
 from devitoboundary import ImmersedBoundary
+from devitoboundary.symbolics.symbols import x_b
+from devitoboundary.stencils.stencil_utils import generic_function
 from examples.seismic import TimeAxis, RickerSource
 
 C = 0.1  # Courant number
@@ -39,16 +41,13 @@ u = TimeFunction(name='u', grid=grid,
 
 # Surface configuration
 infile = 'topography/crater_lake.ply'
-# Create the immersed boundary surface
-surface = ImmersedBoundary(infile, u)
-
 # Zero even derivatives on the boundary
-bc_0 = Eq(surface.u(u, surface.x_b(u)), 0)
-bc_2 = Eq(surface.u(u, surface.x_b(u), 2), 0)
-bcs = [bc_0, bc_2]
+bc_0 = Eq(generic_function(x_b), 0)  # u(x_b) = 0
+bc_2 = Eq(generic_function(x_b, 2), 0)  # d^2u/dx^2(x_b) = 0
+bcs = {u: [bc_0, bc_2]}
 
-# Add the boundary conditions to the surface
-surface.add_bcs(u, bcs)
+# Create the immersed boundary surface
+surface = ImmersedBoundary(infile, u, bcs)
 
 # Configure the source
 time_range = TimeAxis(start=t0, stop=tn, step=dt)
