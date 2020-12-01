@@ -4,12 +4,12 @@ boundary method.
 """
 import os
 
-import matplotlib.pyplot as plt
 import sympy as sp
 
 from devito import Function, VectorFunction, Dimension, ConditionalDimension, \
     Eq, Operator, switchconfig, Coefficient, Substitutions, Ge, Gt, Le, Lt
 from devitoboundary import __file__, StencilGen, DirectionalDistanceFunction
+from devitoboundary.symbolics.symbols import f, eta_l, eta_r
 
 __all__ = ['ImmersedBoundary']
 
@@ -157,7 +157,7 @@ class ImmersedBoundary:
         if self._stencils[f_name].bc_list is None:
             return False
         return True
- 
+
     def subs(self, spec):
         """
         Return a Substitutions object for all stencil modifications associated
@@ -224,7 +224,7 @@ class ImmersedBoundary:
             x, y, z, s = weights.dimensions
             h_x, h_y, h_z = self._grid.spacing
 
-           # The indices of the left and right eta in the distance function
+            # The indices of the left and right eta in the distance function
             if dim == x:
                 l_key = 0
                 r_key = 1
@@ -235,7 +235,7 @@ class ImmersedBoundary:
                 l_key = 4
                 r_key = 5
             spacing = dim.spacing
-            
+
             stencil = stencils[f_name].stencil_list[left][right]
             # Create a mask for where the left-right stencil variant is valid
             if right == 0:
@@ -256,7 +256,27 @@ class ImmersedBoundary:
 
             mask = ConditionalDimension(name='mask', parent=z, condition=cond)
 
+            # Create a master list of substitutions
+            # This will be used to extract single weights
+            subs_master = [(f[i-int(s_o/2)], 0) for i in range(s_o+1)]
 
+            # Also need the two substitutions for eta
+            subs_eta = [(eta_l, self._directional[l_key]/spacing),
+                        (eta_r, self._directional[r_key]/spacing)]
+
+            eqs = []  # Initialise empty list for eqs
+
+            # Create M+1 equations here
+            for i in range(s_o+1):
+                # Substitution which will isolate a single coefficient of f
+                subs_coeff = subs_master.copy()
+                subs_coeff[i] = (f[i-int(s_o/2)], 1)
+
+                eqs.append(Eq(weights[x, y, z, i],
+                              stencil.subs(subs_coeff + subs_eta)/spacing**deriv,
+                              implicit_dims=mask))
+
+            return eqs
 
         def generate_weights(w_dims, w_shape, f_name, deriv, dimension):
             """
@@ -265,20 +285,19 @@ class ImmersedBoundary:
             """
             offset = get_offset(f_name, dimension)
             # FIXME: Offset not currently a valid argument
-            stencils = calculate_stencils(f_name, deriv, offset)
+            calculate_stencils(f_name, deriv, offset)
+            stencils = self._stencils[f_name].stencil_list
             # Set up weight function for this function
             w = Function(name=f_name+"_w_"+str(dimension),
-                         dimensions=wdims,
-                         shape=wshape)
-            
+                         dimensions=w_dims,
+                         shape=w_shape)
+
             print("Calculating {} {} stencil weights".format(f_name, dimension))
             # Loop over left and right values
             for l in range(self._functions[0].space_order + 1):
-               for r in range(self._functions[0].space_order + 1):
+                for r in range(self._functions[0].space_order + 1):
                     # Initialise empty list for eqs
                     eqs = []
-                    # FIXME: think this shouldn't be a class function
-                    # FIXME: arguments need tweaking
                     eqs += get_eqs(f_name, stencils, dimension, deriv, l, r, w)
                     # Operator is run in batches as operators with large
                     # numbers of equations take some time to initialise
@@ -303,8 +322,8 @@ class ImmersedBoundary:
         s_dim = Dimension(name='s')
         ncoeffs = self._functions[0].space_order + 1
 
-        wshape = self._grid.shape + (ncoeffs,)
-        wdims = self._grid.dimensions + (s_dim,)
+        w_shape = self._grid.shape + (ncoeffs,)
+        w_dims = self._grid.dimensions + (s_dim,)
 
         for specification in spec:
             # FIXME: can this loop be carried out with dask?
@@ -312,137 +331,8 @@ class ImmersedBoundary:
             f_name, deriv = specification.split(".d")
             deriv = int(deriv)
 
-            # FIXME: want to get offset from function staggering
-            # FIXME: want to do this dimension-by-dimension
-            calculate_stencils(f_name, deriv)
-
-            # Set up weight functions for this function
-            w_x = Function(name=f_name+"_w_x",
-                           dimensions=wdims,
-                           shape=wshape)
-            w_y = Function(name=f_name+"_w_y",
-                           dimensions=wdims,
-                           shape=wshape)
-            w_z = Function(name=f_name+"_w_z",
-                           dimensions=wdims,
-                           shape=wshape)
-
-            print("Calculating {} stencil weights".format(f_name))
-            # Loop over left and right values
-            for l in range(self._functions[0].space_order + 1):
-                for r in range(self._functions[0].space_order + 1):
-                    # Initialise empty list for eqs
-                    eqs = []
-                    # FIXME: Think this shouldn't be a class function
-                    eqs += self._get_eqs(f_name, 'x', deriv, l, r, w_x)
-                    eqs += self._get_eqs(f_name, 'y', deriv, l, r, w_y)
-                    eqs += self._get_eqs(f_name, 'z', deriv, l, r, w_z)
-                    # Operator is run in batches as operators with large
-                    # numbers of equations take some time to initialise
-                    op_weights = Operator(eqs, name='Weights')
-
-                    switchconfig(log_level='ERROR')(op_weights.apply)()
-                    # DIY Progress Bar
-                    print('■', end='', flush=True)
-            print("\nWeight calculation complete.")
-
-            weights.append(Coefficient(deriv,
-                           self.function_map[f_name],
-                           self._grid.dimensions[0],
-                           w_x))
-            weights.append(Coefficient(deriv,
-                           self.function_map[f_name],
-                           self._grid.dimensions[1],
-                           w_y))
-            weights.append(Coefficient(deriv,
-                           self.function_map[f_name],
-                           self._grid.dimensions[2],
-                           w_z))
+            for dimension in self._grid.dimensions:
+                weights.append(generate_weights(w_dims, w_shape, f_name,
+                                                deriv, dimension))
 
         return Substitutions(*tuple(weights))
-
-    def _get_eqs(self, f_name, dim, deriv, left, right, weights):
-        """
-        Return a list of space_order + 1 Eq objects evaluating each weight in
-        terms of eta_l and eta_r for that dimension for a given left and right
-        index.
-
-        Parameters
-        ----------
-        f_name : str
-            The name of the function
-        dim : str
-            The dimension for which the stencils should be calculated
-        deriv : int
-            The derivative being calculated
-        left : int
-            The left index in the stencil list
-        right : int
-            The right index in the stencil list
-        weights : Devito Function
-            The weight function for which equations should be made
-        """
-
-        s_o = self._stencils[f_name].space_order
-        x, y, z, s = weights.dimensions
-        h_x, h_y, h_z = self._grid.spacing
-
-        f = self._stencils[f_name]._f
-        eta_l = self._stencils[f_name]._eta_l
-        eta_r = self._stencils[f_name]._eta_r
-        stencil = self._stencils[f_name].stencil_list[left][right]
-
-        # The indices of the left and right eta in the distance function
-        if dim == 'x':
-            l_key = 0
-            r_key = 1
-            spacing = h_x
-        elif dim == 'y':
-            l_key = 2
-            r_key = 3
-            spacing = h_y
-        elif dim == 'z':
-            l_key = 4
-            r_key = 5
-            spacing = h_z
-
-        # Create a mask for where the left-right stencil variant is valid
-        if right == 0:
-            right_cond = Ge(self._directional[r_key]/spacing, int(s_o/2))
-        else:
-            rcond_lo = Ge(self._directional[r_key]/spacing, int(s_o/2)-right/2)
-            rcond_hi = Lt(self._directional[r_key]/spacing, int(s_o/2)-(right-1)/2)
-            right_cond = sp.And(rcond_lo, rcond_hi)
-
-        if left == 0:
-            left_cond = Le(self._directional[l_key]/spacing, -int(s_o/2))
-        else:
-            lcond_lo = Gt(self._directional[l_key]/spacing, (left-1)/2 - int(s_o/2))
-            lcond_hi = Le(self._directional[l_key]/spacing, left/2 - int(s_o/2))
-            left_cond = sp.And(lcond_lo, lcond_hi)
-
-        cond = sp.And(left_cond, right_cond)
-
-        mask = ConditionalDimension(name='mask', parent=z, condition=cond)
-
-        # Create a master list of substitutions
-        # This will be used to extract single weights
-        subs_master = [(f[i-int(s_o/2)], 0) for i in range(s_o+1)]
-
-        # Also need the two substitutions for eta
-        subs_eta = [(eta_l, self._directional[l_key]/spacing),
-                    (eta_r, self._directional[r_key]/spacing)]
-
-        eqs = []  # Initialise empty list for eqs
-
-        # Create M+1 equations here
-        for i in range(s_o+1):
-            # Substitution which will isolate a single coefficient of f
-            subs_coeff = subs_master.copy()
-            subs_coeff[i] = (f[i-int(s_o/2)], 1)
-
-            eqs.append(Eq(weights[x, y, z, i],
-                          stencil.subs(subs_coeff + subs_eta)/spacing**deriv,
-                          implicit_dims=mask))
-
-        return eqs

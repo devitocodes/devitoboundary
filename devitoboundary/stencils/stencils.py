@@ -261,7 +261,7 @@ class StencilGen:
         deriv : int
             The derivative for which stencils should be calculated
         offset : float
-            The offset at which the derivative is to be evaluated`
+            The offset at which the derivative is to be evaluated
         """
 
         def get_unusable(variant):
