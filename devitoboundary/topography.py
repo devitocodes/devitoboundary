@@ -198,8 +198,11 @@ class ImmersedBoundary:
 
             stencil = stencils[f_name].stencil_list[left][right]
             # Create a mask for where the left-right stencil variant is valid
+            # FIXME: Include an offset
             if right == 0:
                 right_cond = Ge(self._directional[r_key]/spacing, int(s_o/2))
+            elif right == s_o:
+                right_cond = Lt(self._directional[r_key]/spacing, 0.5)
             else:
                 rcond_lo = Ge(self._directional[r_key]/spacing, int(s_o/2)-right/2)
                 rcond_hi = Lt(self._directional[r_key]/spacing, int(s_o/2)-(right-1)/2)
@@ -207,6 +210,8 @@ class ImmersedBoundary:
 
             if left == 0:
                 left_cond = Le(self._directional[l_key]/spacing, -int(s_o/2))
+            elif left == s_o:
+                left_cond = Gt(self._directional[l_key]/spacing, -0.5)
             else:
                 lcond_lo = Gt(self._directional[l_key]/spacing, (left-1)/2 - int(s_o/2))
                 lcond_hi = Le(self._directional[l_key]/spacing, left/2 - int(s_o/2))
@@ -221,6 +226,7 @@ class ImmersedBoundary:
             subs_master = [(f[i-int(s_o/2)], 0) for i in range(s_o+1)]
 
             # Also need the two substitutions for eta
+            # FIXME: Include an offset
             subs_eta = [(eta_l, self._directional[l_key]/spacing),
                         (eta_r, self._directional[r_key]/spacing)]
 
