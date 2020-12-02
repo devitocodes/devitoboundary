@@ -1,6 +1,9 @@
 import numpy as np
 import sympy as sp
 from devitoboundary import StencilGen
+from devitoboundary.symbolics.symbols import (x_b, f, eta_r, eta_l, a, x_c, x_a,
+                                              u_x_a)
+from devitoboundary.stencils.stencil_utils import generic_function
 from devito import Eq
 
 s_o = 4  # Order of the discretization
@@ -16,14 +19,11 @@ class TestStencils:
         Convergence test to check that calculated derivatives trend towards
         the actual with decreasing grid increment.
         """
-        ext = StencilGen(s_o)
+        bc_0 = Eq(generic_function(x_b), 0)
+        bc_2 = Eq(generic_function(x_b, 2), 0)
+        bcs = [bc_0, bc_2]
 
-        bc_0 = Eq(ext.u(ext.x_b), 0)
-        bc_2 = Eq(ext.u(ext.x_b, 2), 0)
-        bc_4 = Eq(ext.u(ext.x_b, 4), 0)
-        bcs = [bc_0, bc_2, bc_4]
-
-        ext.add_bcs(bcs)
+        ext = StencilGen(s_o, bcs)
 
         ext.all_variants(2)
 
@@ -36,9 +36,9 @@ class TestStencils:
                 dx = 1/j
                 evaluated = test_stencil
                 for k in range(len(ext.stencil_list)):
-                    evaluated = evaluated.subs(ext._f[k-int(s_o/2)],
+                    evaluated = evaluated.subs(f[k-int(s_o/2)],
                                                np.sin(np.pi-test_eta_r*dx+(k-int(s_o/2))*dx))
-                evaluated = evaluated.subs(ext._eta_r, test_eta_r)
+                evaluated = evaluated.subs(eta_r, test_eta_r)
                 evaluated /= dx**2
                 diff = evaluated + np.sin(np.pi-test_eta_r*dx)
                 if prev is not None:
@@ -50,26 +50,24 @@ class TestStencils:
         """
         Test to check that extrapolations recover polynomials of equivalent order.
         """
+        # FIXME: Set to 6?
         order_max = 4  # The maximum stencil order to test up to
 
         for i in range(1, int(order_max/2)+1):
-            ext = StencilGen(s_o)
-
             def zero_even_gen(order_M):
                 """Returns list of zeroed even bcs for a given number of derivatives"""
                 even_bcs = []
-                for j in range(int(order_M/2)+1):
-                    even_bcs.append(Eq(ext.u(ext.x_b, 2*j), 0))
+                for j in range(int(order_M/2)):
+                    even_bcs.append(Eq(generic_function(x_b, 2*j), 0))
                 return even_bcs
 
             zero_bcs = zero_even_gen(2*i)
-            ext.add_bcs(zero_bcs)
+            ext = StencilGen(s_o, zero_bcs)
             e_poly_coeffs = ext._coeff_gen(2*i)
-            # e_poly_coeffs = ext_poly(zero_bcs, 2*i, 2*i)
 
             e_poly = 0
             for j in range(len(e_poly_coeffs)):
-                e_poly += e_poly_coeffs[ext._a[j]]*ext._x_c**j
+                e_poly += e_poly_coeffs[a[j]]*x_c**j
 
             def odd_poly(val, order):
                 """Generates an odd term polynomial of given order"""
@@ -79,11 +77,11 @@ class TestStencils:
                         poly += val**j
                 return poly
 
-            t_poly = odd_poly((ext._x_c-ext.x_b), 2*i)
+            t_poly = odd_poly((x_c-x_b), 2*i)
 
             for j in range(int(order_max/2)):
-                e_poly = e_poly.subs([(ext._x[j], ext.x_b - (1+j)),
-                                      (ext._u_x[j], t_poly.subs(ext._x_c, ext.x_b - (1+j)))])
+                e_poly = e_poly.subs([(x_a[j], x_b - (1+j)),
+                                      (u_x_a[j], t_poly.subs(x_c, x_b - (1+j)))])
 
             assert sp.simplify(e_poly-t_poly) == 0, "Polynomial was not recovered"
 
@@ -92,14 +90,11 @@ class TestStencils:
         Test to check that double sided stencils adequately approximate the original
         derivative.
         """
-        ext = StencilGen(s_o)
+        bc_0 = Eq(generic_function(x_b), 0)
+        bc_2 = Eq(generic_function(x_b, 2), 0)
+        bcs = [bc_0, bc_2]
 
-        bc_0 = Eq(ext.u(ext.x_b), 0)
-        bc_2 = Eq(ext.u(ext.x_b, 2), 0)
-        bc_4 = Eq(ext.u(ext.x_b, 4), 0)
-        bcs = [bc_0, bc_2, bc_4]
-
-        ext.add_bcs(bcs)
+        ext = StencilGen(s_o, bcs)
 
         ext.all_variants(2)
 
@@ -121,12 +116,12 @@ class TestStencils:
                 sub_l = l_vals[i]
                 dist_r = s_o - np.ceil(r_vals[j]*2).astype(np.int) + 1
                 sub_r = r_vals[j]
-                stencil_expr = ext._stencil_list[dist_l][dist_r].subs([(ext._eta_l, sub_l),
-                                                                       (ext._eta_r, sub_r)])
+                stencil_expr = ext._stencil_list[dist_l][dist_r].subs([(eta_l, sub_l),
+                                                                       (eta_r, sub_r)])
 
                 stencil = np.empty(s_o+1)
                 for i in range(s_o+1):
-                    stencil[i] = float(stencil_expr.coeff(ext._f[i-int(s_o/2)], 1))
+                    stencil[i] = float(stencil_expr.coeff(f[i-int(s_o/2)], 1))
 
                 stencil /= dx**2
                 derivative = 0
