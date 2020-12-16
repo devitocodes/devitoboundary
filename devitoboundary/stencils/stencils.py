@@ -561,9 +561,8 @@ class StencilGen:
         # Get the polynomial variants
         self._poly_variants()
 
-        # Set up empty nested list of size MxM
-        self._stencil_list = [[None for i in range(self._s_o+1)]
-                              for j in range(self._s_o+1)]
+        # Set up M+1 x M+1 array with object dtype
+        self._stencil_list = np.empty((self._s_o+1, self._s_o+1), dtype=object)
 
         # Number of boundary conditions
         n_bcs = len(self._bcs)
