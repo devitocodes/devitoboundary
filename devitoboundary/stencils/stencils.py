@@ -391,10 +391,31 @@ class StencilGen:
 
             return expr
 
+        def get_stencil_addition(stencil, poly, ext_pos):
+            """
+            Carry out the polynomial substitution associated with a single
+            exterior point, and return the addition to the other stencil
+            coefficients.
+            """
+            stencil_addition = np.zeros(stencil.shape[0], dtype=object)
+
+            # Generate the master substitutions list to extract coefficients
+            master_subs = [(f[i-int(self._s_o/2)], 0)
+                           for i in range(stencil.shape[0])]
+            # Loop over the possible coefficients
+            for i in range(stencil.shape[0]):
+                coeff_subs = master_subs.copy()
+                coeff_subs[i] = (f[i-int(self._s_o/2)], 1)
+                ext_val = sp.simplify(poly.subs(coeff_subs))
+                stencil_addition[i] += stencil[ext_pos]*ext_val
+
+            return stencil_addition
+
         def sub_exterior_points(stencil, poly, exterior_points, side):
             """
             Replace exterior stencil points with polynomial extrapolations.
             """
+            # FIXME: Will need modifiying for arrays
             if side == 'left':
                 # FIXME: Might be better to create a list then substitute?
                 for i in range(exterior_points):
@@ -402,13 +423,17 @@ class StencilGen:
                     index = -1*(int(self._s_o/2)-i)
                     node_position = index*h_x
                     poly_substitution = poly.subs(x_c, node_position)
-                    stencil = stencil.subs(f[index], poly_substitution)
+                    stencil += get_stencil_addition(stencil, poly_substitution,
+                                                    i)
+                    stencil[i] = 0
             elif side == 'right':
                 for i in range(exterior_points):
                     index = int(self._s_o/2)-i
                     node_position = index*h_x
                     poly_substitution = poly.subs(x_c, node_position)
-                    stencil = stencil.subs(f[index], poly_substitution)
+                    stencil += get_stencil_addition(stencil, poly_substitution,
+                                                    -1-i)
+                    stencil[-1-i] = 0
 
             return stencil
 
@@ -515,7 +540,7 @@ class StencilGen:
             Add the stencil entry for the specified variant combination to the
             stencil list.
             """
-            stencil_entry = base_stencil
+            stencil_entry = base_stencil.copy()
             if (left_variant != 0 or right_variant != 0):
                 # Points unusable on right
                 right_u = get_unusable(right_variant)
@@ -538,12 +563,15 @@ class StencilGen:
                     stencil_entry = modify_individual_stencil(left_variant,
                                                               right_variant,
                                                               stencil_entry)
+                    print(left_variant, right_variant)
+                    print(stencil_entry, '\n')
 
                 elif self._s_o >= 4:
                     stencil_entry = modify_unified_stencil(left_variant,
                                                            right_variant,
                                                            stencil_entry)
-
+                    print(left_variant, right_variant)
+                    print(stencil_entry, '\n')
                 else:
                     # Order 2 edge case (use separate polynomials)
                     # For order 2, the double sided polynomial is never
@@ -551,10 +579,11 @@ class StencilGen:
                     stencil_entry = modify_edge_stencil(left_variant,
                                                         right_variant,
                                                         stencil_entry)
+                    print(left_variant, right_variant)
+                    print(stencil_entry, '\n')
 
             # Set stencil entry
-            self._stencil_list[left_variant][right_variant] \
-                = sp.simplify(stencil_entry)
+            self._stencil_list[left_variant, right_variant] = stencil_entry
 
         base_stencil = standard_stencil(deriv, self._s_o, offset)
 
@@ -562,7 +591,8 @@ class StencilGen:
         self._poly_variants()
 
         # Set up M+1 x M+1 array with object dtype
-        self._stencil_list = np.empty((self._s_o+1, self._s_o+1), dtype=object)
+        self._stencil_list = np.empty((self._s_o+1, self._s_o+1, self._s_o+1),
+                                      dtype=object)
 
         # Number of boundary conditions
         n_bcs = len(self._bcs)

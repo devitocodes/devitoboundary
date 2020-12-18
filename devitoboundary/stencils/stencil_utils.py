@@ -1,5 +1,6 @@
+import numpy as np
 import sympy as sp
-from devitoboundary.symbolics.symbols import f, a, n, n_max
+from devitoboundary.symbolics.symbols import a, n, n_max
 
 
 def standard_stencil(deriv, space_order, offset=0.):
@@ -28,8 +29,8 @@ def standard_stencil(deriv, space_order, offset=0.):
 
     base_coeffs = sp.finite_diff_weights(deriv, x_list, 0)[-1][-1]
 
-    return sum([base_coeffs[i]*f[i-int(space_order/2)]
-                for i in range(len(base_coeffs))])
+    # FIXME: Will need modifiying for arrays
+    return np.array(base_coeffs)
 
 
 def generic_function(val, deriv=0):
