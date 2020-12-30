@@ -563,15 +563,11 @@ class StencilGen:
                     stencil_entry = modify_individual_stencil(left_variant,
                                                               right_variant,
                                                               stencil_entry)
-                    print(left_variant, right_variant)
-                    print(stencil_entry, '\n')
 
                 elif self._s_o >= 4:
                     stencil_entry = modify_unified_stencil(left_variant,
                                                            right_variant,
                                                            stencil_entry)
-                    print(left_variant, right_variant)
-                    print(stencil_entry, '\n')
                 else:
                     # Order 2 edge case (use separate polynomials)
                     # For order 2, the double sided polynomial is never
@@ -579,8 +575,6 @@ class StencilGen:
                     stencil_entry = modify_edge_stencil(left_variant,
                                                         right_variant,
                                                         stencil_entry)
-                    print(left_variant, right_variant)
-                    print(stencil_entry, '\n')
 
             # Set stencil entry
             self._stencil_list[left_variant, right_variant] = stencil_entry
