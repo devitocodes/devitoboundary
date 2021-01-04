@@ -73,8 +73,11 @@ class StencilGen:
         return self._bcs
 
     @property
-    def stencil_list(self):
-        """The list of all possible stencils"""
+    def stencils(self):
+        """
+        The stencil array. Indexed by left variant, right variant, and node
+        position from negative to positive respectively
+        """
         return self._stencil_list
 
     @property
