@@ -428,7 +428,7 @@ class StencilGen:
                     poly_substitution = poly.subs(x_c, node_position)
                     stencil += get_stencil_addition(stencil, poly_substitution,
                                                     i)
-                    stencil[i] = 0
+                    stencil[i] = sp.S.Zero  # 0
             elif side == 'right':
                 for i in range(exterior_points):
                     index = int(self._s_o/2)-i
@@ -436,7 +436,7 @@ class StencilGen:
                     poly_substitution = poly.subs(x_c, node_position)
                     stencil += get_stencil_addition(stencil, poly_substitution,
                                                     -1-i)
-                    stencil[-1-i] = 0
+                    stencil[-1-i] = sp.S.Zero  # 0
 
             return stencil
 
