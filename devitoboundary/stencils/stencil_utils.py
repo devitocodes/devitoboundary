@@ -30,7 +30,7 @@ def standard_stencil(deriv, space_order, offset=0.):
     base_coeffs = sp.finite_diff_weights(deriv, x_list, 0)[-1][-1]
 
     # FIXME: Will need modifiying for arrays
-    return np.array(base_coeffs)
+    return np.array(base_coeffs, dtype=np.float32)
 
 
 def generic_function(val, deriv=0):

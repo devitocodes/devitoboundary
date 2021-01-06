@@ -81,6 +81,14 @@ class StencilGen:
         return self._stencil_list
 
     @property
+    def stencils_lambda(self):
+        funcs = np.empty(self.stencils.shape, dtype=object)
+        for i in range(self.stencils.size):
+            # Add a lambdaify in here
+            funcs.flat[i] = sp.lambdify([eta_l, eta_r], self.stencils.flat[i])
+        return
+
+    @property
     def space_order(self):
         """The formal order of the stencils"""
         return self._s_o
