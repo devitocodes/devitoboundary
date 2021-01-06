@@ -86,7 +86,7 @@ class StencilGen:
         for i in range(self.stencils.size):
             # Add a lambdaify in here
             funcs.flat[i] = sp.lambdify([eta_l, eta_r], self.stencils.flat[i])
-        return
+        return funcs
 
     @property
     def space_order(self):
