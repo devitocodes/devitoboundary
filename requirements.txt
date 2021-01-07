@@ -1,4 +1,5 @@
 git+git://github.com/devitocodes/devito@master
+pandas
 matplotlib
 vtk
 pyvista
