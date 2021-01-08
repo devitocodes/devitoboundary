@@ -10,6 +10,13 @@ def find_boundary_points(data):
     ----------
     data : ndarray
         The distance function for a particular axis
+
+    Returns
+    -------
+    x, y, z : ndarray
+        The x, y, and z indices of boundary adjacent points (where "boundary
+        adjacent" refers to points where the distance function is not at its
+        filler values).
     """
     fill_val = min(data)  # Filler value for the distance function
     x, y, z = np.where(data != fill_val)
@@ -18,7 +25,21 @@ def find_boundary_points(data):
 
 
 def build_dataframe(data, spacing):
-    """Return a dataframe with columns x, y, z, eta"""
+    """
+    Return a dataframe with columns x, y, z, eta
+
+    Parameters
+    ----------
+    data : ndarray
+        The distance function for a particular axis
+    spacing : float
+        The spacing of the grid
+
+    Returns
+    -------
+    points : pandas DataFrame
+        The dataframe of points and their respective eta values
+    """
     x, y, z = find_boundary_points(data)
 
     eta = data[x, y, z]
@@ -36,7 +57,24 @@ def build_dataframe(data, spacing):
 
 
 def calculate_reciprocals(df, axis, side):
-    """Calculate reciprocal distances from known values"""
+    """
+    Calculate reciprocal distances from known values.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points for which reciprocals should be calculated
+    axis : str
+        The axis along which reciprocals should be calculated. Should be 'x',
+        'y', or 'z'
+    side : str
+        The side from which reciprocals should be calculated
+
+    Returns
+    -------
+    reciprocals : pandas DataFrame
+        The dataframe of reciprocal points and their eta values
+    """
     increment = -1 if side == 'l' else 1
     other = 'eta_r' if side == 'l' else 'eta_l'  # Other side
     column = 'eta_' + side
@@ -50,7 +88,23 @@ def calculate_reciprocals(df, axis, side):
 
 
 def get_data_inc_reciprocals(data, spacing, axis):
-    """Calculate and consolidate reciprocal values, returning resultant dataframe"""
+    """
+    Calculate and consolidate reciprocal values, returning resultant dataframe.
+
+    Parameters
+    ----------
+    data : ndarray
+        The axial distance function data for the specified axis
+    spacing : float
+        The grid spacing for the specified axis
+    axis : str
+        The specified axis
+
+    Returns
+    -------
+    aggregated_data : pandas DataFrame
+        Dataframe of points including reciprocal distances, consolidated down
+    """
 
     df = build_dataframe(data, spacing)
     reciprocals_l = calculate_reciprocals(df, axis, 'l')
@@ -80,6 +134,20 @@ def split_types(data, axis, axis_size):
     paired_right |<---------o->|
 
     Where o marks point location and | is the boundary
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        The dataframe containing the points to be split
+    axis : str
+        The axis for which points should be split
+    axis_size : int
+        The length of the axis (in terms of grid points)
+
+    Returns
+    -------
+    first, last, double, paired_left, paired_right : pandas DataFrame
+        Dataframes for each of the categories
     """
     levels = ['z', 'y', 'x']
     levels.remove(axis)
