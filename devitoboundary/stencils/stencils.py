@@ -125,6 +125,7 @@ class StencilGen:
             eval_lhs = [bcs[i].lhs.subs(n_max, poly_order).doit() for i in range(len(bcs))]
             count = eval_lhs.count(0)
             # Remove all bcs where LHS = 0
+            # FIXME: Doesn't play nice with the caching
             for bc in range(count):
                 del bcs[eval_lhs.index(0)]
 

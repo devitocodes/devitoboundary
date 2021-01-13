@@ -29,7 +29,7 @@ def find_boundary_points(data):
         adjacent" refers to points where the distance function is not at its
         filler values).
     """
-    fill_val = min(data)  # Filler value for the distance function
+    fill_val = np.amin(data)  # Filler value for the distance function
     x, y, z = np.where(data != fill_val)
 
     return x, y, z
