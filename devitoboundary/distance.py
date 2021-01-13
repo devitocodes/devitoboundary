@@ -23,11 +23,12 @@ class SignedDistanceFunction:
 
     Parameters
     ----------
-    functions : Function  or tuple of Functions
-        The Devito functions used for configuring distance calculation. These
-        must share a grid.
+    function : Function
+        The Devito function used for configuring distance calculation.
     infile : str
         The path to the input point cloud or polygon file
+    offset : tuple of float
+        The offset for each axis of the function. Default is (0., 0., 0.).
     toggle_normals : bool
         Flip the direction of the estimated point normals. This has the effect
         of reversing the side of the surface which is considered to be the
@@ -40,53 +41,21 @@ class SignedDistanceFunction:
     grid : Devito Grid
         The grid onto which the signed distance function is discretized.
     """
-    def __init__(self, functions, infile, toggle_normals=False):
-        # Check variable type
-        is_tuple = isinstance(functions, tuple)
-        is_function = issubclass(type(functions), Function)
-        is_vfunction = issubclass(type(functions), VectorFunction)
+    def __init__(self, function, infile, offset=(0., 0., 0.),
+                 toggle_normals=False):
+        self._grid = function.grid
+        # Put single functions in a tuple for consistency
+        self._function = function
 
-        if is_tuple:
-            # Multiple Functions supplied
-            if issubclass(type(functions[0]), VectorFunction):
-                # First function is a VectorFunction
-                check_grid = functions[0][0].grid
-            else:
-                check_grid = functions[0].grid
+        # Search radius of the SDF is equal to the function order.
+        self._order = self._function.space_order
 
-            for function in functions:
-                # Check if the current function is a Vectorfunction
-                if issubclass(type(function), VectorFunction):
-                    # Need first component to get grid
-                    f_grid = function[0].grid
-                else:
-                    f_grid = function.grid
-
-                if f_grid is not check_grid:
-                    grid_err = "Functions do not share a grid."
-                    raise ValueError(grid_err)
-
-            self._grid = check_grid  # Set boundary grid
-            self._functions = functions  # Set boundary functions
-
-        elif is_function:
-            # Single Function
-            self._grid = functions.grid
-            # Put single functions in a tuple for consistency
-            self._functions = (functions,)
-
-        elif is_vfunction:
-            # Single VectorFunction
-            self._grid = functions[0].grid
-            # Put single functions in a tuple for consistency
-            self._functions = (functions,)
-
-        # Search radius of the SDF is equal to the highest function order.
-        self._order = max([function.space_order for function in self._functions])
+        self._offset = offset
         # Calculate the signed distance function
         # Radius of M/2+1 grid increments
-        radius = int(self._order/2)+1
+        radius = self._order//2+1
         self._sdfgen = SDFGenerator(infile, self._grid, radius=radius,
+                                    offset=self._offset,
                                     toggle_normals=toggle_normals)
 
         # Create a Devito function to store and manipulate the sdf
@@ -112,11 +81,13 @@ class AxialDistanceFunction(SignedDistanceFunction):
 
     Parameters
     ----------
-    functions : Function  or tuple of Functions
+    function : Function  or tuple of Functions
         The Devito functions used for configuring distance calculation. These
         must share a grid.
     infile : str
         The path to the input point cloud or polygon file
+    offset : tuple of float
+        The offset for each axis of the function. Default is (0., 0., 0.).
     toggle_normals : bool
         Flip the direction of the estimated point normals. This has the effect
         of reversing the side of the surface which is considered to be the
@@ -131,8 +102,10 @@ class AxialDistanceFunction(SignedDistanceFunction):
     axial : Devito VectorFunction
         The axial distances to the boundary surface.
     """
-    def __init__(self, functions, infile, toggle_normals=False):
-        super().__init__(functions, infile, toggle_normals)
+    def __init__(self, function, infile, offset=(0., 0., 0.),
+                 toggle_normals=False):
+        super().__init__(function, infile, offset=offset,
+                         toggle_normals=toggle_normals)
 
         # Grid with M/2 nodes of padding
         self._pad = self._pad_grid()

@@ -587,7 +587,7 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
     sten_gen = StencilGen(function.space_order, bcs,
                           stencil_file=stencil_file)
 
-    # FIXME: This will want to be able to cope with varying numbers of dims in the future
+    # FIXME: This will want to cope with varying numbers of dims in the future
     weights = [None for i in range(3)]
     for axis in range(3):
         sten_gen.all_variants(deriv, offsets[axis])

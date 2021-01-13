@@ -129,6 +129,8 @@ class SDFGenerator:
         The radius from the boundary over which the SDF should be calculated,
         specified in grid increments (dx). Warning, setting large values here
         may significantly slow SDF calculation. Default is 2.
+    offset : tuple of float
+        The offset for each axis of the function. Default is (0., 0., 0.).
     toggle_normals : bool
         Flip the direction of the estimated point normals. This has the effect
         of reversing the side of the surface which is considered to be the
@@ -137,7 +139,8 @@ class SDFGenerator:
         The number of sample points used for the PCA normal estimation. Default
         is 20.
     """
-    def __init__(self, infile, grid, radius=2, toggle_normals=False, sample=20):
+    def __init__(self, infile, grid, radius=2, offset=(0., 0., 0.),
+                 toggle_normals=False, sample=20):
         # Catch non-3D grids
         if np.shape(grid.dimensions) != (3,):
             dim_count = np.shape(grid.dimensions)[0]
@@ -145,6 +148,7 @@ class SDFGenerator:
             raise ValueError(dim_err.format(dim_count))
 
         self._grid = grid
+        self._offset = offset
         self._reader = PolyReader(infile)
         self._norms = NormalCalculator(self._reader, toggle_normals, sample)
 
@@ -187,6 +191,8 @@ class SDFGenerator:
         """
         # Lower bounds are the origin
         min_bound = np.array([value for value in self._grid.origin_map.values()])
+        # Apply the offset
+        min_bound += np.array(self._offset)*np.array(self._grid.spacing)
         max_bound = min_bound + np.array(self._grid.extent)
 
         return min_bound[0], max_bound[0], \
