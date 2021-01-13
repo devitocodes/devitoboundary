@@ -442,6 +442,7 @@ class StencilGen:
                     index = int(self._s_o/2)-i
                     node_position = index*h_x
                     poly_substitution = poly.subs(x_c, node_position)
+
                     stencil += get_stencil_addition(stencil, poly_substitution,
                                                     -1-i)
                     stencil[-1-i] = sp.S.Zero  # 0
@@ -590,7 +591,8 @@ class StencilGen:
             # Set stencil entry
             self._stencil_list[left_variant, right_variant] = stencil_entry
 
-        base_stencil = standard_stencil(deriv, self._s_o, offset)
+        base_stencil = standard_stencil(deriv, self._s_o,
+                                        offset=offset, as_float=False)
 
         # Get the polynomial variants
         self._poly_variants()
