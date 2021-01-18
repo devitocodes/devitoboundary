@@ -1,9 +1,8 @@
 import pytest
 
 import numpy as np
-import sympy as sp
 
-from devito import Grid, Function, Gt, ConditionalDimension, Eq, Operator
+from devito import Grid, Function
 from devitoboundary import SignedDistanceFunction, AxialDistanceFunction
 
 
@@ -37,23 +36,14 @@ class TestError:
         # Create signed distance function
         sig = SignedDistanceFunction(f, sphere)
 
-        # Default sdf value
-        def_sdf = -space_order//2 - 1
+        pos_x, pos_y, pos_z = np.where(sig.sdf.data != -space_order//2-1)
 
-        # Only care about areas where sdf has been evaluated
-        cond = Gt(sig.sdf, def_sdf)
-        mask = ConditionalDimension(name='mask', parent=z, condition=cond)
+        def true_dist(pos_1, pos_2, pos_3):
+            return 40 - np.sqrt((h_x*pos_1 - 50)**2 + (h_y*pos_2 - 50)**2 + (h_z*pos_3 - 50)**2)
 
-        # Distance to boundary is radius minus distance from center
-        r = sp.sqrt((h_x*x - 50)**2 + (h_y*y - 50)**2 + (h_z*z - 50)**2)
-        # Evaluate absolute error (in grid increments)
-        eq = Eq(f, sp.Abs(sig.sdf - 40 + r), implicit_dims=mask)
+        err = np.absolute(sig.sdf.data[pos_x, pos_y, pos_z]
+                          - true_dist(pos_x, pos_y, pos_z))
 
-        op = Operator(eq, name='ErrCalc')
-        op.apply()
-
-        # Calculate mean error
-        err = f.data[f.data != 0]
         avg = np.mean(err)
 
         if avg > thres:
