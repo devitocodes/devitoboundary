@@ -39,7 +39,9 @@ class TestError:
         pos_x, pos_y, pos_z = np.where(sig.sdf.data != -space_order//2-1)
 
         def true_dist(pos_1, pos_2, pos_3):
-            return 40 - np.sqrt((h_x*pos_1 - 50)**2 + (h_y*pos_2 - 50)**2 + (h_z*pos_3 - 50)**2)
+            return 40 - np.sqrt((h_x*pos_1 - 50)**2
+                                + (h_y*pos_2 - 50)**2
+                                + (h_z*pos_3 - 50)**2)
 
         err = np.absolute(sig.sdf.data[pos_x, pos_y, pos_z]
                           - true_dist(pos_x, pos_y, pos_z))
@@ -82,9 +84,11 @@ class TestError:
         # Analytic surface positions
         def true_dist(pos_1, pos_2, pos_3, positive):
             if positive:
-                return -pos_1*h_x + 50 + np.sqrt(40**2 - (pos_2*h_y-50)**2 - (pos_3*h_z-50)**2)
+                return -pos_1*h_x + 50 + np.sqrt(40**2 - (pos_2*h_y-50)**2
+                                                 - (pos_3*h_z-50)**2)
             else:
-                return -pos_1*h_x + 50 - np.sqrt(40**2 - (pos_2*h_y-50)**2 - (pos_3*h_z-50)**2)
+                return -pos_1*h_x + 50 - np.sqrt(40**2 - (pos_2*h_y-50)**2
+                                                 - (pos_3*h_z-50)**2)
 
         mask_x = locs_xx > 50
         data_x = ax.axial[0].data[locs_xx, locs_xy, locs_xz]
