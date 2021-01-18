@@ -25,20 +25,21 @@ class TestStencils:
 
         ext = StencilGen(s_o, bcs)
 
-        ext.all_variants(2)
+        ext.all_variants(2, 0)
 
-        for i in range(1, len(ext.stencil_list)):
+        for i in range(1, len(ext.stencils)):
             prev = None
             print("\n Variant", i)
             test_eta_r = 0.5*s_o - 0.5*i + 0.25
-            test_stencil = ext.stencil_list[0][i]
+            test_stencil = ext.stencils_lambda[0, i]
             for j in range(1, 11):
                 dx = 1/j
-                evaluated = test_stencil
-                for k in range(len(ext.stencil_list)):
-                    evaluated = evaluated.subs(f[k-int(s_o/2)],
-                                               np.sin(np.pi-test_eta_r*dx+(k-int(s_o/2))*dx))
-                evaluated = evaluated.subs(eta_r, test_eta_r)
+                # evaluated = test_stencil
+                evaluated = 0
+                for k in range(len(ext.stencils)):
+                    func = test_stencil[k]
+                    multiplier = np.sin(np.pi-test_eta_r*dx+(k-int(s_o/2))*dx)
+                    evaluated += multiplier*func(0, test_eta_r)
                 evaluated /= dx**2
                 diff = evaluated + np.sin(np.pi-test_eta_r*dx)
                 if prev is not None:
