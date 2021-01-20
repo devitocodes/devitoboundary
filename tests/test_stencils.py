@@ -80,6 +80,56 @@ class TestStencils:
 
         assert sp.simplify(e_poly-t_poly) == 0, "Polynomial was not recovered"
 
+    @pytest.mark.parametrize('order', [4])
+    @pytest.mark.parametrize('derivative', [1, 2])
+    def test_single_sided(self, order, derivative):
+        """
+        Test to check that single-sided stencils adequately approximate the
+        original derivative.
+        """
+        # Accuracy
+        thres = 0.09
+        # Note: dx = 1 for simplicity
+
+        def quad(x, eta, deriv=0):
+            if deriv == 0:
+                return (x - eta)*(x + order)
+            elif deriv == 1:
+                return 2*x - eta + order
+            elif deriv == 2:
+                return 2
+
+        bcs = [Eq(generic_function(x_b, 2*i), 0)
+               for i in range(1+order//2)]
+
+        ext = StencilGen(order, bcs)
+
+        ext.all_variants(derivative, 0)
+
+        errors = []
+
+        # As left and right single sided are mirrored, fix left variant at 0
+        # Skip last variant, as it is usually not too accurate
+        for var in range(1, order):
+            # Set max and min etas for the variant
+            # Will have 9 (10+1-2) etas per variant
+            min_eta = order//2 - 0.5*var + 0.05
+            max_eta = order//2 - 0.5*(var-1) - 0.05
+            eta = np.linspace(min_eta, max_eta, 9)[::-1]
+
+            stencil = ext.stencils_lambda[0, var]
+
+            for eta_val in eta:
+                evaluated = 0
+                for coeff in range(order+1):
+                    func = stencil[coeff]
+                    multiplier = quad(coeff-order//2, eta_val)
+                    evaluated += multiplier*func(0, eta_val)
+                err = abs(evaluated-quad(0, eta_val, deriv=derivative))
+                errors.append(err)
+
+        assert np.median(errors) < thres
+
     def test_double_sided(self):
         """
         Test to check that double sided stencils adequately approximate the original
