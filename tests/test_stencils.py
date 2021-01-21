@@ -130,49 +130,58 @@ class TestStencils:
 
         assert np.median(errors) < thres
 
-    def test_double_sided(self):
+    @pytest.mark.parametrize('order', [4])
+    @pytest.mark.parametrize('derivative', [1, 2])
+    def test_double_sided(self, order, derivative):
         """
-        Test to check that double sided stencils adequately approximate the original
-        derivative.
+        Test to check that double-sided stencils adequately approximate the
+        original derivative.
         """
-        bc_0 = Eq(generic_function(x_b), 0)
-        bc_2 = Eq(generic_function(x_b, 2), 0)
-        bcs = [bc_0, bc_2]
+        # Accuracy
+        thres = 0.13
+        # Note: dx = 1 for simplicity
 
-        ext = StencilGen(s_o, bcs)
+        def quad(x, eta_left, eta_right, deriv=0):
+            if deriv == 0:
+                return (x - eta_left)*(x - eta_right)
+            elif deriv == 1:
+                return 2*x - eta_left - eta_right
+            elif deriv == 2:
+                return 2
 
-        ext.all_variants(2)
+        bcs = [Eq(generic_function(x_b, 2*i), 0)
+               for i in range(1+order//2)]
 
-        dx = 1
+        ext = StencilGen(order, bcs)
 
-        def quadratic(x, eta_l, eta_r):
-            return (x - eta_r*dx)*(x - eta_l*dx)
+        ext.all_variants(derivative, 0)
 
-        # l_vals = np.linspace(-0.75, -1.75, 10)
-        # r_vals = np.linspace(0.75, 1.75, 10)
-        l_vals = np.linspace(-1.05, -1.95, 19)
-        r_vals = np.linspace(1.05, 1.95, 19)
-        avg_tol = 0
+        errors = []
 
-        for i in range(l_vals.shape[0]):
-            for j in range(r_vals.shape[0]):
-                # stencil = ext.subs(eta_l=l_vals[i], eta_r=r_vals[j])
-                dist_l = s_o - np.ceil(abs(l_vals[i])*2).astype(np.int) + 1
-                sub_l = l_vals[i]
-                dist_r = s_o - np.ceil(r_vals[j]*2).astype(np.int) + 1
-                sub_r = r_vals[j]
-                stencil_expr = ext._stencil_list[dist_l][dist_r].subs([(eta_l, sub_l),
-                                                                       (eta_r, sub_r)])
+        # Loop over left and right variants starting at zero
+        # Skip last variant, as it is usually not too accurate
+        for var_l in range(1, order):
+            # Set max and min etas for the left variant
+            # Will have 9 (10+1-2) etas per variant
+            min_eta_l = order//2 - 0.5*var_l + 0.05
+            max_eta_l = order//2 - 0.5*(var_l-1) - 0.05
+            eta_left = -np.linspace(min_eta_l, max_eta_l, 9)[::-1]
+            for var_r in range(1, order):
+                min_eta_r = order//2 - 0.5*var_r + 0.05
+                max_eta_r = order//2 - 0.5*(var_r-1) - 0.05
+                eta_right = np.linspace(min_eta_r, max_eta_r, 9)[::-1]
 
-                stencil = np.empty(s_o+1)
-                for i in range(s_o+1):
-                    stencil[i] = float(stencil_expr.coeff(f[i-int(s_o/2)], 1))
+                stencil = ext.stencils_lambda[var_l, var_r]
 
-                stencil /= dx**2
-                derivative = 0
-                for k in range(stencil.shape[0]):
-                    derivative += stencil[k]*quadratic(k*dx - dx*s_o/2, l_vals[i], r_vals[j])
-                assert 100*abs(derivative-2)/2 < 20, "Accuracy of calculated derivative insufficient"
-                avg_tol += abs(derivative-2)
-
-        assert 100*(avg_tol/(19**2))/2 < 9, "Average accuracy of calculated derivatives insufficient"
+                for eta_val_l in eta_left:
+                    for eta_val_r in eta_right:
+                        evaluated = 0
+                        for coeff in range(order+1):
+                            func = stencil[coeff]
+                            multiplier = quad(coeff-order//2,
+                                              eta_val_l, eta_val_r)
+                            evaluated += multiplier*func(eta_val_l, eta_val_r)
+                        err = abs(evaluated-quad(0, eta_val_l, eta_val_r,
+                                                 deriv=derivative))
+                        errors.append(err)
+        assert np.median(errors) < thres
