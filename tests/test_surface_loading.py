@@ -109,6 +109,11 @@ class TestOrientation:
     trial_surfaces_position = ['tests/trial_surfaces/x_step.ply',
                                'tests/trial_surfaces/y_step.ply']
 
+    trial_surfaces_offset = ['tests/trial_surfaces/x_neg_slope.ply',
+                             'tests/trial_surfaces/x_pos_slope.ply',
+                             'tests/trial_surfaces/y_neg_slope.ply',
+                             'tests/trial_surfaces/y_pos_slope.ply']
+
     x_offset = (10., 20., 30.)
     y_offset = (10., 20., 30.)
 
@@ -122,25 +127,27 @@ class TestOrientation:
 
         sdf = SDFGenerator(infile, grid, toggle_normals=True)
 
-        if infile == 'trial_surfaces/x_pos_slope.ply':
+        if infile == 'tests/trial_surfaces/x_pos_slope.ply':
             diag = np.diagonal(sdf.array, axis1=0, axis2=2)
             if np.any(np.absolute(diag) > 1e-6):
                 raise ValueError("Boundary region out of sdf scope")
-        elif infile == 'trial_surfaces/x_neg_slope.ply':
+        elif infile == 'tests/trial_surfaces/x_neg_slope.ply':
             diag = np.diagonal(sdf.array[::-1, :, :], offset=-1, axis1=0, axis2=2)
             if np.any(np.absolute(diag) > 1e-6):
                 raise ValueError("Boundary region out of sdf scope")
-        elif infile == 'trial_surfaces/y_pos_slope.ply':
+        elif infile == 'tests/trial_surfaces/y_pos_slope.ply':
             diag = np.diagonal(sdf.array, axis1=1, axis2=2)
             if np.any(np.absolute(diag) > 1e-6):
                 raise ValueError("Boundary region out of sdf scope")
-        elif infile == 'trial_surfaces/y_neg_slope.ply':
+        elif infile == 'tests/trial_surfaces/y_neg_slope.ply':
             diag = np.diagonal(sdf.array[:, ::-1, :], offset=-1, axis1=1, axis2=2)
             if np.any(np.absolute(diag) > 1e-6):
                 raise ValueError("Boundary region out of sdf scope")
-        elif infile == 'trial_surfaces/z_flat.ply':
+        elif infile == 'tests/trial_surfaces/z_flat.ply':
             if np.any(sdf.array[:, :, int(0.1*grid.shape[2])] > 1e-6):
                 raise ValueError("Boundary region out of sdf scope")
+        else:
+            raise ValueError("Unrecognised file")
 
     @pytest.mark.parametrize('infile', trial_surfaces_position)
     def test_position(self, infile):
@@ -152,7 +159,7 @@ class TestOrientation:
 
         sdf = SDFGenerator(infile, grid, toggle_normals=True)
 
-        if infile == 'trial_surfaces/x_step.ply':
+        if infile == 'tests/trial_surfaces/x_step.ply':
             lo_half = sdf.array[:int(0.5*grid.shape[0]), :, int(0.2*grid.shape[2])]
             hi_half = sdf.array[int(0.5*grid.shape[0]):, :, int(0.5*grid.shape[2])]
 
@@ -161,7 +168,7 @@ class TestOrientation:
             if not lo_aligned or not hi_aligned:
                 raise ValueError("Boundary region has been shifted")
 
-        if infile == 'trial_surfaces/y_step.ply':
+        elif infile == 'tests/trial_surfaces/y_step.ply':
             lo_half = sdf.array[:, :int(0.5*grid.shape[1]), int(0.2*grid.shape[2])]
             hi_half = sdf.array[:, int(0.5*grid.shape[1]):, int(0.5*grid.shape[2])]
 
@@ -169,6 +176,8 @@ class TestOrientation:
             hi_aligned = np.all(np.absolute(hi_half) < 1e-6)
             if not lo_aligned or not hi_aligned:
                 raise ValueError("Boundary region has been shifted")
+        else:
+            raise ValueError("Unrecognised file")
 
     @pytest.mark.parametrize('infile', trial_surfaces_position)
     @pytest.mark.parametrize('x_offset', x_offset)
@@ -186,7 +195,7 @@ class TestOrientation:
         x_index_shift = -int(x_offset/grid.spacing[0])
         y_index_shift = -int(y_offset/grid.spacing[1])
 
-        if infile == 'trial_surfaces/x_step.ply':
+        if infile == 'tests/trial_surfaces/x_step.ply':
             lo_half = sdf.array[:int(grid.shape[0] + x_index_shift),
                                 :,
                                 int(0.4*grid.shape[2])]
@@ -198,7 +207,7 @@ class TestOrientation:
             hi_aligned = np.all(np.absolute(hi_half) < 1e-6)
             if not lo_aligned or not hi_aligned:
                 raise ValueError("Boundary region has been shifted")
-        elif infile == 'trial_surfaces/y_step.ply':
+        elif infile == 'tests/trial_surfaces/y_step.ply':
             lo_half = sdf.array[:,
                                 :int(grid.shape[0] + y_index_shift),
                                 int(0.4*grid.shape[2])]
@@ -210,3 +219,36 @@ class TestOrientation:
             hi_aligned = np.all(np.absolute(hi_half) < 1e-6)
             if not lo_aligned or not hi_aligned:
                 raise ValueError("Boundary region has been shifted")
+        else:
+            raise ValueError("Unrecognised file")
+
+    @pytest.mark.parametrize('infile', trial_surfaces_offset)
+    @pytest.mark.parametrize('offset', [-0.5, 0, 0.5])
+    def test_offset(self, infile, offset):
+        """A test to assert that shifting the origin moves the surface correctly"""
+        # Grid config
+        extent = (100., 100., 100.)
+        shape = (101, 101, 101)
+        grid = Grid(extent=extent, shape=shape)
+        dist = np.sign(offset)*np.sqrt(abs(offset))/2
+
+        if infile == 'tests/trial_surfaces/x_pos_slope.ply':
+            offs = (offset, 0, 0)
+            sdf = SDFGenerator(infile, grid, offset=offs, radius=3, toggle_normals=True)
+            diag = np.diagonal(sdf.array, axis1=0, axis2=2)
+        elif infile == 'tests/trial_surfaces/x_neg_slope.ply':
+            offs = (offset, 0, 0)
+            sdf = SDFGenerator(infile, grid, offset=offs, radius=3, toggle_normals=True)
+            diag = np.diagonal(sdf.array[::-1, :, :], offset=-1, axis1=0, axis2=2)
+        elif infile == 'tests/trial_surfaces/y_pos_slope.ply':
+            offs = (0, offset, 0)
+            sdf = SDFGenerator(infile, grid, offset=offs, radius=3, toggle_normals=True)
+            diag = np.diagonal(sdf.array, axis1=1, axis2=2)
+        elif infile == 'tests/trial_surfaces/y_neg_slope.ply':
+            offs = (0, offset, 0)
+            sdf = SDFGenerator(infile, grid, offset=offs, radius=3, toggle_normals=True)
+            diag = np.diagonal(sdf.array[:, ::-1, :], offset=-1, axis1=1, axis2=2)
+        else:
+            raise ValueError("Unrecognised file")
+        if np.any(np.absolute(diag-dist) > 1e-6):
+            raise ValueError("Boundary region out of sdf scope")
