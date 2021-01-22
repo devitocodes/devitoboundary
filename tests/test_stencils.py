@@ -3,8 +3,7 @@ import pytest
 import numpy as np
 import sympy as sp
 from devitoboundary import StencilGen
-from devitoboundary.symbolics.symbols import (x_b, f, eta_r, eta_l, a, x_c, x_a,
-                                              u_x_a)
+from devitoboundary.symbolics.symbols import x_b, a, x_c, x_a, u_x_a
 from devitoboundary.stencils.stencil_utils import generic_function
 from devito import Eq
 
@@ -92,6 +91,7 @@ class TestStencils:
         # Note: dx = 1 for simplicity
 
         def quad(x, eta, deriv=0):
+            # FIXME: Needs to be wayyy higher order
             if deriv == 0:
                 return (x - eta)*(x + order)
             elif deriv == 1:
@@ -142,6 +142,7 @@ class TestStencils:
         # Note: dx = 1 for simplicity
 
         def quad(x, eta_left, eta_right, deriv=0):
+            # FIXME: Needs to be wayyyy higher order
             if deriv == 0:
                 return (x - eta_left)*(x - eta_right)
             elif deriv == 1:

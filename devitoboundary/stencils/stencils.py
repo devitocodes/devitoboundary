@@ -370,6 +370,7 @@ class StencilGen:
             """
             # Even variant number when "floor" engaged corresponds with case
             # where boundary is within 0.5 grid increments of stencil center.
+            # FIXME: Need a better rule than this. Is somewhat ad-hoc
             if right_variant % 2 == 0 and floor:
                 expr = expr.subs(x_r, 0.5*h_x)
             else:
