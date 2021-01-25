@@ -535,22 +535,23 @@ def get_component_weights(data, axis, function, deriv, stencil_generator):
 
     w.data[:] = standard_stencil(deriv, function.space_order)
 
+    # FIXME: All of these except "double" have a bug
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
-                 axis, stencil_generator, w)
+                 axis_dim, stencil_generator, w)
     get_variants(last, function.space_order, 'last',
-                 axis, stencil_generator, w)
+                 axis_dim, stencil_generator, w)
 
     # Check lengths before doing these three
     if len(double.index) != 0:
         get_variants(double, function.space_order, 'double',
-                     axis, stencil_generator, w)
+                     axis_dim, stencil_generator, w)
     if len(paired_left.index) != 0:
         get_variants(paired_left, function.space_order, 'paired_left',
-                     axis, stencil_generator, w)
+                     axis_dim, stencil_generator, w)
     if len(paired_right.index) != 0:
         get_variants(paired_right, function.space_order, 'paired_right',
-                     axis, stencil_generator, w)
+                     axis_dim, stencil_generator, w)
 
     w.data[:] /= f_grid.spacing[axis]  # Divide everything through by spacing
 

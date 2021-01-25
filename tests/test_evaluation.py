@@ -71,6 +71,52 @@ class TestDistances:
         """
         A test to check that stencils are evaluated to their correct values.
         """
+        # FIXME: In wrong class
+        def evaluate_variant(stencil_generator, left_var, right_var,
+                             left_eta, right_eta):
+            """Evaluate the specified stencil"""
+            stencil = stencil_generator.stencils_lambda[left_var, right_var]
+            eval_stencil = np.array([stencil[i](left_eta, right_eta)
+                                     for i in range(5)])
+            return eval_stencil
+
+        def check_row(data, index, stencil_generator):
+            """Check values in the specified row are as intended"""
+            indices = [slice(None), slice(None), slice(None)]
+            indices[axis] = index
+            stencils = data[indices[0], indices[1], indices[2]]
+
+            if index == 0:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                0, 1, 0, 1.6)
+            elif index == 1:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                0, 3, 0, 0.6)
+            elif index == 2:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                4, 3, -0.4, 0.6)
+            elif index == 3:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                4, 0, -0.4, 0)
+            elif index == 4:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                2, 1, -1.4, 1.6)
+            elif index == 5:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                0, 3, 0, 0.6)
+            elif index == 6:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                4, 0, -0.4, 0)
+            elif index == 7:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                2, 0, -1.4, 0)
+            elif index >= 8:
+                true_stencil = evaluate_variant(stencil_generator,
+                                                0, 0, 0, 0)
+
+            misfit = stencils - true_stencil
+            assert np.amax(np.absolute(misfit)) < 1e-6
+
         bcs = [Eq(generic_function(x_b, 2*i), 0)
                for i in range(3)]
 
@@ -82,9 +128,13 @@ class TestDistances:
         ind[axis] = np.array([1, 2, 5])
         distances[ind[0], ind[1], ind[2]] = 0.6
 
-        stencil_file = os.path.dirname(__file__) + '/stencil_cache.dat'
+        stencil_file = os.path.dirname(__file__) + '/../devitoboundary/stencil_cache.dat'
 
         sten_gen = StencilGen(function.space_order, bcs,
                               stencil_file=stencil_file)
+        sten_gen.all_variants(deriv, 0)
 
         w = get_component_weights(distances, axis, function, deriv, sten_gen)
+
+        for i in range(10):
+            check_row(w.data, i, sten_gen)
