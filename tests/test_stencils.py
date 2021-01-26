@@ -142,13 +142,10 @@ class TestStencils:
 
         def quad(x, eta_left, eta_right, deriv=0):
             if deriv == 0:
-                # return (x - eta_left)*(x - eta_right)
                 return np.cos(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
             elif deriv == 1:
-                # return 2*x - eta_left - eta_right
                 return -(np.pi/(eta_right-eta_left))*np.sin(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
             elif deriv == 2:
-                # return 2
                 return -(np.pi/(eta_right-eta_left))**2*np.cos(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
 
         bcs = [Eq(generic_function(x_b, 2*i), 0)
