@@ -87,17 +87,16 @@ class TestStencils:
         original derivative.
         """
         # Accuracy
-        thres = 0.09
+        thres = 0.002
         # Note: dx = 1 for simplicity
 
         def quad(x, eta, deriv=0):
-            # FIXME: Needs to be wayyy higher order
             if deriv == 0:
-                return (x - eta)*(x + order)
+                return np.sin((x + 3*eta)*np.pi/(4*eta))
             elif deriv == 1:
-                return 2*x - eta + order
+                return np.pi/(4*eta)*np.cos((x + 3*eta)*np.pi/(4*eta))
             elif deriv == 2:
-                return 2
+                return -(np.pi/(4*eta))**2*np.sin((x + 3*eta)*np.pi/(4*eta))
 
         bcs = [Eq(generic_function(x_b, 2*i), 0)
                for i in range(1+order//2)]
@@ -138,17 +137,19 @@ class TestStencils:
         original derivative.
         """
         # Accuracy
-        thres = 0.13
+        thres = 0.04
         # Note: dx = 1 for simplicity
 
         def quad(x, eta_left, eta_right, deriv=0):
-            # FIXME: Needs to be wayyyy higher order
             if deriv == 0:
-                return (x - eta_left)*(x - eta_right)
+                # return (x - eta_left)*(x - eta_right)
+                return np.cos(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
             elif deriv == 1:
-                return 2*x - eta_left - eta_right
+                # return 2*x - eta_left - eta_right
+                return -(np.pi/(eta_right-eta_left))*np.sin(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
             elif deriv == 2:
-                return 2
+                # return 2
+                return -(np.pi/(eta_right-eta_left))**2*np.cos(np.pi*(x-(eta_right+eta_left)/2)/(eta_right-eta_left))
 
         bcs = [Eq(generic_function(x_b, 2*i), 0)
                for i in range(1+order//2)]
@@ -161,6 +162,7 @@ class TestStencils:
 
         # Loop over left and right variants starting at zero
         # Skip last variant, as it is usually not too accurate
+        # Also stencil is aliased
         for var_l in range(1, order):
             # Set max and min etas for the left variant
             # Will have 9 (10+1-2) etas per variant
