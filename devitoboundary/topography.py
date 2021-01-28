@@ -83,7 +83,7 @@ class ImmersedBoundary:
     ----------
     name : str
         The name of the boundary surface.
-    suface : str
+    surface : str
         The path to the geometry file
     functions : pandas DataFrame
         A dataframe of the functions to which the immersed boundary surface is

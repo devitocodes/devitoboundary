@@ -65,13 +65,20 @@ class TestDistances:
         assert(np.all(paired_left.index.get_level_values(xyz[axis]).to_numpy() == 3))
         assert(np.all(paired_right.index.get_level_values(xyz[axis]).to_numpy() == 5))
 
+
+class TestStencils:
+    """
+    A class containing tests to check stencil evaluation.
+    """
+    # FIXME: Need to check evaluate_stencils
+    # FIXME: Need to check fill_weights
+    # FIXME: Wants to check several grid spacings
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
     def test_stencil_evaluation(self, axis, deriv):
         """
         A test to check that stencils are evaluated to their correct values.
         """
-        # FIXME: In wrong class
         def evaluate_variant(stencil_generator, left_var, right_var,
                              left_eta, right_eta):
             """Evaluate the specified stencil"""
@@ -132,7 +139,7 @@ class TestDistances:
 
         sten_gen = StencilGen(function.space_order, bcs,
                               stencil_file=stencil_file)
-        sten_gen.all_variants(deriv, 0)
+        sten_gen.all_variants(deriv, 0.)
 
         w = get_component_weights(distances, axis, function, deriv, sten_gen)
 

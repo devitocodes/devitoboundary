@@ -282,8 +282,9 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
     if point_type == 'paired_right':
         dst = df.dist.to_numpy()[:, np.newaxis]
+        # dst used to have a minus (this was wrong)
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
-                           (1, n_stencils)) + n_stencils - dst - eta_base - 1
+                           (1, n_stencils)) + n_stencils + dst - eta_base - 1
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
         for left_var in range(space_order+1):
@@ -294,7 +295,6 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                     func = coeff_functions[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask],
                                                  eta_right[mask])
-
     return stencils
 
 
@@ -531,11 +531,10 @@ def get_component_weights(data, axis, function, deriv, stencil_generator):
     w_shape = f_grid.shape + (ncoeffs,)
     w_dims = f_grid.dimensions + (s_dim,)
 
-    w = Function(name='w', dimensions=w_dims, shape=w_shape)
+    w = Function(name='w_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
     w.data[:] = standard_stencil(deriv, function.space_order)
 
-    # FIXME: All of these except "double" have a bug
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
                  axis_dim, stencil_generator, w)
@@ -553,7 +552,7 @@ def get_component_weights(data, axis, function, deriv, stencil_generator):
         get_variants(paired_right, function.space_order, 'paired_right',
                      axis_dim, stencil_generator, w)
 
-    w.data[:] /= f_grid.spacing[axis]  # Divide everything through by spacing
+    w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
 
@@ -589,13 +588,15 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
                           stencil_file=stencil_file)
 
     # FIXME: This will want to cope with varying numbers of dims in the future
+    # FIXME: Why does the name fix work?
     weights = [None for i in range(3)]
     for axis in range(3):
         sten_gen.all_variants(deriv, offsets[axis])
         axis_weights = get_component_weights(data[axis].data, axis, function,
                                              deriv, sten_gen)
+        # Am I doing something dumb here?
+        print(deriv, function, function.grid.dimensions[axis], axis_weights)
         weights[axis] = Coefficient(deriv, function,
                                     function.grid.dimensions[axis],
                                     axis_weights)
-
     return Substitutions(*tuple(weights))

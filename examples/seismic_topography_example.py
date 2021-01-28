@@ -1,5 +1,5 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from devito import Grid, TimeFunction, Eq, solve, Operator, ConditionalDimension
 from devitoboundary import ImmersedBoundary
@@ -42,12 +42,14 @@ u = TimeFunction(name='u', grid=grid,
 # Surface configuration
 infile = 'topography/crater_lake.ply'
 # Zero even derivatives on the boundary
-bc_0 = Eq(generic_function(x_b), 0)  # u(x_b) = 0
-bc_2 = Eq(generic_function(x_b, 2), 0)  # d^2u/dx^2(x_b) = 0
-bcs = {u: [bc_0, bc_2]}
+bcs_u = [Eq(generic_function(x_b, 2*i), 0)
+         for i in range(1+u.space_order//2)]
+functions = pd.DataFrame({'function': [u],
+                          'bcs': [bcs_u]},
+                         columns=['function', 'bcs'])
 
 # Create the immersed boundary surface
-surface = ImmersedBoundary(infile, u, bcs)
+surface = ImmersedBoundary('topography', infile, functions)
 
 # Configure the source
 time_range = TimeAxis(start=t0, stop=tn, step=dt)
@@ -60,11 +62,14 @@ src.coordinates.data[0, :-1] = 5400.  # Centered
 src.coordinates.data[0, -1] = -500  # 500m below sea level
 
 # Configure derivative needed
-deriv = ('u.d2',)
+derivs = pd.DataFrame({'function': [u],
+                       'derivative': [2]},
+                      columns=['function', 'derivative'])
+coeffs = surface.subs(derivs)
 
 # We can now write the PDE
 pde = VP*u.dt2 - u.laplace
-eq = Eq(pde, 0, coefficients=surface.subs(deriv))
+eq = Eq(pde, 0, coefficients=coeffs['substitution'].values[0])
 
 # And set up the update
 stencil = solve(eq.evaluate, u.forward)
@@ -78,9 +83,9 @@ op = Operator([Eq(u.forward, stencil)] + [Eq(usave, u)] + src_term)
 # And run
 op.apply(dt=dt)
 
-# outfile = 'data/seismic_topography_wavefield.npy'
-# np.save(outfile, usave.data)
-
+outfile = 'data/seismic_topography_wavefield.npy'
+np.save(outfile, usave.data)
+"""
 plot_extent = [0, grid.extent[0],
                origin[2], grid.extent[2] + origin[2]]
 for i in range(usave.data.shape[0] - 1):
@@ -94,3 +99,4 @@ for i in range(usave.data.shape[0] - 1):
     plt.savefig("images/image-%s" % str(i))
     # plt.show()
     plt.close()
+"""
