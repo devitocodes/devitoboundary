@@ -170,7 +170,7 @@ class ImmersedBoundary:
 
         grouped = derivs.groupby('name')
 
-        weights = pd.Series([])
+        weights = pd.Series([], dtype=object)
 
         for name, group in grouped:
             # Loop over items in each group and call a function
