@@ -1,3 +1,3 @@
-from .stencil_utils import standard_stencil, generic_function
-from .stencils import StencilGen
-from .evaluation import get_weights
+from .stencil_utils import standard_stencil, generic_function  # noqa: F401
+from .stencils import StencilGen  # noqa: F401
+from .evaluation import get_weights  # noqa: F401
