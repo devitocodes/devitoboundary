@@ -1,0 +1,174 @@
+import pytest
+
+import numpy as np
+import pandas as pd
+
+from examples.seismic import Model, TimeAxis, RickerSource, Receiver
+from devito import TimeFunction, Eq, solve, Operator
+from devitoboundary import ImmersedBoundary
+from devitoboundary.symbolics.symbols import x_b
+from devitoboundary.stencils.stencil_utils import generic_function
+
+
+def reference_shot(model, time_range, f0):
+    """
+    Produce a reference shot gather with a level, conventional free-surface
+    implementation.
+    """
+    src = RickerSource(name='src', grid=model.grid, f0=f0,
+                       npoint=1, time_range=time_range)
+
+    # First, position source centrally in all dimensions, then set depth
+    src.coordinates.data[0, :] = np.array(model.domain_size) * .5
+    # Remember that 0, 0, 0 is top left corner
+    # Depth is 100m from free-surface boundary
+    src.coordinates.data[0, -1] = 600.
+
+    # Create symbol for 101 receivers
+    rec = Receiver(name='rec', grid=model.grid, npoint=101,
+                   time_range=time_range)
+
+    # Prescribe even spacing for receivers along the x-axis
+    rec.coordinates.data[:, 0] = np.linspace(0, model.domain_size[0], num=101)
+    rec.coordinates.data[:, 1] = 500.  # Centered on y axis
+    rec.coordinates.data[:, 2] = 650.  # Depth is 150m from free surface
+
+    # Define the wavefield with the size of the model and the time dimension
+    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=4)
+
+    # We can now write the PDE
+    pde = model.m * u.dt2 - u.laplace + model.damp * u.dt
+
+    stencil = Eq(u.forward, solve(pde, u.forward))
+
+    # Finally we define the source injection and receiver read function
+    src_term = src.inject(field=u.forward,
+                          expr=src * model.critical_dt**2 / model.m)
+
+    # Create interpolation expression for receivers
+    rec_term = rec.interpolate(expr=u.forward)
+
+    x, y, z = model.grid.dimensions
+    time = u.grid.stepping_dim
+    # Throw a free surface in here
+    free_surface_0 = Eq(u[time+1, x, y, 60], 0)
+    free_surface_1 = Eq(u[time+1, x, y, 59], u[time+1, x, y, 61])
+    free_surface_2 = Eq(u[time+1, x, y, 58], u[time+1, x, y, 62])
+    free_surface = [free_surface_0, free_surface_1, free_surface_2]
+
+    op = Operator([stencil] + src_term + rec_term + free_surface)
+
+    op(time=time_range.num-1, dt=model.critical_dt)
+
+    return rec.data
+
+
+def tilted_shot(model, time_range, f0, tilt):
+    """
+    Produce a shot for the same setup, but tilted with immersed free surface
+    """
+    src = RickerSource(name='src', grid=model.grid, f0=f0,
+                       npoint=1, time_range=time_range)
+
+    # First, position source, then set depth
+    src.coordinates.data[0, 0] = 500. - 100.*np.sin(np.radians(tilt))
+    src.coordinates.data[0, 1] = 500.
+    # Remember that 0, 0, 0 is top left corner
+    # Depth is 100m from free-surface boundary
+    src.coordinates.data[0, 2] = 500. + 100.*np.cos(np.radians(tilt))
+
+    # Create symbol for 101 receivers
+    rec = Receiver(name='rec', grid=model.grid, npoint=101,
+                   time_range=time_range)
+
+    # Prescribe even spacing for receivers along the x-axis
+    rec_center_x = 500. - 150.*np.sin(np.radians(tilt))
+    rec_center_z = 500. + 150.*np.cos(np.radians(tilt))
+
+    rec_top_x = rec_center_x - 500.*np.cos(np.radians(tilt))
+    rec_bottom_x = rec_center_x + 500.*np.cos(np.radians(tilt))
+
+    rec_top_z = rec_center_z - 500.*np.sin(np.radians(tilt))
+    rec_bottom_z = rec_center_z + 500.*np.sin(np.radians(tilt))
+
+    rec.coordinates.data[:, 0] = np.linspace(rec_top_x, rec_bottom_x, num=101)
+    rec.coordinates.data[:, 1] = 500.  # Centered on y axis
+    rec.coordinates.data[:, 2] = np.linspace(rec_top_z, rec_bottom_z, num=101)
+
+    # Define the wavefield with the size of the model and the time dimension
+    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=4,
+                     coefficients='symbolic')
+
+    infile = 'tests/trial_surfaces/angled_surface_'+str(tilt)+'.ply'
+
+    # Zero even derivatives on the boundary
+    bcs_u = [Eq(generic_function(x_b, 2*i), 0)
+             for i in range(1+u.space_order//2)]
+    functions = pd.DataFrame({'function': [u],
+                              'bcs': [bcs_u]},
+                             columns=['function', 'bcs'])
+
+    # Create the immersed boundary surface
+    surface = ImmersedBoundary('topography', infile, functions)
+    # Configure derivative needed
+    derivs = pd.DataFrame({'function': [u],
+                           'derivative': [2]},
+                          columns=['function', 'derivative'])
+    coeffs = surface.subs(derivs)
+
+    # We can now write the PDE
+    pde = model.m * u.dt2 - u.laplace + model.damp * u.dt
+
+    stencil = Eq(u.forward, solve(pde, u.forward),
+                 coefficients=coeffs['substitution'].values[0])
+
+    # Finally we define the source injection and receiver read function
+    src_term = src.inject(field=u.forward,
+                          expr=src * model.critical_dt**2 / model.m)
+
+    # Create interpolation expression for receivers
+    rec_term = rec.interpolate(expr=u.forward)
+
+    op = Operator([stencil] + src_term + rec_term)
+    op(time=time_range.num-1, dt=model.critical_dt)
+
+    return rec.data
+
+
+class TestGathers:
+    """
+    A class for testing the accuracy of gathers resulting from a reflection off
+    the immersed boundary.
+    """
+
+    @pytest.mark.parametrize('tilt', [5, 10, 15, 20, 25, 30, 35, 40, 45])
+    def test_tilted_boundary(self, tilt):
+        """
+        Check that gathers for a tilted boundary match those generated with a
+        conventional horizontal free surface and the same geometry.
+        """
+        max_thres = 0.09
+        avg_thres = 0.006
+        # Define a physical size
+        shape = (101, 101, 101)  # Number of grid point (nx, ny, nz)
+        spacing = (10., 10., 10.)  # Grid spacing in m. The domain size is 1x1x1km
+        origin = (0., 0., 0.)
+
+        v = 1.5
+
+        model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
+                      space_order=4, nbl=10, bcs="damp")
+
+        t0 = 0.  # Simulation starts a t=0
+        tn = 500.  # Simulation last 0.5 seconds (500 ms)
+        dt = model.critical_dt  # Time step from model grid spacing
+
+        time_range = TimeAxis(start=t0, stop=tn, step=dt)
+
+        f0 = 0.010  # Source peak frequency is 10Hz (0.010 kHz)
+
+        ref = reference_shot(model, time_range, f0)
+        tilted = tilted_shot(model, time_range, f0, tilt)
+
+        assert np.amax(np.absolute(ref - tilted)) < max_thres
+        assert np.mean(np.absolute(ref-tilted)) < avg_thres
