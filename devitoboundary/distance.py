@@ -156,26 +156,28 @@ class AxialDistanceFunction(SignedDistanceFunction):
         eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask)
         eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask)
         eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask)
-        # FIXME: Add three equations to take the max/min of largest allowable value
-        # -h_x to h_x
-        large_val_x = Gt(sp.Abs(self._axial[0]), h_x)
-        large_val_y = Gt(sp.Abs(self._axial[1]), h_y)
-        large_val_z = Gt(sp.Abs(self._axial[2]), h_z)
 
-        large_x = ConditionalDimension(name='large_x', parent=z,
-                                       condition=large_val_x)
-        large_y = ConditionalDimension(name='large_y', parent=z,
-                                       condition=large_val_y)
-        large_z = ConditionalDimension(name='large_z', parent=z,
-                                       condition=large_val_z)
-
-        eq_x_cap = Eq(self._axial[0], -self._order*h_x, implicit_dims=large_x)
-        eq_y_cap = Eq(self._axial[1], -self._order*h_y, implicit_dims=large_y)
-        eq_z_cap = Eq(self._axial[2], -self._order*h_z, implicit_dims=large_z)
-
-        op_axial = Operator([eq_x, eq_y, eq_z, eq_x_cap, eq_y_cap, eq_z_cap],
+        op_axial = Operator([eq_x, eq_y, eq_z],
                             name='Axial')
         op_axial.apply()
+
+        # Deal with silly values x
+        x_nan_mask = np.isnan(self._axial[0].data)
+        self._axial[0].data[x_nan_mask] = -self._order*h_x
+        x_big_mask = np.abs(self._axial[0].data) > h_x
+        self._axial[0].data[x_big_mask] = -self._order*h_x
+
+        # Deal with silly values y
+        y_nan_mask = np.isnan(self._axial[1].data)
+        self._axial[1].data[y_nan_mask] = -self._order*h_y
+        y_big_mask = np.abs(self._axial[1].data) > h_y
+        self._axial[1].data[y_big_mask] = -self._order*h_y
+
+        # Deal with silly values z
+        z_nan_mask = np.isnan(self._axial[2].data)
+        self._axial[2].data[z_nan_mask] = -self._order*h_z
+        z_big_mask = np.abs(self._axial[2].data) > h_z
+        self._axial[2].data[z_big_mask] = -self._order*h_z
 
     def _pad_grid(self):
         """
