@@ -76,6 +76,8 @@ class AxialDistanceFunction(SignedDistanceFunction):
     A class to carry out the calculation of signed distances along each axis
     from a boundary surface represented by a point cloud or polygon file within
     an area of effect determined by the specified set of Devito functions.
+    Note that unequal grid spacings will cause distances to be calculated where
+    they shouldn't or vice versa.
 
     Parameters
     ----------
@@ -147,27 +149,32 @@ class AxialDistanceFunction(SignedDistanceFunction):
         # Only need to calculate adjacent to boundary
         close_sdf = Le(sp.Abs(pad_sdf), h_x)
 
-        # Also only want values smaller than one increment
-        small_x = sp.And(Lt((d - b*pos[1] - c*pos[2])/a - pos[0], h_x),
-                         Gt((d - b*pos[1] - c*pos[2])/a - pos[0], -h_x))
-        small_y = sp.And(Lt((d - a*pos[0] - c*pos[2])/b - pos[1], h_y),
-                         Gt((d - a*pos[0] - c*pos[2])/b - pos[1], -h_y))
-        small_z = sp.And(Lt((d - a*pos[0] - b*pos[1])/c - pos[2], h_z),
-                         Gt((d - a*pos[0] - b*pos[1])/c - pos[2], -h_z))
-
         # Conditional mask for calculation
-        mask_x = ConditionalDimension(name='mask_x', parent=z,
-                                      condition=sp.And(close_sdf, small_x))
-        mask_y = ConditionalDimension(name='mask_y', parent=z,
-                                      condition=sp.And(close_sdf, small_y))
-        mask_z = ConditionalDimension(name='mask_z', parent=z,
-                                      condition=sp.And(close_sdf, small_z))
+        mask = ConditionalDimension(name='mask', parent=z,
+                                    condition=close_sdf)
 
-        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask_x)
-        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask_y)
-        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask_z)
+        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask)
+        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask)
+        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask)
+        # FIXME: Add three equations to take the max/min of largest allowable value
+        # -h_x to h_x
+        large_val_x = Gt(sp.Abs(self._axial[0]), h_x)
+        large_val_y = Gt(sp.Abs(self._axial[1]), h_y)
+        large_val_z = Gt(sp.Abs(self._axial[2]), h_z)
 
-        op_axial = Operator([eq_x, eq_y, eq_z], name='Axial')
+        large_x = ConditionalDimension(name='large_x', parent=z,
+                                       condition=large_val_x)
+        large_y = ConditionalDimension(name='large_y', parent=z,
+                                       condition=large_val_y)
+        large_z = ConditionalDimension(name='large_z', parent=z,
+                                       condition=large_val_z)
+
+        eq_x_cap = Eq(self._axial[0], -self._order*h_x, implicit_dims=large_x)
+        eq_y_cap = Eq(self._axial[1], -self._order*h_y, implicit_dims=large_y)
+        eq_z_cap = Eq(self._axial[2], -self._order*h_z, implicit_dims=large_z)
+
+        op_axial = Operator([eq_x, eq_y, eq_z, eq_x_cap, eq_y_cap, eq_z_cap],
+                            name='Axial')
         op_axial.apply()
 
     def _pad_grid(self):
