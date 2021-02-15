@@ -7,7 +7,7 @@ import numpy as np
 import sympy as sp
 
 from devito import Function, VectorFunction, grad, ConditionalDimension, \
-    Le, Lt, Gt, Eq, Operator, Grid
+    Le, Eq, Operator, Grid
 from devitoboundary import SDFGenerator
 
 __all__ = ['SignedDistanceFunction', 'AxialDistanceFunction']
@@ -76,6 +76,8 @@ class AxialDistanceFunction(SignedDistanceFunction):
     A class to carry out the calculation of signed distances along each axis
     from a boundary surface represented by a point cloud or polygon file within
     an area of effect determined by the specified set of Devito functions.
+    Note that unequal grid spacings will cause distances to be calculated where
+    they shouldn't or vice versa.
 
     Parameters
     ----------
@@ -147,28 +149,35 @@ class AxialDistanceFunction(SignedDistanceFunction):
         # Only need to calculate adjacent to boundary
         close_sdf = Le(sp.Abs(pad_sdf), h_x)
 
-        # Also only want values smaller than one increment
-        small_x = sp.And(Lt((d - b*pos[1] - c*pos[2])/a - pos[0], h_x),
-                         Gt((d - b*pos[1] - c*pos[2])/a - pos[0], -h_x))
-        small_y = sp.And(Lt((d - a*pos[0] - c*pos[2])/b - pos[1], h_y),
-                         Gt((d - a*pos[0] - c*pos[2])/b - pos[1], -h_y))
-        small_z = sp.And(Lt((d - a*pos[0] - b*pos[1])/c - pos[2], h_z),
-                         Gt((d - a*pos[0] - b*pos[1])/c - pos[2], -h_z))
-
         # Conditional mask for calculation
-        mask_x = ConditionalDimension(name='mask_x', parent=z,
-                                      condition=sp.And(close_sdf, small_x))
-        mask_y = ConditionalDimension(name='mask_y', parent=z,
-                                      condition=sp.And(close_sdf, small_y))
-        mask_z = ConditionalDimension(name='mask_z', parent=z,
-                                      condition=sp.And(close_sdf, small_z))
+        mask = ConditionalDimension(name='mask', parent=z,
+                                    condition=close_sdf)
 
-        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask_x)
-        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask_y)
-        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask_z)
+        eq_x = Eq(self._axial[0], (d - b*pos[1] - c*pos[2])/a - pos[0], implicit_dims=mask)
+        eq_y = Eq(self._axial[1], (d - a*pos[0] - c*pos[2])/b - pos[1], implicit_dims=mask)
+        eq_z = Eq(self._axial[2], (d - a*pos[0] - b*pos[1])/c - pos[2], implicit_dims=mask)
 
-        op_axial = Operator([eq_x, eq_y, eq_z], name='Axial')
+        op_axial = Operator([eq_x, eq_y, eq_z],
+                            name='Axial')
         op_axial.apply()
+
+        # Deal with silly values x
+        x_nan_mask = np.isnan(self._axial[0].data)
+        self._axial[0].data[x_nan_mask] = -self._order*h_x
+        x_big_mask = np.abs(self._axial[0].data) > h_x
+        self._axial[0].data[x_big_mask] = -self._order*h_x
+
+        # Deal with silly values y
+        y_nan_mask = np.isnan(self._axial[1].data)
+        self._axial[1].data[y_nan_mask] = -self._order*h_y
+        y_big_mask = np.abs(self._axial[1].data) > h_y
+        self._axial[1].data[y_big_mask] = -self._order*h_y
+
+        # Deal with silly values z
+        z_nan_mask = np.isnan(self._axial[2].data)
+        self._axial[2].data[z_nan_mask] = -self._order*h_z
+        z_big_mask = np.abs(self._axial[2].data) > h_z
+        self._axial[2].data[z_big_mask] = -self._order*h_z
 
     def _pad_grid(self):
         """
