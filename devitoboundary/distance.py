@@ -7,7 +7,7 @@ import numpy as np
 import sympy as sp
 
 from devito import Function, VectorFunction, grad, ConditionalDimension, \
-    Le, Lt, Gt, Eq, Operator, Grid
+    Le, Eq, Operator, Grid
 from devitoboundary import SDFGenerator
 
 __all__ = ['SignedDistanceFunction', 'AxialDistanceFunction']
