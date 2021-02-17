@@ -587,16 +587,26 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
     sten_gen = StencilGen(function.space_order, bcs,
                           stencil_file=stencil_file)
 
-    # FIXME: This will want to cope with varying numbers of dims in the future
-    # FIXME: Why does the name fix work?
-    weights = [None for i in range(3)]
+    # This wants to start as an empty list
+    weights = []
     for axis in range(3):
-        sten_gen.all_variants(deriv, offsets[axis])
-        axis_weights = get_component_weights(data[axis].data, axis, function,
-                                             deriv, sten_gen)
-        # Am I doing something dumb here?
-        print(deriv, function, function.grid.dimensions[axis], axis_weights)
-        weights[axis] = Coefficient(deriv, function,
-                                    function.grid.dimensions[axis],
-                                    axis_weights)
+        # Check any != filler value in data[axis].data
+        # FIXME: Could just calculate this rather than finding the minimum
+        fill_val = np.amin(data[axis].data)
+        if np.any(data[axis].data != fill_val):
+            # If True, then behave as normal
+            # If False then pass
+            sten_gen.all_variants(deriv, offsets[axis])
+            axis_weights = get_component_weights(data[axis].data, axis, function,
+                                                 deriv, sten_gen)
+            print(deriv, function, function.grid.dimensions[axis], axis_weights)
+            # this should be an append
+            weights.append(Coefficient(deriv, function,
+                                       function.grid.dimensions[axis],
+                                       axis_weights))
+        else:
+            pass  # No boundary-adjacent points so don't return any subs
+    # Raise error if list is empty
+    if len(weights) == 0:
+        raise ValueError("No boundary-adjacent points in provided fields")
     return Substitutions(*tuple(weights))

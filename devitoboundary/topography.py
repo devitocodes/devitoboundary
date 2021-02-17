@@ -4,6 +4,7 @@ boundary method.
 """
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from devitoboundary.distance import AxialDistanceFunction
 from devitoboundary.stencils.evaluation import get_weights
@@ -128,6 +129,7 @@ class ImmersedBoundary:
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface,
                                    offset=grid_offset)
+
         # Empty list for weights
         weights = []
 
