@@ -31,34 +31,21 @@ def get_grid_offsets(function, axis):
         else:
             if function.dimensions[axis] == stagger:
                 return 0.5
-    return 0
+    return 0.
 
 
-def add_offset_columns(functions):
+def add_offset_column(functions):
     """
-    Add extra columns to contain the grid and evaluation offsets, and initialise
-    to zero.
+    Adds an extra column to contain grid offset, and initialises to zero.
     """
     # Currently hardcoded for 3D
-    xyz = ['x', 'y', 'z']
-    for axis in range(3):
-        for i, row in functions.iterrows():
-            functions.loc[i, 'grid_offset_'+xyz[axis]] \
-                = get_grid_offsets(row['function'], axis)
-        # Calculate minimum and maximum grid offset
-        min_offset = np.amin(functions['grid_offset_'+xyz[axis]])
-        max_offset = np.amax(functions['grid_offset_'+xyz[axis]])
+    functions['grid_offset'] = None
 
-        for i, row in functions.iterrows():
-            if functions.loc[i, 'grid_offset_'+xyz[axis]] == min_offset:
-                functions.loc[i, 'eval_offset_'+xyz[axis]] \
-                    = max_offset - min_offset
-            elif functions.loc[i, 'grid_offset_'+xyz[axis]] == max_offset:
-                functions.loc[i, 'eval_offset_'+xyz[axis]] \
-                    = min_offset - max_offset
-            else:
-                raise ValueError("Multiple degrees of staggering present in"
-                                 + " specified function")
+    for i, row in functions.iterrows():
+        grid_offsets = []
+        for axis in range(3):
+            grid_offsets.append(get_grid_offsets(row['function'], axis))
+        functions.at[i, 'grid_offset'] = tuple(grid_offsets)
 
 
 def name_functions(functions):
@@ -122,9 +109,7 @@ class ImmersedBoundary:
 
         bcs = self._functions.loc[function_mask, 'bcs'].values[0]
 
-        xyz = ['x', 'y', 'z']
-        grid_offset = tuple([first['grid_offset_'+xyz[i]] for i in range(3)])
-        eval_offset = tuple([first['eval_offset_'+xyz[i]] for i in range(3)])
+        grid_offset = first['grid_offset']
 
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface,
@@ -135,7 +120,7 @@ class ImmersedBoundary:
 
         for i, row in group.iterrows():
             derivative = row.derivative
-            # Where to put these weights?
+            eval_offset = row.eval_offset
             weights.append(get_weights(ax.axial, function, derivative, bcs, offsets=eval_offset))
 
         weights = pd.Series(weights)
@@ -151,21 +136,27 @@ class ImmersedBoundary:
         Parameters
         ----------
         derivs : pandas DataFrame
-            The desired combinations of function and derivative. These should be
-            paired in two columns of a dataframe, called 'function' and
-            'derivative' respectively.
+            The desired combinations of function, derivative, and the offset
+            at which the derivative should be taken. These should be in three
+            columns of a dataframe, called 'function', 'derivative', and
+            'eval_offset' respectively. Note that the offset should be relative
+            to the location of the function nodes (-0.5 for backward staggered,
+            0.5 for forward, and 0. for no stagger). Offset should be provided
+            as a tuple of (x, y, z).
         """
         # Check that dataframe contains columns with specified names
         if 'function' not in derivs.columns:
             raise ValueError("No function column specified")
         if 'derivative' not in derivs.columns:
             raise ValueError("No derivative column specified")
+        if 'eval_offset' not in derivs.columns:
+            raise ValueError("No evaluation offset column specified")
         # Need to check all functions specified are in the attatched functions
         if not np.all(derivs.function.isin(self._functions.function)):
             raise ValueError("Specified functions are not attatched to boundary")
 
-        # Add columns for grid and evaluation offset
-        add_offset_columns(derivs)
+        # Add column for grid offset
+        add_offset_column(derivs)
 
         # Add names column to allow for grouping
         name_functions(derivs)

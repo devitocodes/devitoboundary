@@ -490,7 +490,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights):
                          weights, axis, n_pts=i)
 
 
-def get_component_weights(data, axis, function, deriv, stencil_generator):
+def get_component_weights(data, axis, function, deriv, stencil_generator, offset):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -508,6 +508,8 @@ def get_component_weights(data, axis, function, deriv, stencil_generator):
         The order of the derivative to which the stencils pertain
     stencil_generator : devitoboundary StencilGen
         The stencil generator to be used to evaluate the stencils
+    offset : float
+        The offset at which the default stencil should be evaluated
 
     Returns
     -------
@@ -533,7 +535,7 @@ def get_component_weights(data, axis, function, deriv, stencil_generator):
 
     w = Function(name='w_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
-    w.data[:] = standard_stencil(deriv, function.space_order)
+    w.data[:] = standard_stencil(deriv, function.space_order, offset=offset)
 
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
@@ -598,7 +600,7 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
             # If False then pass
             sten_gen.all_variants(deriv, offsets[axis])
             axis_weights = get_component_weights(data[axis].data, axis, function,
-                                                 deriv, sten_gen)
+                                                 deriv, sten_gen, offsets[axis])
             print(deriv, function, function.grid.dimensions[axis], axis_weights)
             # this should be an append
             weights.append(Coefficient(deriv, function,
