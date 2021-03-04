@@ -112,8 +112,9 @@ def tilted_shot(model, time_range, f0, tilt):
     surface = ImmersedBoundary('topography', infile, functions)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
-                           'derivative': [2]},
-                          columns=['function', 'derivative'])
+                           'derivative': [2],
+                           'eval_offset': [(0., 0., 0.)]},
+                          columns=['function', 'derivative', 'eval_offset'])
     coeffs = surface.subs(derivs)
 
     # We can now write the PDE

@@ -63,8 +63,9 @@ src.coordinates.data[0, -1] = -500  # 500m below sea level
 
 # Configure derivative needed
 derivs = pd.DataFrame({'function': [u],
-                       'derivative': [2]},
-                      columns=['function', 'derivative'])
+                       'derivative': [2],
+                       'eval_offset': [(0., 0., 0.)]},
+                      columns=['function', 'derivative', 'eval_offset'])
 coeffs = surface.subs(derivs)
 
 # We can now write the PDE
