@@ -533,7 +533,7 @@ def get_component_weights(data, axis, function, deriv, stencil_generator, offset
     w_shape = f_grid.shape + (ncoeffs,)
     w_dims = f_grid.dimensions + (s_dim,)
 
-    w = Function(name='w_'+axis_dim, dimensions=w_dims, shape=w_shape)
+    w = Function(name='w_'+function.name+'_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
     w.data[:] = standard_stencil(deriv, function.space_order, offset=offset)
 
@@ -611,4 +611,4 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
     # Raise error if list is empty
     if len(weights) == 0:
         raise ValueError("No boundary-adjacent points in provided fields")
-    return Substitutions(*tuple(weights))
+    return tuple(weights)

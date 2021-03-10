@@ -3,9 +3,8 @@ A module for implementation of topography in Devito via the immersed
 boundary method.
 """
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
+from devito import Substitutions
 from devitoboundary.distance import AxialDistanceFunction
 from devitoboundary.stencils.evaluation import get_weights
 
@@ -115,16 +114,14 @@ class ImmersedBoundary:
         ax = AxialDistanceFunction(first.function, self._surface,
                                    offset=grid_offset)
 
-        # Empty list for weights
-        weights = []
+        # Empty tuple for weights
+        weights = ()
 
         for i, row in group.iterrows():
             derivative = row.derivative
             eval_offset = row.eval_offset
-            weights.append(get_weights(ax.axial, function, derivative, bcs, offsets=eval_offset))
+            weights += get_weights(ax.axial, function, derivative, bcs, offsets=eval_offset)
 
-        weights = pd.Series(weights)
-        weights.index = group.index
         return weights
 
     def subs(self, derivs):
@@ -163,13 +160,11 @@ class ImmersedBoundary:
 
         grouped = derivs.groupby('name')
 
-        weights = pd.Series([], dtype=object)
+        weights = ()
 
         for name, group in grouped:
             # Loop over items in each group and call a function
             func_weights = self._get_function_weights(group)
-            weights = weights.append(func_weights)
+            weights += func_weights
 
-        derivs = derivs.join(weights.rename("substitution"))
-
-        return derivs[['function', 'derivative', 'substitution']]
+        return Substitutions(*weights)
