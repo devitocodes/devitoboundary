@@ -27,9 +27,13 @@ def get_grid_offsets(function, axis):
         if isinstance(stagger, tuple):
             if function.dimensions[axis] in stagger:
                 return 0.5
+            elif -function.dimensions[axis] in stagger:
+                return -0.5
         else:
             if function.dimensions[axis] == stagger:
                 return 0.5
+            elif -function.dimensions[axis] == stagger:
+                return -0.5
     return 0.
 
 
