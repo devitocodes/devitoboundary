@@ -53,3 +53,29 @@ def generic_function(val, deriv=0):
     polynomial = sp.Sum(a[n]*x_poly**n,
                         (n, 0, n_max))
     return sp.diff(polynomial, x_poly, deriv).subs(x_poly, val)
+
+
+def get_grid_offset(function, axis):
+    """
+    For a function, return the grid offset for a specified axis.
+
+    Parameters
+    ----------
+    function : devito Function
+        The function to get the offset of
+    axis : int
+        The axis for which offset should be recovered
+    """
+    if function.is_Staggered:
+        stagger = function.staggered
+        if isinstance(stagger, tuple):
+            if function.dimensions[axis] in stagger:
+                return 0.5
+            elif -function.dimensions[axis] in stagger:
+                return -0.5
+        else:
+            if function.dimensions[axis] == stagger:
+                return 0.5
+            elif -function.dimensions[axis] == stagger:
+                return -0.5
+    return 0.

@@ -11,46 +11,6 @@ from devitoboundary.stencils.evaluation import get_weights
 __all__ = ['ImmersedBoundary']
 
 
-def get_grid_offsets(function, axis):
-    """
-    For a function, get the grid offset and set the grid offset accordingly.
-
-    Parameters
-    ----------
-    function : devito Function
-        The function to get the offset of
-    axis : int
-        The axis for which offset should be recovered
-    """
-    if function.is_Staggered:
-        stagger = function.staggered
-        if isinstance(stagger, tuple):
-            if function.dimensions[axis] in stagger:
-                return 0.5
-            elif -function.dimensions[axis] in stagger:
-                return -0.5
-        else:
-            if function.dimensions[axis] == stagger:
-                return 0.5
-            elif -function.dimensions[axis] == stagger:
-                return -0.5
-    return 0.
-
-
-def add_offset_column(functions):
-    """
-    Adds an extra column to contain grid offset, and initialises to zero.
-    """
-    # Currently hardcoded for 3D
-    functions['grid_offset'] = None
-
-    for i, row in functions.iterrows():
-        grid_offsets = []
-        for axis in range(3):
-            grid_offsets.append(get_grid_offsets(row['function'], axis))
-        functions.at[i, 'grid_offset'] = tuple(grid_offsets)
-
-
 def name_functions(functions):
     """
     Add an extra column to the dataframe containing the names of each function.
@@ -112,11 +72,8 @@ class ImmersedBoundary:
 
         bcs = self._functions.loc[function_mask, 'bcs'].values[0]
 
-        grid_offset = first['grid_offset']
-
         # Create the axial distance function
-        ax = AxialDistanceFunction(first.function, self._surface,
-                                   offset=grid_offset)
+        ax = AxialDistanceFunction(first.function, self._surface)
 
         # Empty tuple for weights
         weights = ()
@@ -155,9 +112,6 @@ class ImmersedBoundary:
         # Need to check all functions specified are in the attatched functions
         if not np.all(derivs.function.isin(self._functions.function)):
             raise ValueError("Specified functions are not attatched to boundary")
-
-        # Add column for grid offset
-        add_offset_column(derivs)
 
         # Add names column to allow for grouping
         name_functions(derivs)

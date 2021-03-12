@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from devito import Coefficient, Dimension, Function, Substitutions
+from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
 from devitoboundary.stencils.stencils import StencilGen
 from devitoboundary.stencils.stencil_utils import standard_stencil
