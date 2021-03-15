@@ -200,7 +200,7 @@ def split_types(data, axis, axis_size):
 
 
 def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
-                      space_order, stencil_generator, grid_offset):
+                      space_order, stencil_generator, grid_offset, eval_offset):
     """
     Evaluate the stencils associated with a set of boundary-adjacent
     points.
@@ -225,6 +225,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         The stencil generator to be used to evaluate the stencils
     grid_offset : float
         The function offset along the supplied axis
+    eval_offset : float
+        The relative offset at which derivatives should be evaluated
 
     Returns
     -------
@@ -235,13 +237,18 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
     # The base "index" for eta
     eta_base = np.tile(np.arange(n_stencils), (left_variants.shape[0], 1))
     # Initialise empty stencil array
-    stencils = np.empty(left_variants.shape + (space_order + 1,), dtype=np.float32)
+    stencils = np.zeros(left_variants.shape + (space_order + 1,), dtype=np.float32)
 
     if point_type == 'first':
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
+
+        # Need a mask for points where the stagger does not straddle the boundary
+        # Stencils for these points should be left as zero to prevent updates
+        straddle_mask = eta_right - grid_offset >= grid_offset + eval_offset
         for right_var in range(space_order+1):
-            mask = right_variants == right_var
+            variant_mask = right_variants == right_var
+            mask = np.logical_and(straddle_mask, variant_mask)
             for coeff in range(space_order+1):
                 func = coeff_functions[0, right_var, coeff]
                 stencils[mask, coeff] = func(0, eta_right[mask] - grid_offset)
@@ -249,8 +256,13 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
     if point_type == 'last':
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
                            (1, n_stencils)) - eta_base
+
+        # Need a mask for points where the stagger does not straddle the boundary
+        # Stencils for these points should be left as zero to prevent updates
+        straddle_mask = eta_left - grid_offset <= grid_offset + eval_offset
         for left_var in range(space_order+1):
-            mask = left_variants == left_var
+            variant_mask = left_variants == left_var
+            mask = np.logical_and(straddle_mask, variant_mask)
             for coeff in range(space_order+1):
                 func = coeff_functions[left_var, 0, coeff]
                 stencils[mask, coeff] = func(eta_left[mask] - grid_offset, 0)
@@ -258,10 +270,16 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
     if point_type == 'double':
         eta_left = df.eta_l.to_numpy()[:, np.newaxis]
         eta_right = df.eta_r.to_numpy()[:, np.newaxis]
+
+        # Need a mask for points where the stagger does not straddle the boundary
+        # Stencils for these points should be left as zero to prevent updates
+        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+                                       eta_right - grid_offset >= grid_offset + eval_offset)
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
+                variant_mask = np.logical_and(left_variants == left_var,
+                                              right_variants == right_var)
+                mask = np.logical_and(straddle_mask, variant_mask)
                 for coeff in range(space_order+1):
                     func = coeff_functions[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
@@ -273,10 +291,16 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                            (1, n_stencils)) - eta_base
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + dst - eta_base
+
+        # Need a mask for points where the stagger does not straddle the boundary
+        # Stencils for these points should be left as zero to prevent updates
+        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+                                       eta_right - grid_offset >= grid_offset + eval_offset)
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
+                variant_mask = np.logical_and(left_variants == left_var,
+                                              right_variants == right_var)
+                mask = np.logical_and(straddle_mask, variant_mask)
                 for coeff in range(space_order+1):
                     func = coeff_functions[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
@@ -289,10 +313,16 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                            (1, n_stencils)) + n_stencils + dst - eta_base - 1
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
+
+        # Need a mask for points where the stagger does not straddle the boundary
+        # Stencils for these points should be left as zero to prevent updates
+        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+                                       eta_right - grid_offset >= grid_offset + eval_offset)
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
+                variant_mask = np.logical_and(left_variants == left_var,
+                                              right_variants == right_var)
+                mask = np.logical_and(straddle_mask, variant_mask)
                 for coeff in range(space_order+1):
                     func = coeff_functions[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
@@ -353,7 +383,7 @@ def fill_weights(points, stencils, point_type, weights, axis, n_pts=1):
 
 
 def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
-                 grid_offset):
+                 grid_offset, eval_offset):
     """
     Get the all the stencil variants associated with the points, evaluate them,
     and fill the respective positions in the weight function.
@@ -376,6 +406,8 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
         The Function to fill with stencil coefficients
     grid_offset : float
         The function offset along the supplied axis
+    eval_offset : float
+        The relative offset at which derivatives should be evaluated
     """
     if point_type == 'first':
         n_pts = np.minimum(int(space_order/2), 1-df.dist.to_numpy())
@@ -396,7 +428,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
             eval_stencils = evaluate_stencils(df[mask], 'first', i,
                                               left_variants, right_variants,
                                               space_order, stencil_generator,
-                                              grid_offset)
+                                              grid_offset, eval_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'first',
@@ -420,7 +452,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
             eval_stencils = evaluate_stencils(df[mask], 'last', i,
                                               left_variants, right_variants,
                                               space_order, stencil_generator,
-                                              grid_offset)
+                                              grid_offset, eval_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'last',
@@ -439,7 +471,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
         eval_stencils = evaluate_stencils(df, 'double', 1,
                                           left_variants, right_variants,
                                           space_order, stencil_generator,
-                                          grid_offset)
+                                          grid_offset, eval_offset)
 
         # Insert the stencils into the weight function
         fill_weights(df, eval_stencils, 'double', weights, axis)
@@ -465,7 +497,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
             eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
                                               left_variants, right_variants,
                                               space_order, stencil_generator,
-                                              grid_offset)
+                                              grid_offset, eval_offset)
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_left',
                          weights, axis, n_pts=i)
@@ -493,7 +525,7 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
             eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
                                               left_variants, right_variants,
                                               space_order, stencil_generator,
-                                              grid_offset)
+                                              grid_offset, eval_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_right',
@@ -550,20 +582,20 @@ def get_component_weights(data, axis, function, deriv, stencil_generator, offset
 
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
-                 axis_dim, stencil_generator, w, grid_offset)
+                 axis_dim, stencil_generator, w, grid_offset, offset)
     get_variants(last, function.space_order, 'last',
-                 axis_dim, stencil_generator, w, grid_offset)
+                 axis_dim, stencil_generator, w, grid_offset, offset)
 
     # Check lengths before doing these three
     if len(double.index) != 0:
         get_variants(double, function.space_order, 'double',
-                     axis_dim, stencil_generator, w, grid_offset)
+                     axis_dim, stencil_generator, w, grid_offset, offset)
     if len(paired_left.index) != 0:
         get_variants(paired_left, function.space_order, 'paired_left',
-                     axis_dim, stencil_generator, w, grid_offset)
+                     axis_dim, stencil_generator, w, grid_offset, offset)
     if len(paired_right.index) != 0:
         get_variants(paired_right, function.space_order, 'paired_right',
-                     axis_dim, stencil_generator, w, grid_offset)
+                     axis_dim, stencil_generator, w, grid_offset, offset)
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
