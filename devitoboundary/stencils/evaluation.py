@@ -6,6 +6,7 @@ import os
 
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
@@ -245,7 +246,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
-        straddle_mask = eta_right - grid_offset >= grid_offset + eval_offset
+        # straddle_mask = eta_right - grid_offset >= grid_offset + eval_offset
+        straddle_mask = True
         for right_var in range(space_order+1):
             variant_mask = right_variants == right_var
             mask = np.logical_and(straddle_mask, variant_mask)
@@ -256,10 +258,12 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
     if point_type == 'last':
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
                            (1, n_stencils)) - eta_base
+        print(eta_left - grid_offset)
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
-        straddle_mask = eta_left - grid_offset <= grid_offset + eval_offset
+        # straddle_mask = eta_left - grid_offset <= grid_offset + eval_offset
+        straddle_mask = True
         for left_var in range(space_order+1):
             variant_mask = left_variants == left_var
             mask = np.logical_and(straddle_mask, variant_mask)
@@ -273,8 +277,9 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
-        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-                                       eta_right - grid_offset >= grid_offset + eval_offset)
+        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+        #                                eta_right - grid_offset >= grid_offset + eval_offset)
+        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
                 variant_mask = np.logical_and(left_variants == left_var,
@@ -294,8 +299,9 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
-        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-                                       eta_right - grid_offset >= grid_offset + eval_offset)
+        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+        #                                eta_right - grid_offset >= grid_offset + eval_offset)
+        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
                 variant_mask = np.logical_and(left_variants == left_var,
@@ -316,8 +322,9 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
-        straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-                                       eta_right - grid_offset >= grid_offset + eval_offset)
+        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
+        #                                eta_right - grid_offset >= grid_offset + eval_offset)
+        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
                 variant_mask = np.logical_and(left_variants == left_var,
@@ -411,8 +418,14 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
     """
     if point_type == 'first':
         n_pts = np.minimum(int(space_order/2), 1-df.dist.to_numpy())
+        # Modifier for points which lie within half a grid spacing of the boundary
         modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
-        start_right = space_order-2*(n_pts-1)-modifier_right
+
+        # It is necessary to account for staggering during stencil selection
+        stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
+
+        # Starting point for the right stencil (moving from left to right)
+        start_right = space_order-2*(n_pts-1)-modifier_right+stagger_mod_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -421,8 +434,11 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
             left_variants = np.zeros((mask_size, i), dtype=int)
-            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) \
-                + start_right[mask, np.newaxis]
+
+            # This is capped at space_order to prevent invalid variant numbers
+            right_variants = np.minimum(np.tile(2*np.arange(i), (mask_size, 1))
+                                        + start_right[mask, np.newaxis],
+                                        space_order)
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'first', i,
@@ -436,16 +452,24 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
 
     elif point_type == 'last':
         n_pts = np.minimum(int(space_order/2), 1+df.dist.to_numpy())
+        # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
-        start_left = space_order-modifier_left
+
+        # It is necessary to account for staggering during stencil selection
+        stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
+
+        start_left = space_order-modifier_left+stagger_mod_l
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
-            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) \
-                + start_left[mask, np.newaxis]
+            # This is capped at space_order to prevent invalid variant numbers
+            left_variants = np.minimum(np.tile(-2*np.arange(i), (mask_size, 1))
+                                       + start_left[mask, np.newaxis],
+                                       space_order)
+
             right_variants = np.zeros((mask_size, i), dtype=int)
 
             # Iterate over left and right variants
@@ -460,12 +484,20 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
 
     elif point_type == 'double':
         n_pts = 1
+        # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
-        start_left = space_order-modifier_left
-        start_right = space_order-modifier_right
-        left_variants = start_left[:, np.newaxis]
-        right_variants = start_right[:, np.newaxis]
+
+        # It is necessary to account for staggering during stencil selection
+        stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
+        stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
+
+        start_left = space_order-modifier_left+stagger_mod_l
+        start_right = space_order-modifier_right+stagger_mod_r
+
+        # This is capped at space_order to prevent invalid variant numbers
+        left_variants = np.minimum(start_left[:, np.newaxis], space_order)
+        right_variants = np.minimum(start_right[:, np.newaxis], space_order)
 
         # Iterate over left and right variants
         eval_stencils = evaluate_stencils(df, 'double', 1,
@@ -478,20 +510,29 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
 
     elif point_type == 'paired_left':
         n_pts = np.minimum(int(space_order/2), df.dist.to_numpy())
+        # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
-        start_left = space_order-modifier_left
-        start_right = space_order - 2*df.dist.to_numpy() - modifier_right
+
+        # It is necessary to account for staggering during stencil selection
+        stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
+        stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
+
+        start_left = space_order-modifier_left+stagger_mod_l
+        start_right = space_order-2*df.dist.to_numpy()-modifier_right+stagger_mod_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
-            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) \
-                + start_left[mask, np.newaxis]
-            right_variants = np.maximum(np.tile(2*np.arange(i), (mask_size, 1))
-                                        + start_right[mask, np.newaxis], 0)
+            # This is capped at space_order to prevent invalid variant numbers
+            left_variants = np.minimum(np.tile(-2*np.arange(i), (mask_size, 1))
+                                       + start_left[mask, np.newaxis],
+                                       space_order)
+            right_variants = np.minimum(np.maximum(np.tile(2*np.arange(i), (mask_size, 1))
+                                                   + start_right[mask, np.newaxis], 0),
+                                        space_order)
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
@@ -506,20 +547,29 @@ def get_variants(df, space_order, point_type, axis, stencil_generator, weights,
         n_pts = np.minimum(int(space_order/2),
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2),
                                                            -df.dist.to_numpy()))
+        # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
-        start_left = space_order + 2*df.dist.to_numpy() - modifier_left
-        start_right = space_order - 2*(n_pts-1) - modifier_right
+
+        # It is necessary to account for staggering during stencil selection
+        stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
+        stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
+
+        start_left = space_order+2*df.dist.to_numpy()-modifier_left+stagger_mod_l
+        start_right = space_order-2*(n_pts-1)-modifier_right+stagger_mod_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
-            left_variants = np.maximum(np.tile(-2*np.arange(i), (mask_size, 1))
-                                       + start_left[mask, np.newaxis], 0)
-            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) \
-                + start_right[mask, np.newaxis]
+            # This is capped at space_order to prevent invalid variant numbers
+            left_variants = np.minimum(np.maximum(np.tile(-2*np.arange(i), (mask_size, 1))
+                                                  + start_left[mask, np.newaxis], 0),
+                                       space_order)
+            right_variants = np.minimum(np.tile(2*np.arange(i), (mask_size, 1))
+                                        + start_right[mask, np.newaxis],
+                                        space_order)
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
@@ -558,6 +608,10 @@ def get_component_weights(data, axis, function, deriv, stencil_generator, offset
         Function containing the stencil coefficients
     """
     grid_offset = get_grid_offset(function, axis)
+    print("Axis", axis)
+    print("Function space dimensions", function.space_dimensions)
+    print("Grid offset", grid_offset)
+    print("Function stagger", function.staggered)
 
     f_grid = function.grid
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
@@ -596,7 +650,13 @@ def get_component_weights(data, axis, function, deriv, stencil_generator, offset
     if len(paired_right.index) != 0:
         get_variants(paired_right, function.space_order, 'paired_right',
                      axis_dim, stencil_generator, w, grid_offset, offset)
-
+    """
+    for i in range(function.space_order+1):
+        plt.imshow(w.data[:, 50, :, i].T)
+        plt.title(function.name + " " + axis_dim + " coeff " + str(i))
+        plt.colorbar()
+        plt.show()
+    """
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
