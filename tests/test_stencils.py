@@ -84,3 +84,20 @@ class TestExtrapolations:
             coeffs_main = get_ext_coeffs(bcs_main)[i-1]
 
             assert coeffs_ref == coeffs_main
+
+    @pytest.mark.parametrize('order', [4, 6])
+    def test_polynomial_recovery(self, order):
+        """
+        Test that polynomials of matching order are correctly recovered
+        """
+        spec = {2*i: 0 for i in range(order)}
+        bcs = BoundaryConditions(spec, order)
+
+        coeffs = get_ext_coeffs(bcs)[order//2]
+
+        poly = bcs.get_taylor()
+
+        extrapolation = sum([coeffs[E[i]]*poly.subs(bcs.x, x_a[i]) for i in range(order//2)])
+        exterior = poly.subs(bcs.x, x_t)
+
+        assert sp.simplify(extrapolation - exterior) == 0
