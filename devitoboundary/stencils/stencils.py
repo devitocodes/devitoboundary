@@ -1,641 +1,207 @@
-"""
-A module for stencil generation given a set of boundary conditions, and a method
-order.
-"""
-import numpy as np
 import sympy as sp
-import pickle
-import warnings
+import numpy as np
+from devitoboundary.stencils.stencil_utils import standard_stencil
+from devitoboundary.symbolics.symbols import (a, x_b, x_a, x_t, E, eta_l, eta_r)
 
-from devito import Eq
-from devitoboundary.symbolics.symbols import (x_a, u_x_a, n_max, a, x_b, x_l,
-                                              x_r, x_c, f, h_x, eta_l, eta_r)
-from devitoboundary.stencils.stencil_utils import (standard_stencil,
-                                                   generic_function)
+__all__ = ['taylor']
+
+def taylor(x, order):
+    """Generate a taylor series expansion of a given order"""
+    n = sp.symbols('n')
+    polynomial = sp.Sum(a[n]*(x-x_b)**n, (n, 0, order)).doit()
+    return polynomial
 
 
-__all__ = ['StencilGen']
-
-
-class StencilGen:
+class BoundaryConditions:
     """
-    Stencil_Gen(space_order, bcs, stencil_file=None)
+    Contains information on a given set of boundary conditions.
 
-    Modified stencils for an immersed boundary at which a set of boundary conditions
-    are to be imposed.
-
-    Parameters
-    ----------
-    space_order : int
-        The order of the desired spatial discretization.
-    bcs : list of Sympy Eq
-        The list of boundary conditions.
-    stencil_file : str
-        The filepath of the stencil cache.
-
-    Attributes
-    ----------
-    stencil_list : list
-        A nested list of possible stencil variants. Indexed by [left variant],
-        [right variant]. A variant is the number of half grid increments by
-        which the stencil is truncated by the boundary.
-    space_order : int
-        The order of the stencils.
-
-    Methods
-    -------
-    all_variants(deriv)
-        Calculate the stencil coefficients of all possible stencil variants
-        required for a given derivative.
+    bcs : dict
+        A dict of {derivative: value}
     """
-
-    def __init__(self, s_o, bcs, stencil_file=None):
-        self._s_o = s_o
-
+    def __init__(self, bcs, order):
         self._bcs = bcs
-        self._stencil_list = None
-        self._i_poly_variants = None
-        self._u_poly_variants = None
+        self._order = order
 
-        if stencil_file is None:
-            self._stencil_dict = {}
-        else:
-            with open(stencil_file, 'rb') as f:
-                stencils = pickle.load(f)
-                if not isinstance(stencils, dict):
-                    raise TypeError("Specified file does not contain a dictionary")
-                self._stencil_dict = stencils
-        self._stencil_file = stencil_file
+        self._x = sp.symbols('x')
+
+    def get_taylor(self, order=None):
+        """Get the taylor series with appropriate coefficient modifications"""
+        if order is None:
+            order = self.order
+        series = taylor(self._x, order)
+        for deriv, val in self._bcs.items():
+            series = series.subs(a[deriv], val/np.math.factorial(deriv))
+        return series
 
     @property
-    def bc_list(self):
-        """The list of boundary conditions"""
+    def bcs(self):
+        """The bcs contained by this object"""
         return self._bcs
 
     @property
-    def stencils(self):
-        """
-        The stencil array. Indexed by left variant, right variant, and node
-        position from negative to positive respectively
-        """
-        return self._stencil_list
+    def order(self):
+        """The order of the discretization these bcs are associated with"""
+        return self._order
 
     @property
-    def stencils_lambda(self):
-        funcs = np.empty(self.stencils.shape, dtype=object)
-        for i in range(self.stencils.size):
-            # Add a lambdaify in here
-            funcs.flat[i] = sp.lambdify([eta_l, eta_r], self.stencils.flat[i])
-        return funcs
+    def x(self):
+        """The variable used for the taylor series"""
+        return self._x
 
-    @property
-    def space_order(self):
-        """The formal order of the stencils"""
-        return self._s_o
 
-    def _coeff_gen(self, n_pts, bcs=None):
+def get_ext_coeffs(bcs):
+    """Get the extrapolation coefficients for a set of boundary conditions"""
+    n_pts = bcs.order//2  # Number of interior points
+    coeff_dict = {}  # Master coefficient dictionary
+    for points_count in range(1, n_pts+1):
+        taylor = bcs.get_taylor(order=2*points_count - 1)
+        lhs = sum([E[point]*taylor.subs(bcs.x, x_a[point]) for point in range(points_count)])
+        rhs = taylor.subs(bcs.x, x_t)
+        eqs = [sp.Eq(sp.expand(lhs).coeff(a[i], 1), sp.expand(rhs).coeff(a[i], 1)) for i in range(bcs.order+1)
+               if sp.Eq(lhs.coeff(a[i], 1), rhs.coeff(a[i], 1)) is not sp.true]
+
+        # Variables to solve for
+        solve_vars = [E[point] for point in range(points_count)]
+        coeffs = sp.solve(eqs, solve_vars)
+
+        coeff_dict[points_count] = coeffs
+
+    return coeff_dict
+
+
+def get_stencils(deriv, offset, bcs):
+    def get_unusable(variant):
+        """Get the number of unusable points on a side given the variant"""
+        return min(variant, int(variant/2+1))
+
+    def get_outside(variant):
+        """Get the number of exterior points on a side given the variant"""
+        return int(np.ceil(variant/2))
+
+    def get_available(left_unusable, right_unusable, left_outside, right_outside, s_o):
         """
-        Generate extrapolation polynomial coefficients given the number of
-        interior points available.
+        Get the positions of points available for the extrapolation on each side
+        given the number of unusable and exterior stencil points.
         """
+        # Deal with -0 = 0 when indexing from right
+        if right_unusable == 0:
+            left_available = range(-s_o//2, s_o//2+1)[left_unusable:]
+            right_available = range(-s_o//2, s_o//2+1)[left_outside:]
+        else:
+            left_available = range(-s_o//2, s_o//2+1)[left_unusable:-right_outside]
+            right_available = range(-s_o//2, s_o//2+1)[left_outside:-right_unusable]
+        return left_available, right_available
 
-        def point_count(n_bcs, n_pts):
-            """
-            The number of points used by the polynomial, given number of bcs
-            and points available.
-            """
-            # Points to be used can be no larger than number available
-            # Points required is equal to space_order - number of bcs
-            # At least one point must be used
-            return min(max(self._s_o - n_bcs + 1, 1), n_pts)
-            # return max(min(self._s_o - n_bcs + 1, n_pts), 1)
-
-        def extr_poly_order(n_bcs, n_p_used):
-            """
-            The order of the polynomial required given number of boundary
-            conditions and points to be used.
-            """
-            print("Extrapolation polynomial order")
-            print(n_bcs + n_p_used - 1)
-            return n_bcs + n_p_used - 1
-
-        def reduce_order(bcs, poly_order):
-            """
-            Return a reduction in polynomial order, since boundary conditions
-            which evaluate to zero will result in polynomial coefficients which
-            are functions of one another otherwise.
-            """
-            eval_lhs = [bcs[i].lhs.subs(n_max, poly_order).doit() for i in range(len(bcs))]
-            print("LHS evaluated")
-            print(eval_lhs)
-            count = eval_lhs.count(0)
-            # Remove all bcs where LHS = 0
-            # FIXME: Doesn't play nice with the caching
-            for bc in range(count):
-                del bcs[eval_lhs.index(0)]
-
-            return count
-
-        def evaluate_equations(equations, poly_order):
-            """
-            Evaluate the sums in the equation list to the specified order.
-            """
-            for i in range(len(equations)):
-                equations[i] = Eq(equations[i].lhs.subs(n_max, poly_order).doit(),
-                                  equations[i].rhs)
-
-        def solve_for_coeffs(equations, poly_order):
-            """
-            Return the coefficients of the extrapolation polynomial
-            """
-            solve_variables = tuple(a[i] for i in range(poly_order+1))
-            print("System of equations")
-            print(equations)
-            print("Solve variables")
-            print(solve_variables)
-            return sp.solve(equations, solve_variables)
-
-        if bcs is None:
-            bcs = self._bcs.copy()
-        n_bcs = len(bcs)
-        print("Initial bcs")
-        print(bcs)
-
-        n_p_used = point_count(n_bcs, n_pts)
-        print("Number of points to use")
-        print(n_p_used)
-
-        poly_order = extr_poly_order(n_bcs, n_p_used)
-        poly_order -= reduce_order(bcs, poly_order)
-
-        # Generate additional equations for each point used
-        eq_list = [Eq(generic_function(x_a[i]), u_x_a[i])
-                   for i in range(n_p_used)]
-
-        equations = bcs + eq_list
-
-        evaluate_equations(equations, poly_order)
-
-        return solve_for_coeffs(equations, poly_order)
-
-    def _poly_variants(self):
+    def get_stencil_addition(outside, available, coeff_dict, s_o, base_stencil, side):
         """
-        Generate all possible polynomial variants required given the order of the
-        spatial discretization and a list of boundary conditions. There will be
-        a single polynomial generated for the independent case, and
-        one for each unified case as available points are depleted.
+        Get the additions to the base stencil introduced by the extrapolations for a side
         """
+        if side != 'left' and side != 'right':
+            raise ValueError("Invalid side")
 
-        def double_sided_bcs(bcs):
-            """Turn single sided set of bcs into double sided"""
-            double_bcs = []
-            for i in range(len(bcs)):
-                double_bcs.append(bcs[i].subs(x_b, x_l))
-                double_bcs.append(bcs[i].subs(x_b, x_r))
-            return double_bcs
+        n_coeffs = s_o//2 if len(available) > s_o//2 else len(available) if len(available) > 0 else 1
 
-        def generate_double_sided():
-            """
-            Generate double sided polynomials based on boundary conditions
-            imposed at both ends of a stencil.
-            """
-            ds_poly = []
+        if side == 'left':
+            # Force use of middle point if nomianally no points are available
+            ext_points = tuple(available[:s_o]) if len(available) > 0 else (0,)
 
-            # Set up double-sided boundary conditions list
-            ds_bcs = double_sided_bcs(self._bcs)
+            # Build main substitutions
+            main_subs = [(x_a[i], ext_points[i]) for i in range(n_coeffs)]
 
-            # Unique extrapolation for each number of interior points available
-            # Can't have less than one interior point
-            # Maximum number of interior points required is one more than the
-            # space order minus the number of boundary conditions
-            n_bcs = len(self._bcs)
-            for i in range(1, self._s_o - n_bcs + 1):
-                ds_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1 - i,
-                                                 bcs=ds_bcs)
-                print("Solved coefficients")
-                print(ds_poly_coeffs)
-
-                ds_poly.append(sum([ds_poly_coeffs[a[j]]*x_c**j
-                               for j in range(len(ds_poly_coeffs))]))
-
-            return ds_poly
-
-        def generate_single_sided():
-            """
-            Generate a single-sided polynomial based on boundary conditions
-            imposed.
-            """
-            n_bcs = len(self._bcs)
-            ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
-            print("Solved coefficients")
-            print(ss_poly_coeffs)
-            ss_poly = sum([ss_poly_coeffs[a[i]]*x_c**i
-                           for i in range(len(ss_poly_coeffs))])
-
-            return ss_poly
-
-        # i -> sides are independent from one another
-        self._i_poly_variants = generate_single_sided()
-        print("Single-sided polynomial")
-        print(self._i_poly_variants, "\n")
-        # u -> sides are unified with one another
-        self._u_poly_variants = generate_double_sided()
-        print("Double-sided polynomials")
-        for poly in self._u_poly_variants:
-            print(poly, "\n")
-
-    def all_variants(self, deriv, offset, stencil_out=None):
-        """
-        Calculate the stencil coefficients of all possible stencil variants
-        required for a given derivative.
-
-        Parameters
-        ----------
-        deriv : int
-            The derivative for which stencils should be calculated
-        offset : float
-            The offset at which the derivative is to be evaluated
-        stencil_out : str
-            The filepath to where the stencils should be cached. This will
-            default to the filepath set at initialization. If this is not done,
-            the filepath supplied here will be used. If both are missing,
-            then stencils will not be cached.
-        """
-
-        try:
-            # Create a unique key for the stencil portfolio
-            key = str(self._bcs)+str(self._s_o)+str(deriv)+str(offset)
-            # print("Key")
-            # print(key)
-            self._stencil_list = self._stencil_dict[key]
-        except KeyError:
-            if stencil_out is None and self._stencil_file is None:
-                no_warn = "No file specified for caching generated stencils."
-                warnings.warn(no_warn)
-            if stencil_out is not None and self._stencil_file is not None:
-                dupe_warn = "File already specified for caching stencils." \
-                    + " Defaulting to {}"
-                warnings.warn(dupe_warn.format(self._stencil_file))
-
-            warnings.warn("Generating new stencils, this may take some time.")
-            self._all_variants(deriv, offset)
-
-            if self._stencil_file is not None:
-                with open(self._stencil_file, 'wb') as f:
-                    pickle.dump(self._stencil_dict, f)
-            elif stencil_out is not None:
-                with open(stencil_out, 'wb') as f:
-                    pickle.dump(self._stencil_dict, f)
-
-    def _all_variants(self, deriv, offset):
-        """
-        Calculate the stencil coefficients of all possible stencil variants
-        required for a given derivative.
-
-        Parameters
-        ----------
-        deriv : int
-            The derivative for which stencils should be calculated
-        offset : float
-            The offset at which the derivative is to be evaluated
-        """
-
-        def get_unusable(variant):
-            """Get the number of unusable points on a side given the variant"""
-            return min(variant, int(variant/2+1))
-
-        def get_outside(variant):
-            """Get the number of exterior points on a side given the variant"""
-            return int(np.ceil(variant/2))
-
-        def get_available(outside, unusable):
-            """
-            Get the number of points available for extrapolation given the
-            number of exterior and unusable stencil points. Applicable to
-            individual extrapolations, but not unified ones.
-            """
-            return self._s_o + 1 - unusable - outside
-
-        def get_available_unified(left_unusable, right_unusable):
-            """
-            Get the number of points available for the extrapolation given the
-            number of unusable points on each side. For unified polynomials
-            only.
-            """
-            return self._s_o + 1 - right_unusable - left_unusable
-
-        def get_points_to_use():
-            """Get the number of points to use in the polynomial"""
-            n_bcs = len(self._bcs)
-            return self._s_o - n_bcs + 1
-
-        def sub_x_u(expr, unavailable, points_used, side):
-            """
-            Replace x_a and u_x_a with grid increments from stencil center
-            point and values of f at respective positions.
-            """
-            # Need to multiply indices etc by -1 for left (negative) side
-            if side == 'left':
-                # FIXME: Not sure this needs to be +1?
-                for i in range(points_used+1):
-                    index = -1*(int(self._s_o/2)-unavailable-i)
-                    substitutions = [(u_x_a[i], f[index]),
-                                     (x_a[i], index*h_x)]
-                    expr = expr.subs(substitutions)  # Update with new subs
-            elif side == 'right':
-                # FIXME: Not sure this needs to be +1?
-                for i in range(points_used+1):
-                    index = int(self._s_o/2)-unavailable-i
-                    substitutions = [(u_x_a[i], f[index]),
-                                     (x_a[i], index*h_x)]
-                    expr = expr.subs(substitutions)  # Update with new subs
-
-            return expr
-
-        def sub_x_u_center(expr):
-            """
-            Replace x_a and u_x_a with position and respective value of f for
-            the center stencil point only. For polynomials where only a single
-            interior point is used for extrapolation.
-            """
-            expr = expr.subs([(u_x_a[0], f[0]),
-                              (x_a[0], 0)])
-
-            return expr
-
-        def sub_x_u_unified(expr, left_unusable, right_unusable):
-            """
-            Replace x_a and u_x_a with positions relative to center stencil
-            point and respective function values. For unified polynomials.
-            """
-            for i in range(1 + self._s_o - right_unusable - left_unusable):
-                index = left_unusable+i-int(self._s_o/2)
-                substitutions = [(u_x_a[i], f[index]),
-                                 (x_a[i], index*h_x)]
-                expr = expr.subs(substitutions)
-
-            return expr
-
-        def sub_x_b(expr, side):
-            """
-            Replace x_b with the specified eta multiplied by the grid increment.
-            """
-            if side == 'left':
-                eta = eta_l
-            elif side == 'right':
-                eta = eta_r
-
-            return expr.subs(x_b, eta*h_x)
-
-        def sub_x_lr(expr, left_variant, right_variant, floor=False):
-            """
-            Replace x_l and x_r with eta_l and eta_r multiplied by grid
-            increment. Apply a floor of 0.5 if specified.
-            """
-            # Even variant number when "floor" engaged corresponds with case
-            # where boundary is within 0.5 grid increments of stencil center.
-            # FIXME: Need a better rule than this. Is somewhat ad-hoc
-            if right_variant % 2 == 0 and floor:
-                expr = expr.subs(x_r, 0.5*h_x)
+            # Set floor on eta if necessary
+            if len(available) > 0:
+                main_subs += [(x_b, eta_l)]
             else:
-                expr = expr.subs(x_r, eta_r*h_x)
-            if left_variant % 2 == 0 and floor:
-                expr = expr.subs(x_l, -0.5*h_x)
+                main_subs += [(x_b, -0.5)]
+        else:
+            # Force use of middle point if nomianally no points are available
+            ext_points = tuple(available[-s_o:]) if len(available) > 0 else (0,)
+
+            # Build main substitutions (Index from right to left for this one)
+            main_subs = [(x_a[i], ext_points[-1-i]) for i in range(n_coeffs)]
+
+            # Set floor on eta if necessary
+            if len(available) > 0:
+                main_subs += [(x_b, eta_r)]
             else:
-                expr = expr.subs(x_l, eta_l*h_x)
+                main_subs += [(x_b, 0.5)]
 
-            return expr
+        # Apply main substitutions
+        ext_coeffs = coeff_dict[n_coeffs]
+        ext_coeffs = {coeff: val.subs(main_subs) for (coeff, val) in ext_coeffs.items()}
 
-        def sub_x_b_floor(expr, variant, side):
-            """
-            Replace x_b with the specified eta multiplied by grid increment.
-            For cases where eta < 0.5, eta is replaced with 0.5. Used for the
-            order 2 edge case, where individual polynomials are used in a double
-            sided stencil.
-            """
-            if side == 'left':
-                # If variant = 2, then apply a floor
-                if variant == 2:
-                    expr = expr.subs(x_b, -0.5*h_x)
-                else:
-                    expr = expr.subs(x_b, eta_l*h_x)
-            elif side == 'right':
-                # If variant = 2, then apply a floor
-                if variant == 2:
-                    expr = expr.subs(x_b, 0.5*h_x)
-                else:
-                    expr = expr.subs(x_b, eta_r*h_x)
+        points = tuple(range(-s_o//2, s_o//2+1))
 
-            return expr
+        # Array containing additions to stencil
+        additions = np.full(s_o+1, sp.Float(0))
 
-        def get_stencil_addition(stencil, poly, ext_pos):
-            """
-            Carry out the polynomial substitution associated with a single
-            exterior point, and return the addition to the other stencil
-            coefficients.
-            """
-            stencil_addition = np.zeros(stencil.shape[0], dtype=object)
+        if side == 'left':
+            for point in range(outside):
+                # Apply substitutions for x_t
+                point_coeffs = {coeff: val.subs(x_t, points[point]) for (coeff, val) in ext_coeffs.items()}
 
-            # Generate the master substitutions list to extract coefficients
-            master_subs = [(f[i-int(self._s_o/2)], 0)
-                           for i in range(stencil.shape[0])]
-            # Loop over the possible coefficients
-            for i in range(stencil.shape[0]):
-                coeff_subs = master_subs.copy()
-                coeff_subs[i] = (f[i-int(self._s_o/2)], 1)
-                ext_val = sp.simplify(poly.subs(coeff_subs))
-                stencil_addition[i] += stencil[ext_pos]*ext_val
+                # Loop over the coefficients and add them to the addition with the correct weighting
+                for position in range(n_coeffs):
+                    additions[s_o//2 + ext_points[position]] += base_stencil[point]*point_coeffs[E[position]]
+        else:
+            for point in range(outside):
+                # Apply substitutions for x_t
+                point_coeffs = {coeff: val.subs(x_t, points[-1-point]) for (coeff, val) in ext_coeffs.items()}
 
-            return stencil_addition
+                # Loop over the coefficients and add them to the addition with the correct weighting
+                for position in range(n_coeffs):
+                    additions[s_o//2 + ext_points[-1-position]] += base_stencil[-1-point]*point_coeffs[E[position]]
 
-        def sub_exterior_points(stencil, poly, exterior_points, side):
-            """
-            Replace exterior stencil points with polynomial extrapolations.
-            """
-            # FIXME: Will need modifiying for arrays
-            if side == 'left':
-                # FIXME: Might be better to create a list then substitute?
-                for i in range(exterior_points):
-                    # Index from left
-                    index = -1*(int(self._s_o/2)-i)
-                    node_position = index*h_x
-                    poly_substitution = poly.subs(x_c, node_position)
-                    stencil += get_stencil_addition(stencil, poly_substitution,
-                                                    i)
-                    stencil[i] = sp.S.Zero  # 0
-            elif side == 'right':
-                for i in range(exterior_points):
-                    index = int(self._s_o/2)-i
-                    node_position = index*h_x
-                    poly_substitution = poly.subs(x_c, node_position)
+        return additions
 
-                    stencil += get_stencil_addition(stencil, poly_substitution,
-                                                    -1-i)
-                    stencil[-1-i] = sp.S.Zero  # 0
+    def get_stencil_additions(left_outside, right_outside, left_available, right_available, coeff_dict, s_o, base_stencil):
+        """
+        Get the additions to the base stencil introduced by the extrapolations
+        """
+        left_add = get_stencil_addition(left_outside, left_available, coeff_dict, s_o, base_stencil, 'left')
+        right_add = get_stencil_addition(right_outside, right_available, coeff_dict, s_o, base_stencil, 'right')
 
-            return stencil
+        truncated_stencil = base_stencil.copy()
+        truncated_stencil[:left_outside] = sp.Float(0)
+        if right_outside != 0:
+            truncated_stencil[-right_outside:] = sp.Float(0)
+        stencil = truncated_stencil + left_add + right_add
 
-        def apply_individual_extrapolation(variant, stencil, side):
-            """
-            Return a modified version of the stencil, applying the
-            extrapolation for the specified side.
-            """
-            poly = self._i_poly_variants
+        return stencil
 
-            unusable = get_unusable(variant)
-            outside = get_outside(variant)
-            to_use = get_points_to_use()
+    s_o = bcs.order
+    base_stencil = standard_stencil(deriv, s_o,
+                                    offset=offset, as_float=False)
 
-            # Substitute in correct values of x and u_x
-            poly = sub_x_u(poly, unusable, to_use, side)
+    stencil_array = np.empty((s_o+1, s_o+1, s_o+1), dtype=object)
 
-            # Also need to replace x_b with eta*h_x
-            poly = sub_x_b(poly, side)
+    coeff_dict = get_ext_coeffs(bcs)
 
-            # Replace exterior points with extrapolate values
-            stencil = sub_exterior_points(stencil, poly, outside, side)
+    # Loop over variants
+    for left in range(s_o + 1):
+        left_unusable = get_unusable(left)
+        left_outside = get_outside(left)
+        for right in range(s_o + 1):
+            right_unusable = get_unusable(right)
+            right_outside = get_outside(right)
+            left_available, right_available = get_available(left_unusable, right_unusable,
+                                                            left_outside, right_outside, s_o)
 
-            return stencil
+            stencil = get_stencil_additions(left_outside, right_outside, left_available, right_available, coeff_dict, s_o, base_stencil)
+            stencil_array[left, right] = stencil
 
-        def modify_individual_stencil(left_variant, right_variant, stencil):
-            """
-            Modify stencil for the case that individual polynomials are to be
-            used.
-            """
-            # Right side polynomial
-            if right_variant != 0:
-                stencil = apply_individual_extrapolation(right_variant,
-                                                         stencil, 'right')
-            # Left side polynomial
-            if left_variant != 0:
-                stencil = apply_individual_extrapolation(left_variant,
-                                                         stencil, 'left')
+    return stencil_array
 
-            return stencil
 
-        def modify_unified_stencil(left_variant, right_variant, stencil):
-            """
-            Modify stencil for the case that unified polynomials are to be used.
-            """
-            right_o = get_outside(right_variant)
-            left_o = get_outside(left_variant)
-            right_u = get_unusable(right_variant)
-            left_u = get_unusable(left_variant)
-            available = get_available_unified(left_u, right_u)
-            # Special case when points available for unified polynomial are zero (or smaller)
-            if available <= 0:
-                # Grab the unified polynomial for one point
-                poly = self._u_poly_variants[0]
-
-                poly = sub_x_u_center(poly)
-
-                poly = sub_x_lr(poly, left_variant, right_variant, floor=True)
-
-            else:
-                # Grab the polynomial for that number of points
-                poly = self._u_poly_variants[available - 1]
-
-                poly = sub_x_u_unified(poly, left_u, right_u)
-
-                poly = sub_x_lr(poly, left_variant, right_variant, floor=False)
-
-            stencil = sub_exterior_points(stencil,
-                                          poly, right_o,
-                                          'right')
-
-            stencil = sub_exterior_points(stencil,
-                                          poly, left_o,
-                                          'left')
-
-            return stencil
-
-        def modify_edge_stencil(left_variant, right_variant, stencil):
-            """
-            Modify the stencil for the 2nd order edge case where individual
-            extrapolations are to be used.
-            """
-            right_o = get_outside(right_variant)
-            left_o = get_outside(left_variant)
-
-            # Right side polynomial
-            r_poly = self._i_poly_variants
-            # Left side polynomial
-            l_poly = self._i_poly_variants
-
-            r_poly = sub_x_u_center(r_poly)
-            l_poly = sub_x_u_center(l_poly)
-
-            r_poly = sub_x_b_floor(r_poly, right_variant, 'right')
-            l_poly = sub_x_b_floor(l_poly, left_variant, 'left')
-
-            stencil = sub_exterior_points(stencil, r_poly, right_o, 'right')
-            stencil = sub_exterior_points(stencil, r_poly, left_o, 'left')
-
-            return stencil
-
-        def add_stencil_entry(left_variant, right_variant, base_stencil, n_bcs):
-            """
-            Add the stencil entry for the specified variant combination to the
-            stencil list.
-            """
-            stencil_entry = base_stencil.copy()
-            if (left_variant != 0 or right_variant != 0):
-                # Points unusable on right
-                right_u = get_unusable(right_variant)
-                # Points outside on right
-                right_o = get_outside(right_variant)
-                # Points unusable on left
-                left_u = get_unusable(left_variant)
-                # Points outside on left
-                left_o = get_outside(left_variant)
-                # Available points for right poly
-                a_p_right = get_available(left_o, right_u)
-                # Available points for left poly
-                a_p_left = get_available(right_o, left_u)
-
-                use_separate = (a_p_right >= self._s_o - n_bcs + 1
-                                and a_p_left >= self._s_o - n_bcs + 1)
-
-                if use_separate:
-                    # Use separate polynomials
-                    stencil_entry = modify_individual_stencil(left_variant,
-                                                              right_variant,
-                                                              stencil_entry)
-
-                elif self._s_o >= 4:
-                    stencil_entry = modify_unified_stencil(left_variant,
-                                                           right_variant,
-                                                           stencil_entry)
-                else:
-                    # Order 2 edge case (use separate polynomials)
-                    # For order 2, the double sided polynomial is never
-                    # needed.
-                    stencil_entry = modify_edge_stencil(left_variant,
-                                                        right_variant,
-                                                        stencil_entry)
-
-            # Set stencil entry
-            self._stencil_list[left_variant, right_variant] = stencil_entry
-
-        base_stencil = standard_stencil(deriv, self._s_o,
-                                        offset=offset, as_float=False)
-
-        # Get the polynomial variants
-        self._poly_variants()
-
-        # Set up M+1 x M+1 array with object dtype
-        self._stencil_list = np.empty((self._s_o+1, self._s_o+1, self._s_o+1),
-                                      dtype=object)
-
-        # Number of boundary conditions
-        n_bcs = len(self._bcs)
-
-        # FIXME: Can this loop be performed with DASK?
-        for le in range(self._s_o+1):
-            # Left interval
-            for ri in range(self._s_o+1):
-                # Right interval
-                add_stencil_entry(le, ri, base_stencil, n_bcs)
-
-        key = str(self._bcs)+str(self._s_o)+str(deriv)+str(offset)
-        self._stencil_dict[key] = self._stencil_list
+def get_stencils_lambda(deriv, offset, bcs):
+    """
+    Get the stencils as an array of functions which can be called on supplied values
+    of eta_l and eta_r.
+    """
+    stencils = get_stencils(deriv, offset, bcs)
+    funcs = np.empty(stencils.shape, dtype=object)
+    for i in range(stencils.size):
+        # Add a lambdaify in here
+        funcs.flat[i] = sp.lambdify([eta_l, eta_r], stencils.flat[i])
+    return funcs
