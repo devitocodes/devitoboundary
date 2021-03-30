@@ -258,7 +258,6 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
     if point_type == 'last':
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
                            (1, n_stencils)) - eta_base
-        print(eta_left - grid_offset)
 
         # Need a mask for points where the stagger does not straddle the boundary
         # Stencils for these points should be left as zero to prevent updates
@@ -334,6 +333,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                     func = coeff_functions[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
                                                  eta_right[mask] - grid_offset)
+    # print("Stencils "+point_type)
+    # print(stencils)
     return stencils
 
 
@@ -608,10 +609,12 @@ def get_component_weights(data, axis, function, deriv, stencil_generator, offset
         Function containing the stencil coefficients
     """
     grid_offset = get_grid_offset(function, axis)
+    """
     print("Axis", axis)
     print("Function space dimensions", function.space_dimensions)
     print("Grid offset", grid_offset)
     print("Function stagger", function.staggered)
+    """
 
     f_grid = function.grid
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
@@ -701,6 +704,12 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
             # If True, then behave as normal
             # If False then pass
             sten_gen.all_variants(deriv, offsets[axis])
+
+            for i in range(function.space_order + 1):
+                for j in range(function.space_order + 1):
+                    print("Stencil variant", i, j)
+                    print(sten_gen.stencils[i, j])
+
             axis_weights = get_component_weights(data[axis].data, axis, function,
                                                  deriv, sten_gen, offsets[axis])
             print(deriv, function, function.grid.dimensions[axis], axis_weights)

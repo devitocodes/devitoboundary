@@ -108,12 +108,15 @@ class StencilGen:
             # Points required is equal to space_order - number of bcs
             # At least one point must be used
             return min(max(self._s_o - n_bcs + 1, 1), n_pts)
+            # return max(min(self._s_o - n_bcs + 1, n_pts), 1)
 
         def extr_poly_order(n_bcs, n_p_used):
             """
             The order of the polynomial required given number of boundary
             conditions and points to be used.
             """
+            print("Extrapolation polynomial order")
+            print(n_bcs + n_p_used - 1)
             return n_bcs + n_p_used - 1
 
         def reduce_order(bcs, poly_order):
@@ -123,6 +126,8 @@ class StencilGen:
             are functions of one another otherwise.
             """
             eval_lhs = [bcs[i].lhs.subs(n_max, poly_order).doit() for i in range(len(bcs))]
+            print("LHS evaluated")
+            print(eval_lhs)
             count = eval_lhs.count(0)
             # Remove all bcs where LHS = 0
             # FIXME: Doesn't play nice with the caching
@@ -144,13 +149,21 @@ class StencilGen:
             Return the coefficients of the extrapolation polynomial
             """
             solve_variables = tuple(a[i] for i in range(poly_order+1))
+            print("System of equations")
+            print(equations)
+            print("Solve variables")
+            print(solve_variables)
             return sp.solve(equations, solve_variables)
 
         if bcs is None:
-            bcs = self._bcs
+            bcs = self._bcs.copy()
         n_bcs = len(bcs)
+        print("Initial bcs")
+        print(bcs)
 
         n_p_used = point_count(n_bcs, n_pts)
+        print("Number of points to use")
+        print(n_p_used)
 
         poly_order = extr_poly_order(n_bcs, n_p_used)
         poly_order -= reduce_order(bcs, poly_order)
@@ -199,6 +212,8 @@ class StencilGen:
             for i in range(1, self._s_o - n_bcs + 1):
                 ds_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1 - i,
                                                  bcs=ds_bcs)
+                print("Solved coefficients")
+                print(ds_poly_coeffs)
 
                 ds_poly.append(sum([ds_poly_coeffs[a[j]]*x_c**j
                                for j in range(len(ds_poly_coeffs))]))
@@ -212,6 +227,8 @@ class StencilGen:
             """
             n_bcs = len(self._bcs)
             ss_poly_coeffs = self._coeff_gen(self._s_o - n_bcs + 1)
+            print("Solved coefficients")
+            print(ss_poly_coeffs)
             ss_poly = sum([ss_poly_coeffs[a[i]]*x_c**i
                            for i in range(len(ss_poly_coeffs))])
 
@@ -219,8 +236,13 @@ class StencilGen:
 
         # i -> sides are independent from one another
         self._i_poly_variants = generate_single_sided()
+        print("Single-sided polynomial")
+        print(self._i_poly_variants, "\n")
         # u -> sides are unified with one another
         self._u_poly_variants = generate_double_sided()
+        print("Double-sided polynomials")
+        for poly in self._u_poly_variants:
+            print(poly, "\n")
 
     def all_variants(self, deriv, offset, stencil_out=None):
         """
@@ -243,6 +265,8 @@ class StencilGen:
         try:
             # Create a unique key for the stencil portfolio
             key = str(self._bcs)+str(self._s_o)+str(deriv)+str(offset)
+            # print("Key")
+            # print(key)
             self._stencil_list = self._stencil_dict[key]
         except KeyError:
             if stencil_out is None and self._stencil_file is None:

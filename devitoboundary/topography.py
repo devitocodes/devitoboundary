@@ -75,10 +75,12 @@ class ImmersedBoundary:
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface)
 
+        """
         plt.imshow(ax.axial[2].data[:, 50, :].T)
         plt.colorbar()
         plt.title("Distances for axis {}".format(2))
         plt.show()
+        """
 
         # Empty tuple for weights
         weights = ()
