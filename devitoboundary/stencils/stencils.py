@@ -6,7 +6,7 @@ from devito.logger import warning
 from devitoboundary.stencils.stencil_utils import standard_stencil
 from devitoboundary.symbolics.symbols import (a, x_b, x_a, x_t, E, eta_l, eta_r)
 
-__all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs']
+__all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs', 'get_stencils', 'get_stencils_lambda']
 
 
 def taylor(x, order):
@@ -20,8 +20,25 @@ class BoundaryConditions:
     """
     Contains information on a given set of boundary conditions.
 
+    Parameters
+    ----------
     bcs : dict
         A dict of {derivative: value}
+    order : int
+        The order of the finite difference discretization
+
+    Methods
+    -------
+    get_taylor: Get the taylor series with appropriate coefficient modifications
+
+    Attributes
+    ----------
+    bcs: The bcs contained by this object
+
+    order: The order of the discretization these bcs are associated with
+
+    x: The variable used for the taylor series
+
     """
     def __init__(self, bcs, order):
         self._bcs = bcs
@@ -58,6 +75,21 @@ class BoundaryConditions:
 
 
 def get_ext_coeffs(bcs, cache=None):
+    """
+    Get the extrapolation coefficients for a set of boundary conditions
+
+    Parameters
+    ----------
+    bcs : BoundaryConditions
+        The boundary conditions to be applied
+    cache : str
+        The path to the extrapolation cache. Optional.
+
+    Returns
+    -------
+    coeff_dict : dict
+        The dictionary of extrapolation coefficients
+    """
     if cache is None:
         return _get_ext_coeffs(bcs)
     else:
@@ -110,6 +142,25 @@ def _get_ext_coeffs(bcs):
 
 
 def get_stencils(deriv, offset, bcs, cache=None):
+    """
+    Get the array of stencils for a given specification
+
+    Parameters:
+    deriv : int
+        The derivative for which stencils should be generated
+    offset : float
+        The offset at which the derivative should be evaluated
+    bcs : BoundaryConditions
+        The boundary conditions which these stencils are for
+    cache : str
+        Path to the extrapolation cache. Optional
+
+    Returns
+    -------
+    stencil_array : ndarray
+        The array of stencils
+
+    """
     def get_unusable(variant):
         """Get the number of unusable points on a side given the variant"""
         return min(variant, int(variant/2+1))
@@ -178,7 +229,8 @@ def get_stencils(deriv, offset, bcs, cache=None):
         if side == 'left':
             for point in range(outside):
                 # Apply substitutions for x_t
-                point_coeffs = {coeff: val.subs(x_t, points[point]) for (coeff, val) in ext_coeffs.items()}
+                point_coeffs = {coeff: val.subs(x_t, points[point])
+                                for (coeff, val) in ext_coeffs.items()}
 
                 # Loop over the coefficients and add them to the addition with the correct weighting
                 for position in range(n_coeffs):
@@ -186,7 +238,8 @@ def get_stencils(deriv, offset, bcs, cache=None):
         else:
             for point in range(outside):
                 # Apply substitutions for x_t
-                point_coeffs = {coeff: val.subs(x_t, points[-1-point]) for (coeff, val) in ext_coeffs.items()}
+                point_coeffs = {coeff: val.subs(x_t, points[-1-point])
+                                for (coeff, val) in ext_coeffs.items()}
 
                 # Loop over the coefficients and add them to the addition with the correct weighting
                 for position in range(n_coeffs):
@@ -194,12 +247,16 @@ def get_stencils(deriv, offset, bcs, cache=None):
 
         return additions
 
-    def get_stencil_additions(left_outside, right_outside, left_available, right_available, coeff_dict, s_o, base_stencil):
+    def get_stencil_additions(left_outside, right_outside,
+                              left_available, right_available,
+                              coeff_dict, s_o, base_stencil):
         """
         Get the additions to the base stencil introduced by the extrapolations
         """
-        left_add = get_stencil_addition(left_outside, left_available, coeff_dict, s_o, base_stencil, 'left')
-        right_add = get_stencil_addition(right_outside, right_available, coeff_dict, s_o, base_stencil, 'right')
+        left_add = get_stencil_addition(left_outside, left_available, coeff_dict,
+                                        s_o, base_stencil, 'left')
+        right_add = get_stencil_addition(right_outside, right_available, coeff_dict,
+                                         s_o, base_stencil, 'right')
 
         truncated_stencil = base_stencil.copy()
         truncated_stencil[:left_outside] = sp.Float(0)
@@ -227,7 +284,9 @@ def get_stencils(deriv, offset, bcs, cache=None):
             left_available, right_available = get_available(left_unusable, right_unusable,
                                                             left_outside, right_outside, s_o)
 
-            stencil = get_stencil_additions(left_outside, right_outside, left_available, right_available, coeff_dict, s_o, base_stencil)
+            stencil = get_stencil_additions(left_outside, right_outside,
+                                            left_available, right_available,
+                                            coeff_dict, s_o, base_stencil)
             stencil_array[left, right] = stencil
 
     return stencil_array
@@ -237,6 +296,22 @@ def get_stencils_lambda(deriv, offset, bcs, cache=None):
     """
     Get the stencils as an array of functions which can be called on supplied values
     of eta_l and eta_r.
+
+    Parameters:
+    deriv : int
+        The derivative for which stencils should be generated
+    offset : float
+        The offset at which the derivative should be evaluated
+    bcs : BoundaryConditions
+        The boundary conditions which these stencils are for
+    cache : str
+        Path to the extrapolation cache. Optional
+
+    Returns
+    -------
+    funcs : ndarray
+        The array of functions for each stencil coefficient. Indexed by [left variant, right variant, index].
+
     """
     stencils = get_stencils(deriv, offset, bcs, cache=cache)
     funcs = np.empty(stencils.shape, dtype=object)
