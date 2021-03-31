@@ -1,9 +1,13 @@
 import sympy as sp
 import numpy as np
+import pickle
+
+from devito.logger import warning
 from devitoboundary.stencils.stencil_utils import standard_stencil
 from devitoboundary.symbolics.symbols import (a, x_b, x_a, x_t, E, eta_l, eta_r)
 
-__all__ = ['taylor']
+__all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs']
+
 
 def taylor(x, order):
     """Generate a taylor series expansion of a given order"""
@@ -24,6 +28,9 @@ class BoundaryConditions:
         self._order = order
 
         self._x = sp.symbols('x')
+
+    def __str__(self):
+        return "BoundaryConditions(bcs: {}, order: {})".format(self._bcs, self._order)
 
     def get_taylor(self, order=None):
         """Get the taylor series with appropriate coefficient modifications"""
@@ -50,11 +57,43 @@ class BoundaryConditions:
         return self._x
 
 
-def get_ext_coeffs(bcs):
+def get_ext_coeffs(bcs, cache=None):
+    if cache is None:
+        return _get_ext_coeffs(bcs)
+    else:
+        try:
+            with open(cache, 'rb') as f:
+                coeff_cache = pickle.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError("Invalid cache location")
+
+        if not isinstance(coeff_cache, dict):
+            raise TypeError("Specified file does not contain a dictionary")
+
+        # Unique key for this extrapolation
+        key = str(bcs)
+
+        try:
+            coeff_dict = coeff_cache[key]
+        except KeyError:
+            warning("Extrapolation not in cache. Generating new extrapolation")
+            coeff_dict = _get_ext_coeffs(bcs)
+
+            # Add new entry to dictionary
+            coeff_cache[key] = coeff_dict
+            # And update the cache
+            with open(cache, 'wb') as f:
+                pickle.dump(coeff_dict, f)
+
+            return coeff_dict
+
+
+def _get_ext_coeffs(bcs):
     """Get the extrapolation coefficients for a set of boundary conditions"""
     n_pts = bcs.order//2  # Number of interior points
     coeff_dict = {}  # Master coefficient dictionary
     for points_count in range(1, n_pts+1):
+        # This -1 might want to be taken into account somewhere else
         taylor = bcs.get_taylor(order=2*points_count - 1)
         lhs = sum([E[point]*taylor.subs(bcs.x, x_a[point]) for point in range(points_count)])
         rhs = taylor.subs(bcs.x, x_t)
@@ -70,7 +109,7 @@ def get_ext_coeffs(bcs):
     return coeff_dict
 
 
-def get_stencils(deriv, offset, bcs):
+def get_stencils(deriv, offset, bcs, cache=None):
     def get_unusable(variant):
         """Get the number of unusable points on a side given the variant"""
         return min(variant, int(variant/2+1))
@@ -176,7 +215,7 @@ def get_stencils(deriv, offset, bcs):
 
     stencil_array = np.empty((s_o+1, s_o+1, s_o+1), dtype=object)
 
-    coeff_dict = get_ext_coeffs(bcs)
+    coeff_dict = get_ext_coeffs(bcs, cache=cache)
 
     # Loop over variants
     for left in range(s_o + 1):
@@ -194,12 +233,12 @@ def get_stencils(deriv, offset, bcs):
     return stencil_array
 
 
-def get_stencils_lambda(deriv, offset, bcs):
+def get_stencils_lambda(deriv, offset, bcs, cache=None):
     """
     Get the stencils as an array of functions which can be called on supplied values
     of eta_l and eta_r.
     """
-    stencils = get_stencils(deriv, offset, bcs)
+    stencils = get_stencils(deriv, offset, bcs, cache=cache)
     funcs = np.empty(stencils.shape, dtype=object)
     for i in range(stencils.size):
         # Add a lambdaify in here

@@ -2,7 +2,10 @@ import pytest
 
 import numpy as np
 import sympy as sp
-from devitoboundary.stencils.stencils import taylor, BoundaryConditions, get_ext_coeffs
+import pickle
+
+from devitoboundary.stencils.stencils import (taylor, BoundaryConditions, get_ext_coeffs,
+                                              get_stencils_lambda)
 from devitoboundary.symbolics.symbols import x_a, x_t, x_b, E
 
 
@@ -86,18 +89,111 @@ class TestExtrapolations:
             assert coeffs_ref == coeffs_main
 
     @pytest.mark.parametrize('order', [4, 6])
-    def test_polynomial_recovery(self, order):
+    @pytest.mark.parametrize('type', ['even', 'odd'])
+    def test_polynomial_recovery(self, order, type):
         """
         Test that polynomials of matching order are correctly recovered
         """
-        spec = {2*i: 0 for i in range(order)}
+        if type == 'even':
+            spec = {2*i: 0 for i in range(order)}
+        else:
+            spec = {2*i+1: 0 for i in range(order)}
         bcs = BoundaryConditions(spec, order)
 
         coeffs = get_ext_coeffs(bcs)[order//2]
 
-        poly = bcs.get_taylor()
+        poly = bcs.get_taylor(order=order-1)
 
         extrapolation = sum([coeffs[E[i]]*poly.subs(bcs.x, x_a[i]) for i in range(order//2)])
         exterior = poly.subs(bcs.x, x_t)
 
         assert sp.simplify(extrapolation - exterior) == 0
+
+    @pytest.mark.parametrize('order', [2, 4])
+    def test_caching_write(self, order):
+        """Test that caching writes correctly"""
+        spec = {2*i: 0 for i in range(order)}
+        bcs = BoundaryConditions(spec, order)
+
+        # Reset the test cache
+        with open('tests/test_extrapolation_cache_w.dat', 'wb') as f:
+            pickle.dump({}, f)
+
+        # Write an extrapolation
+        write_extrapolation = get_ext_coeffs(bcs, cache='tests/test_extrapolation_cache_w.dat')
+
+        # Write an extrapolation of order+2
+        high_spec = {2*i: 0 for i in range(order+2)}
+        high_bcs = BoundaryConditions(high_spec, order+2)
+
+        high_write_extrapolation = get_ext_coeffs(high_bcs, cache='tests/test_extrapolation_cache_w.dat')
+
+        # Read both extrapolations again and check
+        cached_extrapolation = get_ext_coeffs(bcs, cache='tests/test_extrapolation_cache_w.dat')
+        high_cached_extrapolation = get_ext_coeffs(high_bcs, cache='tests/test_extrapolation_cache_w.dat')
+
+        assert write_extrapolation == cached_extrapolation
+        assert high_write_extrapolation == high_cached_extrapolation
+
+    @pytest.mark.parametrize('order', [2, 4])
+    def test_caching_read(self, order):
+        """Test that caching reads correctly"""
+
+        spec = {2*i: 0 for i in range(order)}
+        bcs = BoundaryConditions(spec, order)
+
+        cached_extrapolation = get_ext_coeffs(bcs, cache='tests/test_extrapolation_cache_r.dat')
+        generated_extrapolation = get_ext_coeffs(bcs)
+
+        assert cached_extrapolation == generated_extrapolation
+
+
+class TestStencils:
+    """Tests for the modified stencils"""
+    @pytest.mark.parametrize('order', [4, 6, 8])
+    @pytest.mark.parametrize('derivative', [1, 2])
+    def test_single_sided(self, order, derivative):
+        """
+        Test to check that single-sided stencils adequately approximate the
+        original derivative.
+        """
+        # Accuracy
+        thres = 0.002
+        # Note: dx = 1 for simplicity
+
+        def u_func(x, eta, deriv=0):
+            if deriv == 0:
+                return np.sin((x + 3*eta)*np.pi/(4*eta))
+            elif deriv == 1:
+                return np.pi/(4*eta)*np.cos((x + 3*eta)*np.pi/(4*eta))
+            elif deriv == 2:
+                return -(np.pi/(4*eta))**2*np.sin((x + 3*eta)*np.pi/(4*eta))
+
+        spec = {2*i: 0 for i in range(order)}
+        bcs = BoundaryConditions(spec, order)
+
+        stencils_lambda = get_stencils_lambda(derivative, 0, bcs)
+
+        errors = []
+
+        # As left and right single sided are mirrored, fix left variant at 0
+        # Skip last variant, as it is usually not too accurate
+        for var in range(1, order):
+            # Set max and min etas for the variant
+            # Will have 9 (10+1-2) etas per variant
+            min_eta = order//2 - 0.5*var + 0.05
+            max_eta = order//2 - 0.5*(var-1) - 0.05
+            eta = np.linspace(min_eta, max_eta, 9)[::-1]
+
+            stencil = stencils_lambda[0, var]
+
+            for eta_val in eta:
+                evaluated = 0
+                for coeff in range(order+1):
+                    func = stencil[coeff]
+                    multiplier = u_func(coeff-order//2, eta_val)
+                    evaluated += multiplier*func(0, eta_val)
+                err = abs(evaluated-u_func(0, eta_val, deriv=derivative))
+                errors.append(err)
+
+        assert np.median(errors) < thres
