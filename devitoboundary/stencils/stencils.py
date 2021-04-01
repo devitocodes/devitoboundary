@@ -115,9 +115,9 @@ def get_ext_coeffs(bcs, cache=None):
             coeff_cache[key] = coeff_dict
             # And update the cache
             with open(cache, 'wb') as f:
-                pickle.dump(coeff_dict, f)
+                pickle.dump(coeff_cache, f)
 
-            return coeff_dict
+        return coeff_dict
 
 
 def _get_ext_coeffs(bcs):

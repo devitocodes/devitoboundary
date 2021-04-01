@@ -414,7 +414,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
             eval_stencils = evaluate_stencils(df[mask], 'first', i,
                                               left_variants, right_variants,
                                               space_order, stencils,
-                                              grid_offset, eval_offset)
+                                              grid_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'first',
@@ -446,7 +446,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
             eval_stencils = evaluate_stencils(df[mask], 'last', i,
                                               left_variants, right_variants,
                                               space_order, stencils,
-                                              grid_offset, eval_offset)
+                                              grid_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'last',
@@ -473,7 +473,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
         eval_stencils = evaluate_stencils(df, 'double', 1,
                                           left_variants, right_variants,
                                           space_order, stencils,
-                                          grid_offset, eval_offset)
+                                          grid_offset)
 
         # Insert the stencils into the weight function
         fill_weights(df, eval_stencils, 'double', weights, axis)
@@ -508,7 +508,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
             eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
                                               left_variants, right_variants,
                                               space_order, stencils,
-                                              grid_offset, eval_offset)
+                                              grid_offset)
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_left',
                          weights, axis, n_pts=i)
@@ -545,7 +545,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
             eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
                                               left_variants, right_variants,
                                               space_order, stencils,
-                                              grid_offset, eval_offset)
+                                              grid_offset)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_right',
