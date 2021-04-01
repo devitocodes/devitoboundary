@@ -201,7 +201,7 @@ def split_types(data, axis, axis_size):
 
 
 def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
-                      space_order, stencil_lambda, grid_offset, eval_offset):
+                      space_order, stencil_lambda, grid_offset):
     """
     Evaluate the stencils associated with a set of boundary-adjacent
     points.
@@ -226,8 +226,6 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         The functions for stencils to be evaluated
     grid_offset : float
         The function offset along the supplied axis
-    eval_offset : float
-        The relative offset at which derivatives should be evaluated
 
     Returns
     -------
@@ -243,13 +241,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
 
-        # Need a mask for points where the stagger does not straddle the boundary
-        # Stencils for these points should be left as zero to prevent updates
-        # straddle_mask = eta_right - grid_offset >= grid_offset + eval_offset
-        straddle_mask = True
         for right_var in range(space_order+1):
-            variant_mask = right_variants == right_var
-            mask = np.logical_and(straddle_mask, variant_mask)
+            mask = right_variants == right_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[0, right_var, coeff]
                 stencils[mask, coeff] = func(0, eta_right[mask] - grid_offset)
@@ -258,13 +251,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
                            (1, n_stencils)) - eta_base
 
-        # Need a mask for points where the stagger does not straddle the boundary
-        # Stencils for these points should be left as zero to prevent updates
-        # straddle_mask = eta_left - grid_offset <= grid_offset + eval_offset
-        straddle_mask = True
         for left_var in range(space_order+1):
-            variant_mask = left_variants == left_var
-            mask = np.logical_and(straddle_mask, variant_mask)
+            mask = left_variants == left_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[left_var, 0, coeff]
                 stencils[mask, coeff] = func(eta_left[mask] - grid_offset, 0)
@@ -273,16 +261,10 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_left = df.eta_l.to_numpy()[:, np.newaxis]
         eta_right = df.eta_r.to_numpy()[:, np.newaxis]
 
-        # Need a mask for points where the stagger does not straddle the boundary
-        # Stencils for these points should be left as zero to prevent updates
-        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-        #                                eta_right - grid_offset >= grid_offset + eval_offset)
-        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                variant_mask = np.logical_and(left_variants == left_var,
-                                              right_variants == right_var)
-                mask = np.logical_and(straddle_mask, variant_mask)
+                mask = np.logical_and(left_variants == left_var,
+                                      right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
@@ -295,16 +277,10 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + dst - eta_base
 
-        # Need a mask for points where the stagger does not straddle the boundary
-        # Stencils for these points should be left as zero to prevent updates
-        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-        #                                eta_right - grid_offset >= grid_offset + eval_offset)
-        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                variant_mask = np.logical_and(left_variants == left_var,
-                                              right_variants == right_var)
-                mask = np.logical_and(straddle_mask, variant_mask)
+                mask = np.logical_and(left_variants == left_var,
+                                      right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
@@ -318,16 +294,10 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
 
-        # Need a mask for points where the stagger does not straddle the boundary
-        # Stencils for these points should be left as zero to prevent updates
-        # straddle_mask = np.logical_and(eta_left - grid_offset <= grid_offset + eval_offset,
-        #                                eta_right - grid_offset >= grid_offset + eval_offset)
-        straddle_mask = True
         for left_var in range(space_order+1):
             for right_var in range(space_order+1):
-                variant_mask = np.logical_and(left_variants == left_var,
-                                              right_variants == right_var)
-                mask = np.logical_and(straddle_mask, variant_mask)
+                mask = np.logical_and(left_variants == left_var,
+                                      right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
