@@ -5,11 +5,12 @@ import numpy as np
 from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 split_types, add_distance_column,
                                                 get_component_weights,
-                                                find_boundary_points, evaluate_stencils)
+                                                find_boundary_points, evaluate_stencils,
+                                                get_variants)
 from devitoboundary.stencils.stencil_utils import generic_function
 from devitoboundary.stencils.stencils import BoundaryConditions, get_stencils_lambda
 from devitoboundary.symbolics.symbols import x_b
-from devito import Eq, Grid, Function
+from devito import Eq, Grid, Function, Dimension
 
 
 class TestDistances:
@@ -81,7 +82,8 @@ class TestStencils:
     """
     A class containing tests to check stencil evaluation.
     """
-    # FIXME: Need to check evaluate_stencils
+    # TODO: Need to check evaluate_stencils
+    # TODO: Need to check fill_weights
     @pytest.mark.parametrize('point_type', ['first', 'last'])
     @pytest.mark.parametrize('order', [4, 6])
     @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
@@ -101,10 +103,12 @@ class TestStencils:
         distances[4, :, :] = np.linspace(0.1*spacing, 0.4*spacing, 10)
         if point_type == 'first':
             data = get_data_inc_reciprocals(distances, spacing, 'x')[::2]
+            add_distance_column(data)
+            data.dist = -order//2
         else:
             data = get_data_inc_reciprocals(distances, spacing, 'x')[1::2]
-        add_distance_column(data)
-        data.dist = order//2
+            add_distance_column(data)
+            data.dist = order//2
 
         offset_data = data.copy()
         offset_data.eta_l += 0.5
@@ -121,8 +125,54 @@ class TestStencils:
                                             0.5)
         assert np.all(normal_stencils == offset_stencils)
 
-    # FIXME: Need to check fill_weights
-    # FIXME: Wants to check several grid spacings
+    @pytest.mark.parametrize('point_type', ['first', 'last'])
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
+    def test_get_variants_offset(self, point_type, order, spacing):
+        """
+        Check that offsetting the grid and boundary by the same amount results
+        in identical stencils for both cases. This is checked on both sides of
+        the boundary.
+        """
+        spec = {2*i: 0 for i in range(1+order//2)}
+        bcs = BoundaryConditions(spec, order)
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
+
+        distances = np.full((10, 10, 10), -order*spacing, dtype=float)
+        distances[4, :, :] = np.linspace(0.1*spacing, 0.4*spacing, 10)
+        if point_type == 'first':
+            data = get_data_inc_reciprocals(distances, spacing, 'x')[::2]
+            add_distance_column(data)
+            data.dist = -order//2
+        else:
+            data = get_data_inc_reciprocals(distances, spacing, 'x')[1::2]
+            add_distance_column(data)
+            data.dist = order//2
+
+        grid = Grid(shape=(10, 10, 10), extent=(9*spacing, 9*spacing, 9*spacing))
+        s_dim = Dimension(name='s')
+        ncoeffs = order + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
+        w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
+
+        offset_data = data.copy()
+        offset_data.eta_l += 0.5
+        offset_data.eta_r += 0.5
+
+        get_variants(data, order, point_type, 'x', stencils_lambda, w_normal, 0., 0.)
+        get_variants(offset_data, order, point_type, 'x', stencils_lambda, w_offset, 0.5, 0.)
+
+        if point_type == 'first':
+            assert np.all(np.isclose(w_normal.data[4], w_offset.data[4]))
+        else:
+            assert np.all(np.isclose(w_normal.data[5], w_offset.data[5]))
+
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
     def test_get_component_weights(self, axis, deriv):
