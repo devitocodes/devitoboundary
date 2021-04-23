@@ -68,6 +68,38 @@ def build_dataframe(data, spacing):
     return points
 
 
+def apply_grid_offset(df, axis, offset):
+    """
+    Shift eta values according to grid offset. Carried out in place
+    """
+    df.eta_l -= offset
+    df.eta_r -= offset
+
+    if np.sign(offset, dtype=int) == 1:
+        eta_r_mask = df.eta_r < 0
+        eta_l_mask = df.eta_l <= -1
+
+        df.eta_l.loc[eta_r_mask] = df.eta_r[eta_r_mask]
+        df.eta_r.loc[eta_r_mask] = np.NaN
+
+        df.eta_l.loc[eta_l_mask] += 1
+
+        df[axis].loc[eta_l_mask] -= 1
+
+    elif np.sign(offset, dtype=int) == -1:
+        eta_r_mask = df.eta_r >= 1
+        eta_l_mask = df.eta_l > 0
+
+        df.eta_r.loc[eta_l_mask] = df.eta_l[eta_l_mask]
+        df.eta_l.loc[eta_l_mask] = np.NaN
+
+        df.eta_r.loc[eta_r_mask] -= 1
+
+        df[axis].loc[eta_r_mask] += 1
+
+    df = df.agg({'eta_l': 'max', 'eta_r': 'min'})
+
+
 def calculate_reciprocals(df, axis, side):
     """
     Calculate reciprocal distances from known values.
@@ -99,7 +131,7 @@ def calculate_reciprocals(df, axis, side):
     return reciprocals
 
 
-def get_data_inc_reciprocals(data, spacing, axis):
+def get_data_inc_reciprocals(data, spacing, axis, offset):
     """
     Calculate and consolidate reciprocal values, returning resultant dataframe.
 
@@ -111,6 +143,8 @@ def get_data_inc_reciprocals(data, spacing, axis):
         The grid spacing for the specified axis
     axis : str
         The specified axis
+    offset : float
+        The grid offset for this axis
 
     Returns
     -------
@@ -119,6 +153,9 @@ def get_data_inc_reciprocals(data, spacing, axis):
     """
 
     df = build_dataframe(data, spacing)
+
+    apply_grid_offset(df, axis, offset)
+
     reciprocals_l = calculate_reciprocals(df, axis, 'l')
     reciprocals_r = calculate_reciprocals(df, axis, 'r')
 
@@ -596,7 +633,7 @@ def get_component_weights(data, axis, function, deriv, stencils, offset):
     f_grid = function.grid
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
 
-    full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim)
+    full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim, grid_offset)
 
     add_distance_column(full_data)
 
