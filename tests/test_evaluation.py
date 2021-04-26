@@ -30,7 +30,8 @@ class TestDistances:
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('spacing', [0.1, 1, 10])
-    def test_reciprocal_calculation(self, axis, spacing):
+    @pytest.mark.parametrize('offset', [-0.5, 0., 0.5])
+    def test_reciprocal_calculation(self, axis, spacing, offset):
         """
         A test to check that reciprocal eta calculated are consistent.
         """
@@ -48,8 +49,8 @@ class TestDistances:
         right[right_index[0], right_index[1], right_index[2]] = -0.7*spacing
 
         # Should produce the same results
-        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis])
-        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis])
+        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], offset)
+        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], offset)
 
         assert(np.all(np.isclose(data_l, data_r, equal_nan=True)))
 
@@ -73,13 +74,8 @@ class TestDistances:
         frame = {'x': x, 'eta_l': eta_l, 'eta_r': eta_r}
 
         points = pd.DataFrame(frame)
-        print("Before")
-        print(points)
 
         apply_grid_offset(points, 'x', offset)
-
-        print("After")
-        print(points)
 
         assert np.all(points.x.to_numpy()[:17] == 2*np.arange(17))
         assert np.all(points.x.to_numpy()[17:] == 34 + 2*np.arange(5) - np.sign(offset))
