@@ -238,7 +238,7 @@ def split_types(data, axis, axis_size):
 
 
 def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
-                      space_order, stencil_lambda, grid_offset):
+                      space_order, stencil_lambda):
     """
     Evaluate the stencils associated with a set of boundary-adjacent
     points.
@@ -261,8 +261,6 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         The space order of the function for which stencils are to be evaluated
     stencil_lambda : ndarray
         The functions for stencils to be evaluated
-    grid_offset : float
-        The function offset along the supplied axis
 
     Returns
     -------
@@ -282,7 +280,7 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
             mask = right_variants == right_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[0, right_var, coeff]
-                stencils[mask, coeff] = func(0, eta_right[mask] - grid_offset)
+                stencils[mask, coeff] = func(0, eta_right[mask])
 
     if point_type == 'last':
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
@@ -292,7 +290,7 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
             mask = left_variants == left_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[left_var, 0, coeff]
-                stencils[mask, coeff] = func(eta_left[mask] - grid_offset, 0)
+                stencils[mask, coeff] = func(eta_left[mask], 0)
 
     if point_type == 'double':
         eta_left = df.eta_l.to_numpy()[:, np.newaxis]
@@ -304,8 +302,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
-                                                 eta_right[mask] - grid_offset)
+                    stencils[mask, coeff] = func(eta_left[mask],
+                                                 eta_right[mask])
 
     if point_type == 'paired_left':
         dst = df.dist.to_numpy()[:, np.newaxis]
@@ -320,8 +318,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
-                                                 eta_right[mask] - grid_offset)
+                    stencils[mask, coeff] = func(eta_left[mask],
+                                                 eta_right[mask])
 
     if point_type == 'paired_right':
         dst = df.dist.to_numpy()[:, np.newaxis]
@@ -337,8 +335,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
                     func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask] - grid_offset,
-                                                 eta_right[mask] - grid_offset)
+                    stencils[mask, coeff] = func(eta_left[mask],
+                                                 eta_right[mask])
     # print("Stencils "+point_type)
     # print(stencils)
     return stencils
@@ -396,8 +394,7 @@ def fill_weights(points, stencils, point_type, weights, axis, n_pts=1):
         weights.data[x, y, z] = stencils[:, 0, :]
 
 
-def get_variants(df, space_order, point_type, axis, stencils, weights,
-                 grid_offset, eval_offset):
+def get_variants(df, space_order, point_type, axis, stencils, weights):
     """
     Get the all the stencil variants associated with the points, evaluate them,
     and fill the respective positions in the weight function.
@@ -418,15 +415,11 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
         The functions for stencils to be evaluated
     weights : devito Function
         The Function to fill with stencil coefficients
-    grid_offset : float
-        The function offset along the supplied axis
-    eval_offset : float
-        The relative offset at which derivatives should be evaluated
     """
     if point_type == 'first':
         n_pts = np.minimum(int(space_order/2), 1-df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_right = np.where(df.eta_r.to_numpy() - grid_offset < 0.5, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
 
         # It is necessary to account for staggering during stencil selection
         # stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
@@ -461,7 +454,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
     elif point_type == 'last':
         n_pts = np.minimum(int(space_order/2), 1+df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - grid_offset > -0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
 
         # It is necessary to account for staggering during stencil selection
         # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
@@ -494,8 +487,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
     elif point_type == 'double':
         n_pts = 1
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - grid_offset > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - grid_offset < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
 
         # It is necessary to account for staggering during stencil selection
         # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
@@ -522,8 +515,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
     elif point_type == 'paired_left':
         n_pts = np.minimum(int(space_order/2), df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - grid_offset > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - grid_offset < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
 
         # It is necessary to account for staggering during stencil selection
         # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
@@ -561,8 +554,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2),
                                                            -df.dist.to_numpy()))
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - grid_offset > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - grid_offset < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
 
         # It is necessary to account for staggering during stencil selection
         # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
@@ -597,7 +590,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights,
                          weights, axis, n_pts=i)
 
 
-def get_component_weights(data, axis, function, deriv, stencils, offset):
+def get_component_weights(data, axis, function, deriv, stencils):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -614,8 +607,6 @@ def get_component_weights(data, axis, function, deriv, stencils, offset):
         The order of the derivative to which the stencils pertain
     stencils : ndarray
         The functions for stencils to be evaluated
-    offset : float
-        The offset at which the default stencil should be evaluated
 
     Returns
     -------
@@ -653,20 +644,20 @@ def get_component_weights(data, axis, function, deriv, stencils, offset):
 
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
-                 axis_dim, stencils, w, grid_offset, offset)
+                 axis_dim, stencils, w)
     get_variants(last, function.space_order, 'last',
-                 axis_dim, stencils, w, grid_offset, offset)
+                 axis_dim, stencils, w)
 
     # Check lengths before doing these three
     if len(double.index) != 0:
         get_variants(double, function.space_order, 'double',
-                     axis_dim, stencils, w, grid_offset, offset)
+                     axis_dim, stencils, w)
     if len(paired_left.index) != 0:
         get_variants(paired_left, function.space_order, 'paired_left',
-                     axis_dim, stencils, w, grid_offset, offset)
+                     axis_dim, stencils, w)
     if len(paired_right.index) != 0:
         get_variants(paired_right, function.space_order, 'paired_right',
-                     axis_dim, stencils, w, grid_offset, offset)
+                     axis_dim, stencils, w)
     """
     for i in range(function.space_order+1):
         plt.imshow(w.data[:, 50, :, i].T)
@@ -679,7 +670,7 @@ def get_component_weights(data, axis, function, deriv, stencils, offset):
     return w
 
 
-def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
+def get_weights(data, function, deriv, bcs):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
@@ -694,9 +685,6 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
         The order of the derivative to which the stencils pertain
     bcs : list of devito Eq
         The boundary conditions which should hold at the surface
-    offsets : tuple of int
-        The offset at which the function should be evaluated for each axis.
-        Default is (0, 0, 0).
 
     Returns
     -------
@@ -717,9 +705,8 @@ def get_weights(data, function, deriv, bcs, offsets=(0, 0, 0)):
             stencils = get_stencils_lambda(deriv, offsets[axis], bcs, cache=cache)
 
             axis_weights = get_component_weights(data[axis].data, axis, function,
-                                                 deriv, stencils, offsets[axis])
+                                                 deriv, stencils)
             print(deriv, function, function.grid.dimensions[axis], axis_weights)
-            # this should be an append
             weights.append(Coefficient(deriv, function,
                                        function.grid.dimensions[axis],
                                        axis_weights))
