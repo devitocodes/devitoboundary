@@ -75,7 +75,7 @@ def apply_grid_offset(df, axis, offset):
     df.eta_l -= offset
     df.eta_r -= offset
 
-    if np.sign(offset, dtype=int) == 1:
+    if np.sign(offset) == 1:
         eta_r_mask = df.eta_r < 0
         eta_l_mask = df.eta_l <= -1
 
@@ -86,7 +86,7 @@ def apply_grid_offset(df, axis, offset):
 
         df[axis].loc[eta_l_mask] -= 1
 
-    elif np.sign(offset, dtype=int) == -1:
+    elif np.sign(offset) == -1:
         eta_r_mask = df.eta_r >= 1
         eta_l_mask = df.eta_l > 0
 

@@ -2,11 +2,12 @@ import pytest
 import os
 
 import numpy as np
+import pandas as pd
 from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 split_types, add_distance_column,
                                                 get_component_weights,
                                                 find_boundary_points, evaluate_stencils,
-                                                get_variants)
+                                                get_variants, apply_grid_offset)
 from devitoboundary.stencils.stencil_utils import generic_function
 from devitoboundary.stencils.stencils import BoundaryConditions, get_stencils_lambda
 from devitoboundary.symbolics.symbols import x_b
@@ -51,6 +52,37 @@ class TestDistances:
         data_r = get_data_inc_reciprocals(right, spacing, xyz[axis])
 
         assert(np.all(np.isclose(data_l, data_r, equal_nan=True)))
+
+    @pytest.mark.parametrize('offset', [-0.5, 0.5])
+    def test_grid_shift(self, offset):
+        """
+        A test to check that grid offset is applied correctly to eta values
+        """
+        n_pts = 11
+        x = 2*np.arange(2*n_pts)
+        
+        if offset == 0.5:
+            eta_r = np.append(np.linspace(0, 0.9, n_pts), np.full(n_pts, np.NaN))
+            eta_l = np.append(np.full(n_pts, np.NaN), np.linspace(0, -0.9, n_pts))
+        elif offset == -0.5:
+            eta_r = np.append(np.full(n_pts, np.NaN), np.linspace(0, 0.9, n_pts))
+            eta_l = np.append(np.linspace(0, -0.9, n_pts), np.full(n_pts, np.NaN))
+        else:
+            raise ValueError("Invalid offset")
+
+        frame = {'x': x, 'eta_l': eta_l, 'eta_r': eta_r}
+
+        points = pd.DataFrame(frame)
+        print("Before")
+        print(points)
+
+        apply_grid_offset(points, 'x', offset)
+
+        print("After")
+        print(points)
+
+        raise NotImplementedError
+
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     def test_type_splitting(self, axis):
