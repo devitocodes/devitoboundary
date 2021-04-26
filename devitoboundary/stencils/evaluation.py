@@ -79,23 +79,23 @@ def apply_grid_offset(df, axis, offset):
         eta_r_mask = df.eta_r < 0
         eta_l_mask = df.eta_l <= -1
 
-        df.eta_l.loc[eta_r_mask] = df.eta_r[eta_r_mask]
-        df.eta_r.loc[eta_r_mask] = np.NaN
+        df.loc[eta_r_mask, 'eta_l'] = df.eta_r[eta_r_mask]
+        df.loc[eta_r_mask, 'eta_r'] = np.NaN
 
-        df.eta_l.loc[eta_l_mask] += 1
+        df.loc[eta_l_mask, 'eta_l'] += 1
 
-        df[axis].loc[eta_l_mask] -= 1
+        df.loc[eta_l_mask, axis] -= 1
 
     elif np.sign(offset) == -1:
         eta_r_mask = df.eta_r >= 1
         eta_l_mask = df.eta_l > 0
 
-        df.eta_r.loc[eta_l_mask] = df.eta_l[eta_l_mask]
-        df.eta_l.loc[eta_l_mask] = np.NaN
+        df.loc[eta_l_mask, 'eta_r'] = df.eta_l[eta_l_mask]
+        df.loc[eta_l_mask, 'eta_l'] = np.NaN
 
-        df.eta_r.loc[eta_r_mask] -= 1
+        df.loc[eta_r_mask, 'eta_r'] -= 1
 
-        df[axis].loc[eta_r_mask] += 1
+        df.loc[eta_r_mask, axis] += 1
 
     df = df.agg({'eta_l': 'max', 'eta_r': 'min'})
 

@@ -81,8 +81,15 @@ class TestDistances:
         print("After")
         print(points)
 
-        raise NotImplementedError
+        assert np.all(points.x.to_numpy()[:17] == 2*np.arange(17))
+        assert np.all(points.x.to_numpy()[17:] == 34 + 2*np.arange(5) - np.sign(offset))
 
+        if offset == 0.5:
+            assert np.all(np.logical_or(np.logical_and(points.eta_l <= 0, points.eta_l > -1),
+                                        points.eta_r < 0.5))
+        elif offset == -0.5:
+            assert np.all(np.logical_or(np.logical_and(points.eta_r >= 0, points.eta_r < 1),
+                                        points.eta_l > -0.5))
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     def test_type_splitting(self, axis):
