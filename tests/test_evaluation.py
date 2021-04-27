@@ -99,7 +99,8 @@ class TestDistances:
         ind[axis] = np.array([1, 2, 5])
         distances[ind[0], ind[1], ind[2]] = 0.6
 
-        data = get_data_inc_reciprocals(distances, 1, xyz[axis])
+        # TODO: Ideally want to vary grid offset too
+        data = get_data_inc_reciprocals(distances, 1, xyz[axis], 0)
         add_distance_column(data)
 
         first, last, double, paired_left, paired_right = split_types(data,
@@ -119,10 +120,11 @@ class TestStencils:
     """
     # TODO: Need to check evaluate_stencils
     # TODO: Need to check fill_weights
+    @pytest.mark.parametrize('offset', [0.5, -0.5])
     @pytest.mark.parametrize('point_type', ['first', 'last'])
     @pytest.mark.parametrize('order', [4, 6])
     @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
-    def test_evaluate_stencils_offset(self, point_type, order, spacing):
+    def test_evaluate_stencils_offset(self, offset, point_type, order, spacing):
         """
         Check that offsetting the grid and boundary by the same amount results
         in identical stencils for both cases. This is checked on both sides of
@@ -134,30 +136,42 @@ class TestStencils:
 
         stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
 
-        distances = np.full((10, 10, 10), -order*spacing, dtype=float)
-        distances[4, :, :] = np.linspace(0.1*spacing, 0.4*spacing, 10)
+        distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
+
+        offset_distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        if offset == 0.5:
+            # +ve stagger
+            offset_distances[4, :, :5] = np.linspace(0.5*spacing, 0.9*spacing, 5)
+            offset_distances[5, :, 5:] = np.linspace(0, 0.4*spacing, 5)
+        else:
+            # -ve stagger
+            offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
+
         if point_type == 'first':
-            data = get_data_inc_reciprocals(distances, spacing, 'x')[::2]
+            data = get_data_inc_reciprocals(distances, spacing, 'x', 0)[::2]
             add_distance_column(data)
             data.dist = -order//2
+            offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)[::2]
+            add_distance_column(offset_data)
+            offset_data.dist = -order//2
+
         else:
-            data = get_data_inc_reciprocals(distances, spacing, 'x')[1::2]
+            data = get_data_inc_reciprocals(distances, spacing, 'x', 0)[1::2]
             add_distance_column(data)
             data.dist = order//2
+            offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)[1::2]
+            add_distance_column(offset_data)
+            offset_data.dist = order//2
 
-        offset_data = data.copy()
-        offset_data.eta_l += 0.5
-        offset_data.eta_r += 0.5
-
-        left_variants = np.tile(-2*np.arange(order//2), (100, 1)) + order - 1
-        right_variants = np.tile(2*np.arange(order//2), (100, 1)) + 2
+        left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
+        right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
 
         normal_stencils = evaluate_stencils(data, point_type, order//2, left_variants,
-                                            right_variants, order, stencils_lambda,
-                                            0.)
+                                            right_variants, order, stencils_lambda)
         offset_stencils = evaluate_stencils(offset_data, point_type, order//2, left_variants,
-                                            right_variants, order, stencils_lambda,
-                                            0.5)
+                                            right_variants, order, stencils_lambda)
+
         assert np.all(normal_stencils == offset_stencils)
 
     @pytest.mark.parametrize('point_type', ['first', 'last'])

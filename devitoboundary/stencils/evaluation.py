@@ -61,7 +61,7 @@ def build_dataframe(data, spacing):
     col_z = pd.Series(z.astype(np.int), name='z')
 
     eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
-    eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
+    eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
 
     frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
     points = pd.DataFrame(frame)
@@ -76,6 +76,7 @@ def apply_grid_offset(df, axis, offset):
     df.eta_r -= offset
 
     if np.sign(offset) == 1:
+        print("Applied positive offset thing")
         eta_r_mask = df.eta_r < 0
         eta_l_mask = df.eta_l <= -1
 
@@ -87,8 +88,9 @@ def apply_grid_offset(df, axis, offset):
         df.loc[eta_l_mask, axis] -= 1
 
     elif np.sign(offset) == -1:
-        eta_r_mask = df.eta_r >= 1
-        eta_l_mask = df.eta_l > 0
+        print("Applied negative offset thing")
+        eta_r_mask = df.eta_r > 1
+        eta_l_mask = df.eta_l >= 0
 
         df.loc[eta_l_mask, 'eta_r'] = df.eta_l[eta_l_mask]
         df.loc[eta_l_mask, 'eta_l'] = np.NaN
