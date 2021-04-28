@@ -61,7 +61,7 @@ def build_dataframe(data, spacing):
     col_z = pd.Series(z.astype(np.int), name='z')
 
     eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
-    eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
+    eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
 
     frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
     points = pd.DataFrame(frame)
@@ -76,7 +76,6 @@ def apply_grid_offset(df, axis, offset):
     df.eta_r -= offset
 
     if np.sign(offset) == 1:
-        print("Applied positive offset thing")
         eta_r_mask = df.eta_r < 0
         eta_l_mask = df.eta_l <= -1
 
@@ -88,7 +87,6 @@ def apply_grid_offset(df, axis, offset):
         df.loc[eta_l_mask, axis] -= 1
 
     elif np.sign(offset) == -1:
-        print("Applied negative offset thing")
         eta_r_mask = df.eta_r > 1
         eta_l_mask = df.eta_l >= 0
 
@@ -99,7 +97,15 @@ def apply_grid_offset(df, axis, offset):
 
         df.loc[eta_r_mask, axis] += 1
 
-    df = df.agg({'eta_l': 'max', 'eta_r': 'min'})
+    # Aggregate and reset the index to undo the grouping
+    df = df.groupby(['z', 'y', 'x']).agg({'eta_l': 'max', 'eta_r': 'min'}).reset_index()
+
+    # Make sure zero distances appear on both sides
+    l_zero_mask = df.eta_l == 0
+    r_zero_mask = df.eta_r == 0
+    df.loc[l_zero_mask, 'eta_r'] = 0
+    df.loc[r_zero_mask, 'eta_l'] = 0
+    return df
 
 
 def calculate_reciprocals(df, axis, side):
@@ -156,7 +162,7 @@ def get_data_inc_reciprocals(data, spacing, axis, offset):
 
     df = build_dataframe(data, spacing)
 
-    apply_grid_offset(df, axis, offset)
+    df = apply_grid_offset(df, axis, offset)
 
     reciprocals_l = calculate_reciprocals(df, axis, 'l')
     reciprocals_r = calculate_reciprocals(df, axis, 'r')

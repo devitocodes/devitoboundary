@@ -148,25 +148,33 @@ class TestStencils:
             # -ve stagger
             offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
 
+        data = get_data_inc_reciprocals(distances, spacing, 'x', 0)
+        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)
+        dmask = np.full(21, True, dtype=bool)
+        dmask[1] = False
+        data = data[dmask]
+        offset_data = offset_data[dmask]
+        add_distance_column(data)
+        add_distance_column(offset_data)
         if point_type == 'first':
-            data = get_data_inc_reciprocals(distances, spacing, 'x', 0)[::2]
-            add_distance_column(data)
+            data = data[::2]
             data.dist = -order//2
-            offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)[::2]
-            add_distance_column(offset_data)
+            offset_data = offset_data[::2]
             offset_data.dist = -order//2
-
+            left_variants = np.zeros((10, order//2), dtype=int)
+            right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
+            right_variants[5:] -= 1
+            right_variants[0] -= 1
+        
         else:
-            data = get_data_inc_reciprocals(distances, spacing, 'x', 0)[1::2]
-            add_distance_column(data)
+            data = data[1::2]
             data.dist = order//2
-            offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)[1::2]
-            add_distance_column(offset_data)
+            offset_data = offset_data[1::2]
             offset_data.dist = order//2
-
-        left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
-        right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
-
+            left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
+            left_variants[5:] += 1
+            right_variants = np.zeros((10, order//2), dtype=int)   
+        
         normal_stencils = evaluate_stencils(data, point_type, order//2, left_variants,
                                             right_variants, order, stencils_lambda)
         offset_stencils = evaluate_stencils(offset_data, point_type, order//2, left_variants,
