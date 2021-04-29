@@ -13,6 +13,7 @@ from devitoboundary import __file__
 from devitoboundary.stencils.stencils import get_stencils_lambda
 from devitoboundary.stencils.stencil_utils import standard_stencil, get_grid_offset
 
+_feps = np.finfo(np.float32).eps  # Get the eps
 
 def find_boundary_points(data):
     """
@@ -427,14 +428,10 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     if point_type == 'first':
         n_pts = np.minimum(int(space_order/2), 1-df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
-
-        # It is necessary to account for staggering during stencil selection
-        # stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
-        stagger_mod_r = 0
+        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
         # Starting point for the right stencil (moving from left to right)
-        start_right = space_order-2*(n_pts-1)-modifier_right+stagger_mod_r
+        start_right = space_order-2*(n_pts-1)-modifier_right
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -452,8 +449,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'first', i,
                                               left_variants, right_variants,
-                                              space_order, stencils,
-                                              grid_offset)
+                                              space_order, stencils)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'first',
@@ -462,13 +458,9 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     elif point_type == 'last':
         n_pts = np.minimum(int(space_order/2), 1+df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
 
-        # It is necessary to account for staggering during stencil selection
-        # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
-        stagger_mod_l = 0
-
-        start_left = space_order-modifier_left+stagger_mod_l
+        start_left = space_order-modifier_left
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -485,8 +477,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'last', i,
                                               left_variants, right_variants,
-                                              space_order, stencils,
-                                              grid_offset)
+                                              space_order, stencils)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'last',
@@ -495,17 +486,11 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     elif point_type == 'double':
         n_pts = 1
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        # It is necessary to account for staggering during stencil selection
-        # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
-        # stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
-        stagger_mod_l = 0
-        stagger_mod_r = 0
-
-        start_left = space_order-modifier_left+stagger_mod_l
-        start_right = space_order-modifier_right+stagger_mod_r
+        start_left = space_order-modifier_left
+        start_right = space_order-modifier_right
 
         # This is capped at space_order to prevent invalid variant numbers
         left_variants = np.minimum(start_left[:, np.newaxis], space_order)
@@ -514,8 +499,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
         # Iterate over left and right variants
         eval_stencils = evaluate_stencils(df, 'double', 1,
                                           left_variants, right_variants,
-                                          space_order, stencils,
-                                          grid_offset)
+                                          space_order, stencils)
 
         # Insert the stencils into the weight function
         fill_weights(df, eval_stencils, 'double', weights, axis)
@@ -523,17 +507,11 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     elif point_type == 'paired_left':
         n_pts = np.minimum(int(space_order/2), df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        # It is necessary to account for staggering during stencil selection
-        # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
-        # stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
-        stagger_mod_l = 0
-        stagger_mod_r = 0
-
-        start_left = space_order-modifier_left+stagger_mod_l
-        start_right = space_order-2*df.dist.to_numpy()-modifier_right+stagger_mod_r
+        start_left = space_order-modifier_left
+        start_right = space_order-2*df.dist.to_numpy()-modifier_right
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -551,8 +529,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
                                               left_variants, right_variants,
-                                              space_order, stencils,
-                                              grid_offset)
+                                              space_order, stencils)
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_left',
                          weights, axis, n_pts=i)
@@ -562,17 +539,11 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2),
                                                            -df.dist.to_numpy()))
         # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() > -0.5, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() < 0.5, 0, 1)
+        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
+        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        # It is necessary to account for staggering during stencil selection
-        # stagger_mod_l = np.where(df.eta_l.to_numpy() - grid_offset <= grid_offset + eval_offset, 0, 1)
-        # stagger_mod_r = np.where(df.eta_r.to_numpy() - grid_offset >= grid_offset + eval_offset, 0, 1)
-        stagger_mod_l = 0
-        stagger_mod_r = 0
-
-        start_left = space_order+2*df.dist.to_numpy()-modifier_left+stagger_mod_l
-        start_right = space_order-2*(n_pts-1)-modifier_right+stagger_mod_r
+        start_left = space_order+2*df.dist.to_numpy()-modifier_left
+        start_right = space_order-2*(n_pts-1)-modifier_right
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -590,8 +561,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
                                               left_variants, right_variants,
-                                              space_order, stencils,
-                                              grid_offset)
+                                              space_order, stencils)
 
             # Insert the stencils into the weight function
             fill_weights(df[mask], eval_stencils, 'paired_right',
