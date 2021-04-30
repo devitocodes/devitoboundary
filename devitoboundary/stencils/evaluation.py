@@ -346,8 +346,6 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
                     func = stencil_lambda[left_var, right_var, coeff]
                     stencils[mask, coeff] = func(eta_left[mask],
                                                  eta_right[mask])
-    # print("Stencils "+point_type)
-    # print(stencils)
     return stencils
 
 
@@ -489,8 +487,15 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
         modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        start_left = space_order-modifier_left
-        start_right = space_order-modifier_right
+        # Mask for where both etas are zero (points on boundary)
+        zero_mask = np.logical_and(np.abs(df.eta_l.to_numpy()) < _feps,
+                                   np.abs(df.eta_r.to_numpy()) < _feps)
+        # Stencil wants to be zero for points exactly on boundary, so set invalid variant numbers
+        modifier_zero = np.where(zero_mask, np.NaN, 0)
+        # This will cause stencil to default to zero
+
+        start_left = space_order-modifier_left+modifier_zero
+        start_right = space_order-modifier_right+modifier_zero
 
         # This is capped at space_order to prevent invalid variant numbers
         left_variants = np.minimum(start_left[:, np.newaxis], space_order)

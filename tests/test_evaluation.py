@@ -226,19 +226,12 @@ class TestStencils:
             data.dist = -order//2
             offset_data = offset_data[::2]
             offset_data.dist = -order//2
-            left_variants = np.zeros((10, order//2), dtype=int)
-            right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
-            right_variants[5:] -= 1
-            right_variants[0] -= 1
         
         else:
             data = data[1::2]
             data.dist = order//2
             offset_data = offset_data[1::2]
-            offset_data.dist = order//2
-            left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
-            left_variants[5:] += 1
-            right_variants = np.zeros((10, order//2), dtype=int)   
+            offset_data.dist = order//2   
 
         grid = Grid(shape=(10, 1, 10), extent=(9*spacing, 0, 9*spacing))
         s_dim = Dimension(name='s')
@@ -257,6 +250,56 @@ class TestStencils:
             assert np.all(np.isclose(w_normal.data[2:5], w_offset.data[2:5]))
         else:
             assert np.all(np.isclose(w_normal.data[5:7], w_offset.data[5:7]))
+
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
+                                      {'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5},
+                                      {'bcs': 'even', 'deriv': 2, 'goffset': 0., 'eoffset': 0.}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
+    def test_zero_handling(self, order, spec):
+        """
+        Check that stencils with distances of zero evaluate correctly.
+        """
+        # Unpack the spec
+        bc_type = spec['bcs']
+        deriv = spec['deriv']
+        goffset = spec['goffset']
+        eoffset = spec['eoffset']
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+
+        distances = np.full((10, 1, 1), -2*order, dtype=float)
+        if goffset == 0.5:
+            distances[4, :, :] = 0.5
+        else:
+            distances[4, :, :] = 0
+
+        data = get_data_inc_reciprocals(distances, 1, 'x', goffset)
+        add_distance_column(data)
+        data = data.iloc[1:-1]
+
+        grid = Grid(shape=(10, 1, 11), extent=(9, 0, 0))
+        s_dim = Dimension(name='s')
+        ncoeffs = order + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w = Function(name='w', dimensions=w_dims, shape=w_shape)
+        
+        get_variants(data, order, 'double', 'x', stencils_lambda, w)
+
+        # Derivative stencils should pretty much always pop out as zero on boundary I think
+        assert(np.all(w.data == 0))
+
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
