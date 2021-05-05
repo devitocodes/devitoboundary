@@ -6,7 +6,6 @@ import os
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
@@ -14,6 +13,7 @@ from devitoboundary.stencils.stencils import get_stencils_lambda
 from devitoboundary.stencils.stencil_utils import standard_stencil, get_grid_offset
 
 _feps = np.finfo(np.float32).eps  # Get the eps
+
 
 def find_boundary_points(data):
     """
@@ -638,19 +638,13 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     if len(paired_right.index) != 0:
         get_variants(paired_right, function.space_order, 'paired_right',
                      axis_dim, stencils, w)
-    """
-    for i in range(function.space_order+1):
-        plt.imshow(w.data[:, 50, :, i].T)
-        plt.title(function.name + " " + axis_dim + " coeff " + str(i))
-        plt.colorbar()
-        plt.show()
-    """
+
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
 
 
-def get_weights(data, function, deriv, bcs):
+def get_weights(data, function, deriv, bcs, eval_offsets):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
@@ -665,6 +659,9 @@ def get_weights(data, function, deriv, bcs):
         The order of the derivative to which the stencils pertain
     bcs : list of devito Eq
         The boundary conditions which should hold at the surface
+    eval_offsets : tuple of float
+        The relative offsets at which derivatives should be evaluated for each
+        axis.
 
     Returns
     -------
@@ -677,12 +674,12 @@ def get_weights(data, function, deriv, bcs):
     weights = []
     for axis in range(3):
         # Check any != filler value in data[axis].data
-        # FIXME: Could just calculate this rather than finding the minimum
+        # TODO: Could just calculate this rather than finding the minimum
         fill_val = np.amin(data[axis].data)
         if np.any(data[axis].data != fill_val):
             # If True, then behave as normal
             # If False then pass
-            stencils = get_stencils_lambda(deriv, offsets[axis], bcs, cache=cache)
+            stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
 
             axis_weights = get_component_weights(data[axis].data, axis, function,
                                                  deriv, stencils)

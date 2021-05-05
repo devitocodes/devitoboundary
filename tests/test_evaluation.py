@@ -8,10 +8,8 @@ from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 get_component_weights,
                                                 find_boundary_points, evaluate_stencils,
                                                 get_variants, apply_grid_offset)
-from devitoboundary.stencils.stencil_utils import generic_function
 from devitoboundary.stencils.stencils import BoundaryConditions, get_stencils_lambda
-from devitoboundary.symbolics.symbols import x_b
-from devito import Eq, Grid, Function, Dimension
+from devito import Grid, Function, Dimension
 
 
 class TestDistances:
@@ -61,7 +59,7 @@ class TestDistances:
         """
         n_pts = 11
         x = 2*np.arange(2*n_pts)
-        
+
         if offset == 0.5:
             eta_r = np.append(np.linspace(0, 0.9, n_pts), np.full(n_pts, np.NaN))
             eta_l = np.append(np.full(n_pts, np.NaN), np.linspace(0, -0.9, n_pts))
@@ -165,7 +163,7 @@ class TestStencils:
             right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
             right_variants[5:] -= 1
             right_variants[0] -= 1
-        
+
         else:
             data = data[1::2]
             data.dist = order//2
@@ -173,8 +171,8 @@ class TestStencils:
             offset_data.dist = order//2
             left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
             left_variants[5:] += 1
-            right_variants = np.zeros((10, order//2), dtype=int)   
-        
+            right_variants = np.zeros((10, order//2), dtype=int)
+
         normal_stencils = evaluate_stencils(data, point_type, order//2, left_variants,
                                             right_variants, order, stencils_lambda)
         offset_stencils = evaluate_stencils(offset_data, point_type, order//2, left_variants,
@@ -226,12 +224,12 @@ class TestStencils:
             data.dist = -order//2
             offset_data = offset_data[::2]
             offset_data.dist = -order//2
-        
+
         else:
             data = data[1::2]
             data.dist = order//2
             offset_data = offset_data[1::2]
-            offset_data.dist = order//2   
+            offset_data.dist = order//2
 
         grid = Grid(shape=(10, 1, 10), extent=(9*spacing, 0, 9*spacing))
         s_dim = Dimension(name='s')
@@ -294,12 +292,11 @@ class TestStencils:
         w_dims = grid.dimensions + (s_dim,)
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
-        
+
         get_variants(data, order, 'double', 'x', stencils_lambda, w)
 
         # Derivative stencils should pretty much always pop out as zero on boundary I think
         assert(np.all(w.data == 0))
-
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])

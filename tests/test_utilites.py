@@ -3,6 +3,7 @@ import pytest
 from devito import Grid, Function, TimeFunction, Dimension
 from devitoboundary.stencils.stencil_utils import get_grid_offset
 
+
 class TestUtilities:
     @pytest.mark.parametrize('stagger', ['none', 'x', 'y', 'z', 'xyz'])
     @pytest.mark.parametrize('negative', [True, False])
@@ -56,4 +57,3 @@ class TestUtilities:
                 assert result == -0.5
             else:
                 assert result == 0
-        
