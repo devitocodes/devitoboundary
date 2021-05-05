@@ -644,7 +644,7 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     return w
 
 
-def get_weights(data, function, deriv, bcs, eval_offsets):
+def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
