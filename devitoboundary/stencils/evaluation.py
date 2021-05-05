@@ -573,7 +573,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
                          weights, axis, n_pts=i)
 
 
-def get_component_weights(data, axis, function, deriv, stencils):
+def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -590,6 +590,9 @@ def get_component_weights(data, axis, function, deriv, stencils):
         The order of the derivative to which the stencils pertain
     stencils : ndarray
         The functions for stencils to be evaluated
+    eval_offset : float
+        The relative offset at which the derivative should be evaluated.
+        Used for setting the default fill stencil.
 
     Returns
     -------
@@ -597,12 +600,6 @@ def get_component_weights(data, axis, function, deriv, stencils):
         Function containing the stencil coefficients
     """
     grid_offset = get_grid_offset(function, axis)
-    """
-    print("Axis", axis)
-    print("Function space dimensions", function.space_dimensions)
-    print("Grid offset", grid_offset)
-    print("Function stagger", function.staggered)
-    """
 
     f_grid = function.grid
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
@@ -623,7 +620,7 @@ def get_component_weights(data, axis, function, deriv, stencils):
 
     w = Function(name='w_'+function.name+'_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
-    w.data[:] = standard_stencil(deriv, function.space_order, offset=offset)
+    w.data[:] = standard_stencil(deriv, function.space_order, offset=eval_offset)
 
     # Fill the stencils
     get_variants(first, function.space_order, 'first',
