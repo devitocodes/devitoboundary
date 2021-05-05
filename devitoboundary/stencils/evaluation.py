@@ -682,7 +682,7 @@ def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
             stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
 
             axis_weights = get_component_weights(data[axis].data, axis, function,
-                                                 deriv, stencils)
+                                                 deriv, stencils, eval_offsets[axis])
             print(deriv, function, function.grid.dimensions[axis], axis_weights)
             weights.append(Coefficient(deriv, function,
                                        function.grid.dimensions[axis],
