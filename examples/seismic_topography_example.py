@@ -2,9 +2,7 @@ import numpy as np
 import pandas as pd
 
 from devito import Grid, TimeFunction, Eq, solve, Operator, ConditionalDimension
-from devitoboundary import ImmersedBoundary
-from devitoboundary.symbolics.symbols import x_b
-from devitoboundary.stencils.stencil_utils import generic_function
+from devitoboundary import ImmersedBoundary, BoundaryConditions
 from examples.seismic import TimeAxis, RickerSource
 
 C = 0.1  # Courant number
@@ -42,8 +40,8 @@ u = TimeFunction(name='u', grid=grid,
 # Surface configuration
 infile = 'topography/crater_lake.ply'
 # Zero even derivatives on the boundary
-bcs_u = [Eq(generic_function(x_b, 2*i), 0)
-         for i in range(1+u.space_order//2)]
+spec = {2*i: 0 for i in range(u.space_order)}
+bcs_u = BoundaryConditions(spec, u.space_order)
 functions = pd.DataFrame({'function': [u],
                           'bcs': [bcs_u]},
                          columns=['function', 'bcs'])
@@ -70,7 +68,7 @@ coeffs = surface.subs(derivs)
 
 # We can now write the PDE
 pde = VP*u.dt2 - u.laplace
-eq = Eq(pde, 0, coefficients=coeffs['substitution'].values[0])
+eq = Eq(pde, 0, coefficients=coeffs)
 
 # And set up the update
 stencil = solve(eq.evaluate, u.forward)

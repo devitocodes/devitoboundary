@@ -103,8 +103,6 @@ def tilted_shot(model, time_range, f0, tilt):
     spec = {2*i: 0 for i in range(u.space_order)}
     bcs_u = BoundaryConditions(spec, u.space_order)
 
-    # bcs_u = [Eq(generic_function(x_b, 2*i), 0)
-    #          for i in range(1+u.space_order//2)]
     functions = pd.DataFrame({'function': [u],
                               'bcs': [bcs_u]},
                              columns=['function', 'bcs'])
