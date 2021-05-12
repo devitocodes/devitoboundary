@@ -147,7 +147,7 @@ class TestExtrapolations:
         for npts in cached_extrapolation:
             for key in cached_extrapolation[npts]:
                 diff = cached_extrapolation[npts][key] - generated_extrapolation[npts][key]
-                assert diff == 0
+                assert diff.evalf() == 0
 
 
 class TestStencils:
