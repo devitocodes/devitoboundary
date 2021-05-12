@@ -5,9 +5,7 @@ import pandas as pd
 
 from examples.seismic import Model, TimeAxis, RickerSource, Receiver
 from devito import TimeFunction, Eq, solve, Operator
-from devitoboundary import ImmersedBoundary
-from devitoboundary.symbolics.symbols import x_b
-from devitoboundary.stencils.stencil_utils import generic_function
+from devitoboundary import ImmersedBoundary, BoundaryConditions
 
 
 def reference_shot(model, time_range, f0):
@@ -102,8 +100,9 @@ def tilted_shot(model, time_range, f0, tilt):
     infile = 'tests/trial_surfaces/angled_surface_'+str(tilt)+'.ply'
 
     # Zero even derivatives on the boundary
-    bcs_u = [Eq(generic_function(x_b, 2*i), 0)
-             for i in range(1+u.space_order//2)]
+    spec = {2*i: 0 for i in range(u.space_order)}
+    bcs_u = BoundaryConditions(spec, u.space_order)
+
     functions = pd.DataFrame({'function': [u],
                               'bcs': [bcs_u]},
                              columns=['function', 'bcs'])
@@ -112,15 +111,16 @@ def tilted_shot(model, time_range, f0, tilt):
     surface = ImmersedBoundary('topography', infile, functions)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
-                           'derivative': [2]},
-                          columns=['function', 'derivative'])
+                           'derivative': [2],
+                           'eval_offset': [(0., 0., 0.)]},
+                          columns=['function', 'derivative', 'eval_offset'])
     coeffs = surface.subs(derivs)
 
     # We can now write the PDE
     pde = model.m * u.dt2 - u.laplace + model.damp * u.dt
 
     stencil = Eq(u.forward, solve(pde, u.forward),
-                 coefficients=coeffs['substitution'].values[0])
+                 coefficients=coeffs)
 
     # Finally we define the source injection and receiver read function
     src_term = src.inject(field=u.forward,

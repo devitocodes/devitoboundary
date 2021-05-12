@@ -20,3 +20,9 @@ f = sp.IndexedBase('f')  # Function values at particular points
 h_x = sp.symbols('h_x')  # Grid spacing
 # Distance to boundary in grid increments
 eta_l, eta_r = sp.symbols('eta_l, eta_r')
+
+# New symbol to be target for extrapolation
+x_t = sp.symbols('x_t')
+
+# Extrapolation coefficients
+E = sp.IndexedBase('E')

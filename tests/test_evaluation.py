@@ -2,22 +2,34 @@ import pytest
 import os
 
 import numpy as np
-from devitoboundary.stencils.evaluation import get_data_inc_reciprocals, \
-    split_types, add_distance_column, get_component_weights
-from devitoboundary.stencils.stencil_utils import generic_function
-from devitoboundary.stencils.stencils import StencilGen
-from devitoboundary.symbolics.symbols import x_b
-from devito import Eq, Grid, Function
+import pandas as pd
+from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
+                                                split_types, add_distance_column,
+                                                get_component_weights,
+                                                find_boundary_points, evaluate_stencils,
+                                                get_variants, apply_grid_offset)
+from devitoboundary.stencils.stencils import BoundaryConditions, get_stencils_lambda
+from devito import Grid, Function, Dimension
 
 
 class TestDistances:
     """
-    A class containing tests to verify the distances used in stencil evaluation.
+    Tests to verify the distances used in stencil evaluation.
     """
+    def test_find_boundary_points(self):
+        """Test that boundary points are correctly identified"""
+        # Make some fake data
+        data = np.full((5, 5, 5), -1)
+        data[:, :, 2] = 0.5
+        x, y, z = find_boundary_points(data)
+        assert np.all(z == 2)
+        assert x.size == 25
+        assert y.size == 25
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('spacing', [0.1, 1, 10])
-    def test_reciprocal_calculation(self, axis, spacing):
+    @pytest.mark.parametrize('offset', [-0.5, 0., 0.5])
+    def test_reciprocal_calculation(self, axis, spacing, offset):
         """
         A test to check that reciprocal eta calculated are consistent.
         """
@@ -35,10 +47,45 @@ class TestDistances:
         right[right_index[0], right_index[1], right_index[2]] = -0.7*spacing
 
         # Should produce the same results
-        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis])
-        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis])
+        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], offset)
+        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], offset)
 
         assert(np.all(np.isclose(data_l, data_r, equal_nan=True)))
+
+    @pytest.mark.parametrize('offset', [-0.5, 0.5])
+    def test_grid_shift(self, offset):
+        """
+        A test to check that grid offset is applied correctly to eta values
+        """
+        n_pts = 11
+        x = 2*np.arange(2*n_pts)
+        y = np.full(2*n_pts, 5)
+        z = np.full(2*n_pts, 5)
+
+        if offset == 0.5:
+            eta_r = np.append(np.linspace(0, 0.9, n_pts), np.full(n_pts, np.NaN))
+            eta_l = np.append(np.full(n_pts, np.NaN), np.linspace(0, -0.9, n_pts))
+        elif offset == -0.5:
+            eta_r = np.append(np.full(n_pts, np.NaN), np.linspace(0, 0.9, n_pts))
+            eta_l = np.append(np.linspace(0, -0.9, n_pts), np.full(n_pts, np.NaN))
+        else:
+            raise ValueError("Invalid offset")
+
+        frame = {'x': x, 'y': y, 'z': z, 'eta_l': eta_l, 'eta_r': eta_r}
+
+        points = pd.DataFrame(frame)
+
+        apply_grid_offset(points, 'x', offset)
+
+        assert np.all(points.x.to_numpy()[:17] == 2*np.arange(17))
+        assert np.all(points.x.to_numpy()[17:] == 34 + 2*np.arange(5) - np.sign(offset))
+
+        if offset == 0.5:
+            assert np.all(np.logical_or(np.logical_and(points.eta_l <= 0, points.eta_l > -1),
+                                        points.eta_r < 0.5))
+        elif offset == -0.5:
+            assert np.all(np.logical_or(np.logical_and(points.eta_r >= 0, points.eta_r < 1),
+                                        points.eta_l > -0.5))
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     def test_type_splitting(self, axis):
@@ -52,7 +99,8 @@ class TestDistances:
         ind[axis] = np.array([1, 2, 5])
         distances[ind[0], ind[1], ind[2]] = 0.6
 
-        data = get_data_inc_reciprocals(distances, 1, xyz[axis])
+        # TODO: Ideally want to vary grid offset too
+        data = get_data_inc_reciprocals(distances, 1, xyz[axis], 0)
         add_distance_column(data)
 
         first, last, double, paired_left, paired_right = split_types(data,
@@ -70,78 +118,257 @@ class TestStencils:
     """
     A class containing tests to check stencil evaluation.
     """
-    # FIXME: Need to check evaluate_stencils
-    # FIXME: Need to check fill_weights
-    # FIXME: Wants to check several grid spacings
+    # TODO: Need to check evaluate_stencils
+    # TODO: Need to check fill_weights
+    @pytest.mark.parametrize('offset', [0.5, -0.5])
+    @pytest.mark.parametrize('point_type', ['first', 'last'])
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
+    def test_evaluate_stencils_offset(self, offset, point_type, order, spacing):
+        """
+        Check that offsetting the grid and boundary by the same amount results
+        in identical stencils for both cases. This is checked on both sides of
+        the boundary.
+        """
+        spec = {2*i: 0 for i in range(1+order//2)}
+        bcs = BoundaryConditions(spec, order)
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
+
+        distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
+
+        offset_distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        if offset == 0.5:
+            # +ve stagger
+            offset_distances[4, :, :5] = np.linspace(0.5*spacing, 0.9*spacing, 5)
+            offset_distances[5, :, 5:] = np.linspace(0, 0.4*spacing, 5)
+        else:
+            # -ve stagger
+            offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
+
+        data = get_data_inc_reciprocals(distances, spacing, 'x', 0)
+        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)
+        dmask = np.full(21, True, dtype=bool)
+        dmask[1] = False
+        data = data[dmask]
+        offset_data = offset_data[dmask]
+        add_distance_column(data)
+        add_distance_column(offset_data)
+        if point_type == 'first':
+            data = data[::2]
+            data.dist = -order//2
+            offset_data = offset_data[::2]
+            offset_data.dist = -order//2
+            left_variants = np.zeros((10, order//2), dtype=int)
+            right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
+            right_variants[5:] -= 1
+            right_variants[0] -= 1
+
+        else:
+            data = data[1::2]
+            data.dist = order//2
+            offset_data = offset_data[1::2]
+            offset_data.dist = order//2
+            left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
+            left_variants[5:] += 1
+            right_variants = np.zeros((10, order//2), dtype=int)
+
+        normal_stencils = evaluate_stencils(data, point_type, order//2, left_variants,
+                                            right_variants, order, stencils_lambda)
+        offset_stencils = evaluate_stencils(offset_data, point_type, order//2, left_variants,
+                                            right_variants, order, stencils_lambda)
+
+        assert np.all(normal_stencils == offset_stencils)
+
+    @pytest.mark.parametrize('offset', [0.5, -0.5])
+    @pytest.mark.parametrize('point_type', ['first', 'last'])
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y dimension of 1
+    def test_get_variants_offset(self, offset, point_type, order, spacing):
+        """
+        Check that offsetting the grid and boundary by the same amount results
+        in identical stencils for both cases. This is checked on both sides of
+        the boundary. Note that this tests a larger chunk of the stack than the
+        previous test.
+        """
+
+        spec = {2*i: 0 for i in range(1+order//2)}
+        bcs = BoundaryConditions(spec, order)
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
+
+        distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
+
+        offset_distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
+        if offset == 0.5:
+            # +ve stagger
+            offset_distances[4, :, :5] = np.linspace(0.5*spacing, 0.9*spacing, 5)
+            offset_distances[5, :, 5:] = np.linspace(0, 0.4*spacing, 5)
+        else:
+            # -ve stagger
+            offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
+
+        data = get_data_inc_reciprocals(distances, spacing, 'x', 0)
+        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)
+        dmask = np.full(21, True, dtype=bool)
+        dmask[1] = False
+        data = data[dmask]
+        offset_data = offset_data[dmask]
+        add_distance_column(data)
+        add_distance_column(offset_data)
+        if point_type == 'first':
+            data = data[::2]
+            data.dist = -order//2
+            offset_data = offset_data[::2]
+            offset_data.dist = -order//2
+
+        else:
+            data = data[1::2]
+            data.dist = order//2
+            offset_data = offset_data[1::2]
+            offset_data.dist = order//2
+
+        grid = Grid(shape=(10, 1, 10), extent=(9*spacing, 0, 9*spacing))
+        s_dim = Dimension(name='s')
+        ncoeffs = order + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
+        w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
+
+        get_variants(data, order, point_type, 'x', stencils_lambda, w_normal)
+        get_variants(offset_data, order, point_type, 'x', stencils_lambda, w_offset)
+
+        if point_type == 'first':
+            assert np.all(np.isclose(w_normal.data[2:5], w_offset.data[2:5]))
+        else:
+            assert np.all(np.isclose(w_normal.data[5:7], w_offset.data[5:7]))
+
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
+                                      {'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5},
+                                      {'bcs': 'even', 'deriv': 2, 'goffset': 0., 'eoffset': 0.}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
+    def test_zero_handling(self, order, spec):
+        """
+        Check that stencils with distances of zero evaluate correctly.
+        """
+        # Unpack the spec
+        bc_type = spec['bcs']
+        deriv = spec['deriv']
+        goffset = spec['goffset']
+        eoffset = spec['eoffset']
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+
+        distances = np.full((10, 1, 1), -2*order, dtype=float)
+        if goffset == 0.5:
+            distances[4, :, :] = 0.5
+        else:
+            distances[4, :, :] = 0
+
+        data = get_data_inc_reciprocals(distances, 1, 'x', goffset)
+        add_distance_column(data)
+        data = data.iloc[1:-1]
+
+        grid = Grid(shape=(10, 1, 11), extent=(9, 0, 0))
+        s_dim = Dimension(name='s')
+        ncoeffs = order + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w = Function(name='w', dimensions=w_dims, shape=w_shape)
+
+        get_variants(data, order, 'double', 'x', stencils_lambda, w)
+
+        # Derivative stencils should pretty much always pop out as zero on boundary I think
+        assert(np.all(w.data == 0))
+
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
-    def test_stencil_evaluation(self, axis, deriv):
+    def test_get_component_weights(self, axis, deriv):
         """
-        A test to check that stencils are evaluated to their correct values.
+        Check that get_component_weights returns stencils evaluated to their correct
+        values.
         """
-        def evaluate_variant(stencil_generator, left_var, right_var,
+        def evaluate_variant(stencils_lambda, left_var, right_var,
                              left_eta, right_eta):
             """Evaluate the specified stencil"""
-            stencil = stencil_generator.stencils_lambda[left_var, right_var]
+            stencil = stencils_lambda[left_var, right_var]
             eval_stencil = np.array([stencil[i](left_eta, right_eta)
                                      for i in range(5)])
             return eval_stencil
 
-        def check_row(data, index, stencil_generator):
+        def check_row(data, index, stencils_lambda):
             """Check values in the specified row are as intended"""
             indices = [slice(None), slice(None), slice(None)]
             indices[axis] = index
             stencils = data[indices[0], indices[1], indices[2]]
 
             if index == 0:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 0, 1, 0, 1.6)
             elif index == 1:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 0, 3, 0, 0.6)
             elif index == 2:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 4, 3, -0.4, 0.6)
             elif index == 3:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 4, 0, -0.4, 0)
             elif index == 4:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 2, 1, -1.4, 1.6)
             elif index == 5:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 0, 3, 0, 0.6)
             elif index == 6:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 4, 0, -0.4, 0)
             elif index == 7:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 2, 0, -1.4, 0)
             elif index >= 8:
-                true_stencil = evaluate_variant(stencil_generator,
+                true_stencil = evaluate_variant(stencils_lambda,
                                                 0, 0, 0, 0)
 
             misfit = stencils - true_stencil
             assert np.amax(np.absolute(misfit)) < 1e-6
 
-        bcs = [Eq(generic_function(x_b, 2*i), 0)
-               for i in range(3)]
+        order = 4
+        spec = {2*i: 0 for i in range(1+order//2)}
+        bcs = BoundaryConditions(spec, order)
 
         grid = Grid(shape=(10, 10, 10), extent=(9., 9., 9.))
-        function = Function(name='function', grid=grid, space_order=4)
+        function = Function(name='function', grid=grid, space_order=order)
 
         distances = np.full((10, 10, 10), -2, dtype=float)
         ind = [slice(None), slice(None), slice(None)]
         ind[axis] = np.array([1, 2, 5])
         distances[ind[0], ind[1], ind[2]] = 0.6
 
-        stencil_file = os.path.dirname(__file__) + '/../devitoboundary/stencil_cache.dat'
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        sten_gen = StencilGen(function.space_order, bcs,
-                              stencil_file=stencil_file)
-        sten_gen.all_variants(deriv, 0.)
+        stencils_lambda = get_stencils_lambda(deriv, 0, bcs, cache=cache)
 
-        w = get_component_weights(distances, axis, function, deriv, sten_gen)
+        w = get_component_weights(distances, axis, function, deriv, stencils_lambda, 0)
 
         for i in range(10):
-            check_row(w.data, i, sten_gen)
+            check_row(w.data, i, stencils_lambda)
