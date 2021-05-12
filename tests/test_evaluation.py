@@ -59,6 +59,8 @@ class TestDistances:
         """
         n_pts = 11
         x = 2*np.arange(2*n_pts)
+        y = np.full(2*n_pts, 5)
+        z = np.full(2*n_pts, 5)
 
         if offset == 0.5:
             eta_r = np.append(np.linspace(0, 0.9, n_pts), np.full(n_pts, np.NaN))
@@ -69,7 +71,7 @@ class TestDistances:
         else:
             raise ValueError("Invalid offset")
 
-        frame = {'x': x, 'eta_l': eta_l, 'eta_r': eta_r}
+        frame = {'x': x, 'y': y, 'z': z, 'eta_l': eta_l, 'eta_r': eta_r}
 
         points = pd.DataFrame(frame)
 

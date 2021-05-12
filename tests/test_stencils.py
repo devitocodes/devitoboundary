@@ -144,8 +144,11 @@ class TestExtrapolations:
 
         cached_extrapolation = get_ext_coeffs(bcs, cache='tests/test_extrapolation_cache_r.dat')
         generated_extrapolation = get_ext_coeffs(bcs)
-
-        assert cached_extrapolation == generated_extrapolation
+        for npts in cached_extrapolation:
+            for key in cached_extrapolation[npts]:
+                check = sp.Eq(cached_extrapolation[npts][key],
+                              generated_extrapolation[npts][key])
+                assert check
 
 
 class TestStencils:
