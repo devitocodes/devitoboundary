@@ -270,15 +270,29 @@ def get_stencils(deriv, offset, bcs, cache=None):
     base_stencil = standard_stencil(deriv, s_o,
                                     offset=offset, as_float=False)
 
-    stencil_array = np.empty((s_o+1, s_o+1, s_o+1), dtype=object)
+    # If True, then an extra variant should be generated on that side
+    # This variant will be used where the offset point and respective index
+    # point lie on opposite sides of a boundary
+    extra_right = False
+    extra_left = False
+    if np.sign(offset) == -1:
+        # Negative evaluation offset, may need another right variant
+        extra_right = True
+    elif np.sign(offset) == 1:
+        # Positive evaluation offset, may need another left variant
+        extra_left = True
+
+    # Extend range for non-zero offsets
+    stencil_array = np.empty((s_o+1+extra_left, s_o+1+extra_right, s_o+1), dtype=object)
 
     coeff_dict = get_ext_coeffs(bcs, cache=cache)
 
     # Loop over variants
-    for left in range(s_o + 1):
+    # Extend range for non-zero offsets
+    for left in range(s_o + 1 + extra_left):
         left_unusable = get_unusable(left)
         left_outside = get_outside(left)
-        for right in range(s_o + 1):
+        for right in range(s_o + 1 + extra_right):
             right_unusable = get_unusable(right)
             right_outside = get_outside(right)
             left_available, right_available = get_available(left_unusable, right_unusable,
@@ -316,6 +330,5 @@ def get_stencils_lambda(deriv, offset, bcs, cache=None):
     stencils = get_stencils(deriv, offset, bcs, cache=cache)
     funcs = np.empty(stencils.shape, dtype=object)
     for i in range(stencils.size):
-        # Add a lambdaify in here
         funcs.flat[i] = sp.lambdify([eta_l, eta_r], stencils.flat[i])
     return funcs
