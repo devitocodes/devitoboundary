@@ -3,9 +3,10 @@ import pytest
 import numpy as np
 import sympy as sp
 import pickle
+import os
 
 from devitoboundary.stencils.stencils import (taylor, BoundaryConditions, get_ext_coeffs,
-                                              get_stencils_lambda)
+                                              get_stencils, get_stencils_lambda)
 from devitoboundary.symbolics.symbols import x_a, x_t, x_b, E
 
 
@@ -199,3 +200,25 @@ class TestStencils:
                 errors.append(err)
 
         assert np.median(errors) < thres
+
+    @pytest.mark.parametrize('offset', [-0.5])
+    def test_special_variants(self, offset):
+        """
+        Check that special stencil variants generated for cases where the staggered
+        and unstaggered points lie on either side of the boundary are correct.
+        """
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        s_o = 4
+        deriv = 1
+
+        spec = {2*i+1: 0 for i in range(s_o)}
+        bcs = BoundaryConditions(spec, s_o)
+
+        stencils = get_stencils(deriv, offset, bcs, cache=cache)
+
+        # for left in range(stencils.shape[0]):
+        #     print("Left variant", left, "Right variant 5")
+        #     print(stencils[left, 5])
+
+        raise NotImplementedError
