@@ -201,24 +201,30 @@ class TestStencils:
 
         assert np.median(errors) < thres
 
-    @pytest.mark.parametrize('offset', [-0.5])
-    def test_special_variants(self, offset):
+    @pytest.mark.parametrize('offset', [0.5, -0.5])
+    @pytest.mark.parametrize('bc_type', ['even', 'odd'])
+    @pytest.mark.parametrize('order', [4, 6])
+    def test_special_variants(self, offset, bc_type, order):
         """
         Check that special stencil variants generated for cases where the staggered
-        and unstaggered points lie on either side of the boundary are correct.
+        and unstaggered points lie on either side of the boundary are generated.
         """
+        # TODO: Possibly make this test more robust
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        s_o = 4
+        # Staggered stencils only really used with first derivatives
         deriv = 1
 
-        spec = {2*i+1: 0 for i in range(s_o)}
-        bcs = BoundaryConditions(spec, s_o)
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
 
         stencils = get_stencils(deriv, offset, bcs, cache=cache)
 
-        # for left in range(stencils.shape[0]):
-        #     print("Left variant", left, "Right variant 5")
-        #     print(stencils[left, 5])
+        if offset == -0.5:
+            assert stencils.shape == (order+1, order+2, order+1)
+        elif offset == 0.5:
+            assert stencils.shape == (order+2, order+1, order+1)
 
-        raise NotImplementedError
+        # raise NotImplementedError
