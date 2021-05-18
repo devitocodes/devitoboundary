@@ -71,7 +71,7 @@ def build_dataframe(data, spacing):
 
 def apply_grid_offset(df, axis, offset):
     """
-    Shift eta values according to grid offset. Carried out in place
+    Shift eta values according to grid offset.
     """
     df.eta_l -= offset
     df.eta_r -= offset
@@ -140,6 +140,62 @@ def calculate_reciprocals(df, axis, side):
     return reciprocals
 
 
+def tag_no_swap(df, axis):
+    """
+    Tag the indices of points where the grid shift wants to be applied, but
+    without manipulating the distances if they are too large or have incorrect
+    signs. For these points, special-case stencils will want to be used.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of unshifted points
+    axis : str
+        The axis along which reciprocals should be calculated. Should be 'x',
+        'y', or 'z'
+    """
+    # First need to calculate reciprocals
+    reciprocals_l = calculate_reciprocals(df, axis, 'l')
+    reciprocals_r = calculate_reciprocals(df, axis, 'r')
+
+    full_df = df.append([reciprocals_l, reciprocals_r])
+
+    # Group and aggregate to consolidate points doubled up by this process
+    aggregated_data = full_df.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
+
+    # Conditions for points where eta shouldn't be swapped
+    # FIXME: Comparison to NaN results in RuntimeWarning
+    # Can I do something with np.where?
+    l_cond = np.logical_or(aggregated_data.eta_l.to_numpy() + 0.5 < _feps,
+                           pd.isna(aggregated_data.eta_l).to_numpy())
+    r_cond = np.logical_or(aggregated_data.eta_r.to_numpy() - 0.5 > _feps,
+                           pd.isna(aggregated_data.eta_r).to_numpy())
+
+    # True where special-case stencils should be used
+    cond = np.logical_or(l_cond, r_cond)
+
+    # Indices where special-case stencils should not be used
+    indices = aggregated_data[cond].index
+
+    # Set a column with a bool of True
+    # FIXME: Move to build dataframe
+    # df['swap'] = True
+
+    # Group the original dataframe to allow for indexing
+    # FIXME: The agg('min') works fine, but feels hacky
+    grouped_df = df.groupby(['z', 'y', 'x']).agg('min')
+
+    # Get indices which are actually valid
+    good_indices = indices.intersection(grouped_df.index)
+
+    print("Grouped dataframe")
+    print(grouped_df)
+
+    grouped_df.loc[good_indices, 'swap'] = False
+
+    return grouped_df.reset_index()
+
+
 def get_data_inc_reciprocals(data, spacing, axis, offset):
     """
     Calculate and consolidate reciprocal values, returning resultant dataframe.
@@ -163,6 +219,7 @@ def get_data_inc_reciprocals(data, spacing, axis, offset):
 
     df = build_dataframe(data, spacing)
 
+    # TODO: Call tag_no_swap if grid_offset and eval_offset are non-zero
     df = apply_grid_offset(df, axis, offset)
 
     reciprocals_l = calculate_reciprocals(df, axis, 'l')
