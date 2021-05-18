@@ -69,37 +69,40 @@ def build_dataframe(data, spacing):
     return points
 
 
-def apply_grid_offset(df, axis, offset):
+def apply_grid_offset(df, axis, grid_offset, eval_offset):
     """
     Shift eta values according to grid offset.
     """
-    df.eta_l -= offset
-    df.eta_r -= offset
+    df.eta_l -= grid_offset
+    df.eta_r -= grid_offset
 
-    if np.sign(offset) == 1:
-        eta_r_mask = df.eta_r < 0
-        eta_l_mask = df.eta_l <= -1
+    # Want to check the grid offset and evaluation offset
+    # If both are non-zero then skip this next bit
+    if abs(grid_offset) < _feps or abs(eval_offset) < _feps:
+        if np.sign(grid_offset) == 1:
+            eta_r_mask = df.eta_r < 0
+            eta_l_mask = df.eta_l <= -1
 
-        df.loc[eta_r_mask, 'eta_l'] = df.eta_r[eta_r_mask]
-        df.loc[eta_r_mask, 'eta_r'] = np.NaN
+            df.loc[eta_r_mask, 'eta_l'] = df.eta_r[eta_r_mask]
+            df.loc[eta_r_mask, 'eta_r'] = np.NaN
 
-        df.loc[eta_l_mask, 'eta_l'] += 1
+            df.loc[eta_l_mask, 'eta_l'] += 1
 
-        df.loc[eta_l_mask, axis] -= 1
+            df.loc[eta_l_mask, axis] -= 1
 
-    elif np.sign(offset) == -1:
-        eta_r_mask = df.eta_r > 1
-        eta_l_mask = df.eta_l >= 0
+        elif np.sign(grid_offset) == -1:
+            eta_r_mask = df.eta_r > 1
+            eta_l_mask = df.eta_l >= 0
 
-        df.loc[eta_l_mask, 'eta_r'] = df.eta_l[eta_l_mask]
-        df.loc[eta_l_mask, 'eta_l'] = np.NaN
+            df.loc[eta_l_mask, 'eta_r'] = df.eta_l[eta_l_mask]
+            df.loc[eta_l_mask, 'eta_l'] = np.NaN
 
-        df.loc[eta_r_mask, 'eta_r'] -= 1
+            df.loc[eta_r_mask, 'eta_r'] -= 1
 
-        df.loc[eta_r_mask, axis] += 1
+            df.loc[eta_r_mask, axis] += 1
 
-    # Aggregate and reset the index to undo the grouping
-    df = df.groupby(['z', 'y', 'x']).agg({'eta_l': 'max', 'eta_r': 'min'}).reset_index()
+        # Aggregate and reset the index to undo the grouping
+        df = df.groupby(['z', 'y', 'x']).agg({'eta_l': 'max', 'eta_r': 'min'}).reset_index()
 
     # Make sure zero distances appear on both sides
     l_zero_mask = df.eta_l == 0
@@ -140,63 +143,7 @@ def calculate_reciprocals(df, axis, side):
     return reciprocals
 
 
-def tag_no_swap(df, axis):
-    """
-    Tag the indices of points where the grid shift wants to be applied, but
-    without manipulating the distances if they are too large or have incorrect
-    signs. For these points, special-case stencils will want to be used.
-
-    Parameters
-    ----------
-    df : pandas DataFrame
-        The dataframe of unshifted points
-    axis : str
-        The axis along which reciprocals should be calculated. Should be 'x',
-        'y', or 'z'
-    """
-    # First need to calculate reciprocals
-    reciprocals_l = calculate_reciprocals(df, axis, 'l')
-    reciprocals_r = calculate_reciprocals(df, axis, 'r')
-
-    full_df = df.append([reciprocals_l, reciprocals_r])
-
-    # Group and aggregate to consolidate points doubled up by this process
-    aggregated_data = full_df.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
-
-    # Conditions for points where eta shouldn't be swapped
-    # FIXME: Comparison to NaN results in RuntimeWarning
-    # Can I do something with np.where?
-    l_cond = np.logical_or(aggregated_data.eta_l.to_numpy() + 0.5 < _feps,
-                           pd.isna(aggregated_data.eta_l).to_numpy())
-    r_cond = np.logical_or(aggregated_data.eta_r.to_numpy() - 0.5 > _feps,
-                           pd.isna(aggregated_data.eta_r).to_numpy())
-
-    # True where special-case stencils should be used
-    cond = np.logical_or(l_cond, r_cond)
-
-    # Indices where special-case stencils should not be used
-    indices = aggregated_data[cond].index
-
-    # Set a column with a bool of True
-    # FIXME: Move to build dataframe
-    # df['swap'] = True
-
-    # Group the original dataframe to allow for indexing
-    # FIXME: The agg('min') works fine, but feels hacky
-    grouped_df = df.groupby(['z', 'y', 'x']).agg('min')
-
-    # Get indices which are actually valid
-    good_indices = indices.intersection(grouped_df.index)
-
-    print("Grouped dataframe")
-    print(grouped_df)
-
-    grouped_df.loc[good_indices, 'swap'] = False
-
-    return grouped_df.reset_index()
-
-
-def get_data_inc_reciprocals(data, spacing, axis, offset):
+def get_data_inc_reciprocals(data, spacing, axis, grid_offset, eval_offset):
     """
     Calculate and consolidate reciprocal values, returning resultant dataframe.
 
@@ -208,8 +155,10 @@ def get_data_inc_reciprocals(data, spacing, axis, offset):
         The grid spacing for the specified axis
     axis : str
         The specified axis
-    offset : float
+    grid_offset : float
         The grid offset for this axis
+    eval_offset : float
+        The relative offset at which the derivative is evaluated
 
     Returns
     -------
@@ -219,8 +168,7 @@ def get_data_inc_reciprocals(data, spacing, axis, offset):
 
     df = build_dataframe(data, spacing)
 
-    # TODO: Call tag_no_swap if grid_offset and eval_offset are non-zero
-    df = apply_grid_offset(df, axis, offset)
+    df = apply_grid_offset(df, axis, grid_offset, eval_offset)
 
     reciprocals_l = calculate_reciprocals(df, axis, 'l')
     reciprocals_r = calculate_reciprocals(df, axis, 'r')
@@ -661,7 +609,8 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     f_grid = function.grid
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
 
-    full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim, grid_offset)
+    full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim,
+                                         grid_offset, eval_offset)
 
     add_distance_column(full_data)
 
