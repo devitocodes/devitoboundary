@@ -1,5 +1,7 @@
 ## Devitoboundary
 
+[![CI-Core](https://github.com/devitocodes/devitoboundary/actions/workflows/pytest_core.yml/badge.svg)](https://github.com/devitocodes/devitoboundary/actions/workflows/pytest_core.yml)
+
 Devitoboundary is a set of utilities used for the implementation of
 immersed boundaries in Devito. The intention is to build useful
 abstractions to simplify the process of imposing boundary conditions
