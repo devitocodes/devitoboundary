@@ -429,25 +429,26 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
         The Function to fill with stencil coefficients
     """
     if point_type == 'first':
-        n_pts = np.minimum(int(space_order/2), 1-df.dist.to_numpy())
+        # Need to increase max number of points to use if eta sign is wrong
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_r, 1-df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
         modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
         # Starting point for the right stencil (moving from left to right)
-        start_right = space_order-2*(n_pts-1)-modifier_right
+        start_right = space_order-2*(n_pts-1)-modifier_right+modifier_eta_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
 
+        # FIXME: Couldn't these all be done with np.arange?
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
             left_variants = np.zeros((mask_size, i), dtype=int)
 
-            # This is capped at space_order to prevent invalid variant numbers
-            right_variants = np.minimum(np.tile(2*np.arange(i), (mask_size, 1))
-                                        + start_right[mask, np.newaxis],
-                                        space_order)
+            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) + start_right[mask, np.newaxis]
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'first', i,
@@ -459,11 +460,14 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
                          weights, axis, n_pts=i)
 
     elif point_type == 'last':
-        n_pts = np.minimum(int(space_order/2), 1+df.dist.to_numpy())
+        # Need to increase max number of points to use if eta sign is wrong
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
 
-        start_left = space_order-modifier_left
+        start_left = space_order-modifier_left+modifier_eta_l
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
@@ -471,9 +475,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
             # This is capped at space_order to prevent invalid variant numbers
-            left_variants = np.minimum(np.tile(-2*np.arange(i), (mask_size, 1))
-                                       + start_left[mask, np.newaxis],
-                                       space_order)
+            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) + start_left[mask, np.newaxis]
 
             right_variants = np.zeros((mask_size, i), dtype=int)
 
@@ -487,6 +489,10 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
                          weights, axis, n_pts=i)
 
     elif point_type == 'double':
+        # No need to increase number of points, but variant number may change
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+
         n_pts = 1
         # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
@@ -499,12 +505,11 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
         modifier_zero = np.where(zero_mask, np.NaN, 0)
         # This will cause stencil to default to zero
 
-        start_left = space_order-modifier_left+modifier_zero
-        start_right = space_order-modifier_right+modifier_zero
+        start_left = space_order-modifier_left+modifier_zero+modifier_eta_l
+        start_right = space_order-modifier_right+modifier_zero+modifier_eta_r
 
-        # This is capped at space_order to prevent invalid variant numbers
-        left_variants = np.minimum(start_left[:, np.newaxis], space_order)
-        right_variants = np.minimum(start_right[:, np.newaxis], space_order)
+        left_variants = start_left[:, np.newaxis]
+        right_variants = start_right[:, np.newaxis]
 
         # Iterate over left and right variants
         eval_stencils = evaluate_stencils(df, 'double', 1,
@@ -515,26 +520,28 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
         fill_weights(df, eval_stencils, 'double', weights, axis)
 
     elif point_type == 'paired_left':
-        n_pts = np.minimum(int(space_order/2), df.dist.to_numpy())
+        # Increase number of points based on eta_l, but modify start positions
+        # based on both eta_l and eta_r
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_l, df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        start_left = space_order-modifier_left
-        start_right = space_order-2*df.dist.to_numpy()-modifier_right
+        start_left = space_order-modifier_left+modifier_eta_l
+        start_right = space_order-2*df.dist.to_numpy()-modifier_right+modifier_eta_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
-            # This is capped at space_order to prevent invalid variant numbers
-            left_variants = np.minimum(np.tile(-2*np.arange(i), (mask_size, 1))
-                                       + start_left[mask, np.newaxis],
-                                       space_order)
-            right_variants = np.minimum(np.maximum(np.tile(2*np.arange(i), (mask_size, 1))
-                                                   + start_right[mask, np.newaxis], 0),
-                                        space_order)
+
+            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) + start_left[mask, np.newaxis]
+            right_variants = np.maximum(np.tile(2*np.arange(i), (mask_size, 1))
+                                        + start_right[mask, np.newaxis], 0)
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
@@ -545,28 +552,29 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
                          weights, axis, n_pts=i)
 
     elif point_type == 'paired_right':
-        n_pts = np.minimum(int(space_order/2),
-                           1-df.dist.to_numpy()-np.minimum(int(space_order/2),
+        # Increase number of points based on eta_r, but modify start positions
+        # based on both eta_l and eta_r
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_r,
+                           1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l,
                                                            -df.dist.to_numpy()))
         # Modifier for points which lie within half a grid spacing of the boundary
         modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
         modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        start_left = space_order+2*df.dist.to_numpy()-modifier_left
-        start_right = space_order-2*(n_pts-1)-modifier_right
+        start_left = space_order+2*df.dist.to_numpy()-modifier_left+modifier_eta_l
+        start_right = space_order-2*(n_pts-1)-modifier_right+modifier_eta_r
 
         i_min = np.amin(n_pts)
         i_max = np.amax(n_pts)
         for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
             mask = n_pts == i
             mask_size = np.count_nonzero(mask)
-            # This is capped at space_order to prevent invalid variant numbers
-            left_variants = np.minimum(np.maximum(np.tile(-2*np.arange(i), (mask_size, 1))
-                                                  + start_left[mask, np.newaxis], 0),
-                                       space_order)
-            right_variants = np.minimum(np.tile(2*np.arange(i), (mask_size, 1))
-                                        + start_right[mask, np.newaxis],
-                                        space_order)
+            left_variants = np.maximum(np.tile(-2*np.arange(i), (mask_size, 1))
+                                       + start_left[mask, np.newaxis], 0)
+            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) + start_right[mask, np.newaxis]
 
             # Iterate over left and right variants
             eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
