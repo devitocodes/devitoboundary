@@ -467,7 +467,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     """
     if point_type == 'first':
         # Need to increase max number of points to use if eta sign is wrong
-        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < -_feps, 1, 0)
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r, 1-df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
@@ -498,7 +498,7 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
 
     elif point_type == 'last':
         # Need to increase max number of points to use if eta sign is wrong
-        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > _feps, 1, 0)
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
@@ -527,8 +527,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
 
     elif point_type == 'double':
         # No need to increase number of points, but variant number may change
-        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > _feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < -_feps, 1, 0)
 
         n_pts = 1
         # Modifier for points which lie within half a grid spacing of the boundary
@@ -559,8 +559,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     elif point_type == 'paired_left':
         # Increase number of points based on eta_l, but modify start positions
         # based on both eta_l and eta_r
-        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > _feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < -_feps, 1, 0)
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, df.dist.to_numpy())
         # Modifier for points which lie within half a grid spacing of the boundary
@@ -591,8 +591,8 @@ def get_variants(df, space_order, point_type, axis, stencils, weights):
     elif point_type == 'paired_right':
         # Increase number of points based on eta_r, but modify start positions
         # based on both eta_l and eta_r
-        modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-        modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+        modifier_eta_l = np.where(df.eta_l.to_numpy() > _feps, 1, 0)
+        modifier_eta_r = np.where(df.eta_r.to_numpy() < -_feps, 1, 0)
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r,
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l,
