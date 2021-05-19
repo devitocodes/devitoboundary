@@ -290,7 +290,12 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
 
-        for right_var in range(space_order+1):
+        # Want to check largest and smallest stencil variants
+        # Set a range between these
+        r_min = np.amin(right_variants)
+        r_max = np.amax(right_variants)
+
+        for right_var in range(r_min, r_max+1):
             mask = right_variants == right_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[0, right_var, coeff]
@@ -300,7 +305,12 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
                            (1, n_stencils)) - eta_base
 
-        for left_var in range(space_order+1):
+        # Want to check largest and smallest stencil variants
+        # Set a range between these
+        l_min = np.amin(left_variants)
+        l_max = np.amax(left_variants)
+
+        for left_var in range(l_min, l_max+1):
             mask = left_variants == left_var
             for coeff in range(space_order+1):
                 func = stencil_lambda[left_var, 0, coeff]
@@ -310,8 +320,15 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_left = df.eta_l.to_numpy()[:, np.newaxis]
         eta_right = df.eta_r.to_numpy()[:, np.newaxis]
 
-        for left_var in range(space_order+1):
-            for right_var in range(space_order+1):
+        # Want to check largest and smallest stencil variants
+        # Set a range between these
+        l_min = np.amin(left_variants)
+        l_max = np.amax(left_variants)
+        r_min = np.amin(right_variants)
+        r_max = np.amax(right_variants)
+
+        for left_var in range(l_min, l_max+1):
+            for right_var in range(r_min, r_max+1):
                 mask = np.logical_and(left_variants == left_var,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
@@ -326,8 +343,15 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + dst - eta_base
 
-        for left_var in range(space_order+1):
-            for right_var in range(space_order+1):
+        # Want to check largest and smallest stencil variants
+        # Set a range between these
+        l_min = np.amin(left_variants)
+        l_max = np.amax(left_variants)
+        r_min = np.amin(right_variants)
+        r_max = np.amax(right_variants)
+
+        for left_var in range(l_min, l_max+1):
+            for right_var in range(r_min, r_max+1):
                 mask = np.logical_and(left_variants == left_var,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
@@ -343,8 +367,15 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
         eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
                             (1, n_stencils)) + n_stencils - eta_base - 1
 
-        for left_var in range(space_order+1):
-            for right_var in range(space_order+1):
+        # Want to check largest and smallest stencil variants
+        # Set a range between these
+        l_min = np.amin(left_variants)
+        l_max = np.amax(left_variants)
+        r_min = np.amin(right_variants)
+        r_max = np.amax(right_variants)
+
+        for left_var in range(l_min, l_max+1):
+            for right_var in range(r_min, r_max+1):
                 mask = np.logical_and(left_variants == left_var,
                                       right_variants == right_var)
                 for coeff in range(space_order+1):
