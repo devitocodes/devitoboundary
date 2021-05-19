@@ -47,8 +47,8 @@ class TestDistances:
         right[right_index[0], right_index[1], right_index[2]] = -0.7*spacing
 
         # Should produce the same results
-        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], offset)
-        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], offset)
+        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], offset, 0)
+        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], offset, 0)
 
         assert(np.all(np.isclose(data_l, data_r, equal_nan=True)))
 
@@ -75,7 +75,7 @@ class TestDistances:
 
         points = pd.DataFrame(frame)
 
-        apply_grid_offset(points, 'x', offset)
+        apply_grid_offset(points, 'x', offset, 0)
 
         assert np.all(points.x.to_numpy()[:17] == 2*np.arange(17))
         assert np.all(points.x.to_numpy()[17:] == 34 + 2*np.arange(5) - np.sign(offset))
@@ -100,7 +100,7 @@ class TestDistances:
         distances[ind[0], ind[1], ind[2]] = 0.6
 
         # TODO: Ideally want to vary grid offset too
-        data = get_data_inc_reciprocals(distances, 1, xyz[axis], 0)
+        data = get_data_inc_reciprocals(distances, 1, xyz[axis], 0, 0)
         add_distance_column(data)
 
         first, last, double, paired_left, paired_right = split_types(data,
@@ -148,8 +148,8 @@ class TestStencils:
             # -ve stagger
             offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
 
-        data = get_data_inc_reciprocals(distances, spacing, 'x', 0)
-        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)
+        data = get_data_inc_reciprocals(distances, spacing, 'x', 0, 0)
+        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset, 0)
         dmask = np.full(21, True, dtype=bool)
         dmask[1] = False
         data = data[dmask]
@@ -213,8 +213,8 @@ class TestStencils:
             # -ve stagger
             offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
 
-        data = get_data_inc_reciprocals(distances, spacing, 'x', 0)
-        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset)
+        data = get_data_inc_reciprocals(distances, spacing, 'x', 0, 0)
+        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset, 0)
         dmask = np.full(21, True, dtype=bool)
         dmask[1] = False
         data = data[dmask]
@@ -282,7 +282,7 @@ class TestStencils:
         else:
             distances[4, :, :] = 0
 
-        data = get_data_inc_reciprocals(distances, 1, 'x', goffset)
+        data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
         add_distance_column(data)
         data = data.iloc[1:-1]
 

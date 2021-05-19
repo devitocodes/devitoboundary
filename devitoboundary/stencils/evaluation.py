@@ -57,9 +57,9 @@ def build_dataframe(data, spacing):
 
     eta = data[x, y, z]
 
-    col_x = pd.Series(x.astype(np.int), name='x')
-    col_y = pd.Series(y.astype(np.int), name='y')
-    col_z = pd.Series(z.astype(np.int), name='z')
+    col_x = pd.Series(x.astype(int), name='x')
+    col_y = pd.Series(y.astype(int), name='y')
+    col_z = pd.Series(z.astype(int), name='z')
 
     eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
     eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
@@ -292,8 +292,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Want to check largest and smallest stencil variants
         # Set a range between these
-        r_min = np.amin(right_variants)
-        r_max = np.amax(right_variants)
+        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
+        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
 
         for right_var in range(r_min, r_max+1):
             mask = right_variants == right_var
@@ -307,8 +307,8 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Want to check largest and smallest stencil variants
         # Set a range between these
-        l_min = np.amin(left_variants)
-        l_max = np.amax(left_variants)
+        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
 
         for left_var in range(l_min, l_max+1):
             mask = left_variants == left_var
@@ -322,10 +322,16 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Want to check largest and smallest stencil variants
         # Set a range between these
-        l_min = np.amin(left_variants)
-        l_max = np.amax(left_variants)
-        r_min = np.amin(right_variants)
-        r_max = np.amax(right_variants)
+        try:
+            l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+            l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+            r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
+            r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
+        except ValueError as err:
+            # If all placeholder NaN, then the amin and amax throw this exception
+            if str(err) == 'zero-size array to reduction operation minimum which has no identity':
+                # Just return stencils, since they're all zero
+                return stencils
 
         for left_var in range(l_min, l_max+1):
             for right_var in range(r_min, r_max+1):
@@ -345,10 +351,10 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Want to check largest and smallest stencil variants
         # Set a range between these
-        l_min = np.amin(left_variants)
-        l_max = np.amax(left_variants)
-        r_min = np.amin(right_variants)
-        r_max = np.amax(right_variants)
+        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
+        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
 
         for left_var in range(l_min, l_max+1):
             for right_var in range(r_min, r_max+1):
@@ -369,10 +375,10 @@ def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
 
         # Want to check largest and smallest stencil variants
         # Set a range between these
-        l_min = np.amin(left_variants)
-        l_max = np.amax(left_variants)
-        r_min = np.amin(right_variants)
-        r_max = np.amax(right_variants)
+        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
+        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
+        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
 
         for left_var in range(l_min, l_max+1):
             for right_var in range(r_min, r_max+1):
