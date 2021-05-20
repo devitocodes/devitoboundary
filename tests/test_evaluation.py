@@ -417,3 +417,58 @@ class TestStencils:
 
         for i in range(10):
             check_row(w.data, i, stencils_lambda)
+
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y dimension of 1
+    def test_special_case_stencils(self, order):
+        """
+        Check that special-case stencils required for staggered systems of equations
+        are selected and evaluated correctly.
+        """
+        deriv = 1
+
+        def evaluate_variant(stencils_lambda, left_var, right_var,
+                             left_eta, right_eta):
+            """Evaluate the specified stencil"""
+            stencil = stencils_lambda[left_var, right_var]
+            eval_stencil = np.array([stencil[i](left_eta, right_eta)
+                                     for i in range(order+1)])
+            return eval_stencil
+
+        def check_stencil(data, stencils_lambda):
+            """Check that the stencils produced are correct"""
+            # Loop over indices of interest
+            for x_ind in range(4-order//2, 5+order//2):
+                if x_ind < 5:
+                    left_var = 0
+                    right_var = order + 1 - 2*(4-x_ind)
+                    eta_l = np.zeros(10)
+                    eta_r = np.linspace(-0.4, -0.1, 10) + (4-x_ind)
+                else:
+                    left_var = order+1 - 2*(x_ind-4)
+                    right_var = 0
+                    eta_l = np.linspace(-0.4, -0.1, 10) - (x_ind-4)
+                    eta_r = np.zeros(10)
+                for z_ind in range(10):
+                    true_stencil = evaluate_variant(stencils_lambda, left_var, right_var,
+                                                    eta_l[z_ind], eta_r[z_ind])
+
+                    misfit = data[x_ind, :, z_ind] - true_stencil
+                    assert np.amax(np.absolute(misfit)) < 1e-6
+
+        bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        grid = Grid(shape=(10, 1, 10), extent=(9., 0., 9.))
+        x, y, z = grid.dimensions
+        function = Function(name='function', grid=grid, space_order=order, staggered=x)
+
+        distances = np.full((10, 1, 10), -order//2, dtype=float)
+        distances[4, :] = np.linspace(0.1, 0.4, 10)[np.newaxis, :]
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(deriv, -0.5, bcs, cache=cache)
+
+        w = get_component_weights(distances, 0, function, deriv, stencils_lambda, -0.5)
+
+        check_stencil(w.data, stencils_lambda)
