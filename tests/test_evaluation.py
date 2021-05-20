@@ -28,11 +28,14 @@ class TestDistances:
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('spacing', [0.1, 1, 10])
-    @pytest.mark.parametrize('offset', [-0.5, 0., 0.5])
-    def test_reciprocal_calculation(self, axis, spacing, offset):
+    @pytest.mark.parametrize('offsets', [(-0.5, 0.), (0., 0.), (0.5, 0.),
+                                         (-0.5, 0.5), (0.5, -0.5)])
+    def test_reciprocal_calculation(self, axis, spacing, offsets):
         """
         A test to check that reciprocal eta calculated are consistent.
         """
+        grid_offset = offsets[0]
+        eval_offset = offsets[1]
         xyz = ('x', 'y', 'z')
         left = np.full((10, 10, 10), -2*spacing, dtype=float)
         right = np.full((10, 10, 10), -2*spacing, dtype=float)
@@ -47,8 +50,8 @@ class TestDistances:
         right[right_index[0], right_index[1], right_index[2]] = -0.7*spacing
 
         # Should produce the same results
-        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], offset, 0)
-        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], offset, 0)
+        data_l = get_data_inc_reciprocals(left, spacing, xyz[axis], grid_offset, eval_offset)
+        data_r = get_data_inc_reciprocals(right, spacing, xyz[axis], grid_offset, eval_offset)
 
         assert(np.all(np.isclose(data_l, data_r, equal_nan=True)))
 
