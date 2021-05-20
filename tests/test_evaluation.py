@@ -87,6 +87,48 @@ class TestDistances:
             assert np.all(np.logical_or(np.logical_and(points.eta_r >= 0, points.eta_r < 1),
                                         points.eta_l > -0.5))
 
+    @pytest.mark.parametrize('grid_offset', [-0.5, 0.5])
+    def test_offset_skipping(self, grid_offset):
+        """
+        Test to check that eta manipulations are skipped when applying grid offset
+        for points where both grid offset and evaluation offset are non-zero
+        """
+        n_pts = 11
+        x = 2*np.arange(2*n_pts)
+        y = np.full(2*n_pts, 5)
+        z = np.full(2*n_pts, 5)
+
+        if grid_offset == 0.5:
+            eta_r = np.append(np.linspace(0, 0.9, n_pts), np.full(n_pts, np.NaN))
+            eta_l = np.append(np.full(n_pts, np.NaN), np.linspace(0, -0.9, n_pts))
+        elif grid_offset == -0.5:
+            eta_r = np.append(np.full(n_pts, np.NaN), np.linspace(0, 0.9, n_pts))
+            eta_l = np.append(np.linspace(0, -0.9, n_pts), np.full(n_pts, np.NaN))
+        else:
+            raise ValueError("Invalid offset")
+
+        frame = {'x': x, 'y': y, 'z': z, 'eta_l': eta_l, 'eta_r': eta_r}
+
+        points = pd.DataFrame(frame)
+
+        offset_points = apply_grid_offset(points, 'x', grid_offset, -grid_offset)
+        print(offset_points)
+
+        if grid_offset == -0.5:
+            # Check left side
+            assert np.all(np.isnan(offset_points.eta_l[11:]))
+            assert np.all(offset_points.eta_l[:11] == np.linspace(0.5, -0.4, n_pts))
+            # Check right side
+            assert np.all(np.isnan(offset_points.eta_r[:11]))
+            assert np.all(offset_points.eta_r[11:] == np.linspace(0.5, 1.4, n_pts))
+        elif grid_offset == 0.5:
+            # Check left side
+            assert np.all(np.isnan(offset_points.eta_l[:11]))
+            assert np.all(offset_points.eta_l[11:] == np.linspace(-0.5, -1.4, n_pts))
+            # Check right side
+            assert np.all(np.isnan(offset_points.eta_r[11:]))
+            assert np.all(offset_points.eta_r[:11] == np.linspace(-0.5, 0.4, n_pts))
+
     @pytest.mark.parametrize('axis', [0, 1, 2])
     def test_type_splitting(self, axis):
         """
