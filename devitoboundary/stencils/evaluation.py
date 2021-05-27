@@ -6,7 +6,6 @@ import os
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
