@@ -288,8 +288,8 @@ class TestStencils:
         w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
         w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
 
-        get_variants(data, order, point_type, 'x', stencils_lambda, w_normal)
-        get_variants(offset_data, order, point_type, 'x', stencils_lambda, w_offset)
+        get_variants(data, order, point_type, 'x', stencils_lambda, w_normal, 0)
+        get_variants(offset_data, order, point_type, 'x', stencils_lambda, w_offset, 0)
 
         if point_type == 'first':
             assert np.all(np.isclose(w_normal.data[2:5], w_offset.data[2:5]))
@@ -299,8 +299,6 @@ class TestStencils:
     @pytest.mark.parametrize('order', [4, 6])
     @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
                                       {'bcs': 'odd', 'deriv': 1, 'goffset': 0., 'eoffset': 0.},
-                                      {'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
-                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5},
                                       {'bcs': 'even', 'deriv': 2, 'goffset': 0., 'eoffset': 0.}])
     @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
     def test_zero_handling(self, order, spec):
@@ -340,10 +338,66 @@ class TestStencils:
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
 
-        get_variants(data, order, 'double', 'x', stencils_lambda, w)
+        get_variants(data, order, 'double', 'x', stencils_lambda, w, eoffset)
 
-        # Derivative stencils should pretty much always pop out as zero on boundary I think
+        # Derivative stencils should be zero if evaluation offset is zero
         assert(np.all(w.data == 0))
+
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
+    def test_zero_handling_staggered(self, order, spec):
+        """
+        Check that stencils with distances of zero evaluate correctly for staggered
+        systems.
+        """
+        # Unpack the spec
+        bc_type = spec['bcs']
+        deriv = spec['deriv']
+        goffset = spec['goffset']
+        eoffset = spec['eoffset']
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+
+        distances = np.full((10, 1, 1), -2*order, dtype=float)
+        if goffset == 0.5:
+            distances[4, :, :] = 0.5
+        else:
+            distances[4, :, :] = 0
+
+        data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
+        add_distance_column(data)
+
+        right_dist = pd.notna(data.eta_l)
+        left_dist = pd.notna(data.eta_r)
+        data.loc[right_dist, 'dist'] = order
+        data.loc[left_dist, 'dist'] = -order
+
+        grid = Grid(shape=(10, 1, 1), extent=(9, 0, 0))
+        s_dim = Dimension(name='s')
+        ncoeffs = order + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w = Function(name='w', dimensions=w_dims, shape=w_shape)
+
+        get_variants(data.loc[left_dist], order, 'first', 'x', stencils_lambda, w, eoffset)
+        get_variants(data.loc[right_dist], order, 'last', 'x', stencils_lambda, w, eoffset)
+
+        if goffset == 0.5:
+            assert np.all(np.isclose(w.data[4, 0, 0], np.array([stencils_lambda[0, 1+order, i](0, 0) for i in range(order+1)])))
+            assert np.all(np.isclose(w.data[5, 0, 0], np.array([stencils_lambda[order-1, 0, i](-1, 0) for i in range(order+1)])))
+        else:
+            assert np.all(np.isclose(w.data[3, 0, 0], np.array([stencils_lambda[0, order-1, i](0, 1) for i in range(order+1)])))
+            assert np.all(np.isclose(w.data[4, 0, 0], np.array([stencils_lambda[order+1, 0, i](0, 0) for i in range(order+1)])))
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
