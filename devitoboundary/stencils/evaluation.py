@@ -711,7 +711,9 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
         = split_types(full_data, axis_dim, f_grid.shape[axis])
 
     # Additional dimension for storing weights
-    s_dim = Dimension(name='s')
+    # FIXME: there is probably a better way to do this, with dimensions stored in
+    # a dict
+    s_dim = Dimension(name='s'+str(function.space_order))
     ncoeffs = function.space_order + 1
 
     w_shape = f_grid.shape + (ncoeffs,)
