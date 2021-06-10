@@ -16,6 +16,22 @@ def taylor(x, order):
     return polynomial
 
 
+def get_taylor_order(pts_count, bcs):
+    """Get the maximum taylor series order given the number of bcs and points"""
+    n_skip = pts_count
+    for i in range(bcs.order):
+        if n_skip == 0:
+            if i+1 in [*bcs.bcs]:
+                pass
+            else:
+                return i
+        elif i in [*bcs.bcs]:
+            pass
+        else:
+            n_skip -= 1
+    return bcs.order
+
+
 class BoundaryConditions:
     """
     Contains information on a given set of boundary conditions.
@@ -122,11 +138,15 @@ def get_ext_coeffs(bcs, cache=None):
 
 def _get_ext_coeffs(bcs):
     """Get the extrapolation coefficients for a set of boundary conditions"""
-    n_pts = bcs.order//2  # Number of interior points
+    valid_bcs = np.array([*bcs.bcs])
+    valid_bcs = valid_bcs[valid_bcs <= bcs.order]
+
+    n_pts = 1+bcs.order - len(valid_bcs)  # Maximum number of interior points
     coeff_dict = {}  # Master coefficient dictionary
     for points_count in range(1, n_pts+1):
         # This -1 might want to be taken into account somewhere else
-        taylor = bcs.get_taylor(order=2*points_count - 1)
+        taylor_order = get_taylor_order(points_count, bcs)
+        taylor = bcs.get_taylor(order=taylor_order)
         lhs = sum([E[point]*taylor.subs(bcs.x, x_a[point]) for point in range(points_count)])
         rhs = taylor.subs(bcs.x, x_t)
         eqs = [sp.Eq(sp.expand(lhs).coeff(a[i], 1), sp.expand(rhs).coeff(a[i], 1)) for i in range(bcs.order+1)
@@ -136,7 +156,7 @@ def _get_ext_coeffs(bcs):
         solve_vars = [E[point] for point in range(points_count)]
         coeffs = sp.solve(eqs, solve_vars)
 
-        coeff_dict[points_count] = coeffs
+        coeff_dict[points_count] = sp.factor(sp.simplify(coeffs))
 
     return coeff_dict
 
