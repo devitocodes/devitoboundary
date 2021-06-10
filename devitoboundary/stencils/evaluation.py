@@ -68,22 +68,43 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
     if abs(eval_offset) < _feps:
         eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
+
+        frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
+        points = pd.DataFrame(frame)
     elif abs(grid_offset) < _feps:
         if np.sign(eval_offset) == 1:
             eta_r = pd.Series(np.where(eta > 0, eta/spacing, np.NaN), name='eta_r')
             eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
+
+            frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
+            points = pd.DataFrame(frame)
+            # Explicitly remove <= -1 (prevents spurious double points)
+            points = points[points.eta_l > -1]
         elif np.sign(eval_offset) == -1:
             eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
             eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
+
+            frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
+            points = pd.DataFrame(frame)
+            # Explicitly remove >= 1
+            points = points[points.eta_r < 1]
     elif grid_offset >= _feps:
         eta_r = pd.Series(np.where(eta > 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
+
+        frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
+        points = pd.DataFrame(frame)
+        # Explicitly remove <= -1
+        points = points[points.eta_l > -1]
     elif grid_offset <= -_feps:
         eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
 
-    frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
-    points = pd.DataFrame(frame)
+        frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
+        points = pd.DataFrame(frame)
+        # Explicitly remove >= 1
+        points = points[points.eta_r < 1]
+
     return points
 
 
@@ -778,13 +799,14 @@ def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
         # TODO: Could just calculate this rather than finding the minimum
         fill_val = np.amin(data[axis].data)
         if np.any(data[axis].data != fill_val):
+            print(deriv, function, function.grid.dimensions[axis])
             # If True, then behave as normal
             # If False then pass
             stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
 
             axis_weights = get_component_weights(data[axis].data, axis, function,
                                                  deriv, stencils, eval_offsets[axis])
-            print(deriv, function, function.grid.dimensions[axis], axis_weights)
+
             weights.append(Coefficient(deriv, function,
                                        function.grid.dimensions[axis],
                                        axis_weights))
