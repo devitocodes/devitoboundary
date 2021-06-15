@@ -42,7 +42,6 @@ def standard_stencil(deriv, space_order, offset=0., as_float=True, as_dict=False
         mask = coeffs != 0
         coeffs = coeffs[mask]
         indices = (np.array(x_list)[mask] + offset).astype(int)
-        print(dict(zip(indices, coeffs)))
         return dict(zip(indices, coeffs))
     else:
         return coeffs
