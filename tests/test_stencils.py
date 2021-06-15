@@ -265,3 +265,11 @@ class TestStencilSet:
 
         assert np.all(ext_l == setup['el'])
         assert np.all(ext_r == setup['er'])
+
+    @pytest.mark.parametrize('setup', [])
+    def test_stencil_convergence(self, setup):
+        """
+        Check that grid refinement increases accuracy in line with discretization order.
+        """
+        # TODO: Finish this
+        pass
