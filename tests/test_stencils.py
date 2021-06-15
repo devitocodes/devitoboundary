@@ -6,7 +6,7 @@ import pickle
 import os
 
 from devitoboundary.stencils.stencils import (taylor, BoundaryConditions, get_ext_coeffs,
-                                              get_stencils, get_stencils_lambda)
+                                              StencilSet)
 from devitoboundary.symbolics.symbols import x_a, x_t, x_b, E
 
 
@@ -151,80 +151,117 @@ class TestExtrapolations:
                 assert sp.simplify(diff) == 0
 
 
-class TestStencils:
-    """Tests for the modified stencils"""
-    @pytest.mark.parametrize('order', [4, 6, 8])
-    @pytest.mark.parametrize('derivative', [1, 2])
-    def test_single_sided(self, order, derivative):
-        """
-        Test to check that single-sided stencils adequately approximate the
-        original derivative.
-        """
-        # Accuracy
-        thres = 0.002
-        # Note: dx = 1 for simplicity
-
-        def u_func(x, eta, deriv=0):
-            if deriv == 0:
-                return np.sin((x + 3*eta)*np.pi/(4*eta))
-            elif deriv == 1:
-                return np.pi/(4*eta)*np.cos((x + 3*eta)*np.pi/(4*eta))
-            elif deriv == 2:
-                return -(np.pi/(4*eta))**2*np.sin((x + 3*eta)*np.pi/(4*eta))
-
-        spec = {2*i: 0 for i in range(order)}
-        bcs = BoundaryConditions(spec, order)
-
-        stencils_lambda = get_stencils_lambda(derivative, 0, bcs)
-
-        errors = []
-
-        # As left and right single sided are mirrored, fix left variant at 0
-        # Skip last variant, as it is usually not too accurate
-        for var in range(1, order):
-            # Set max and min etas for the variant
-            # Will have 9 (10+1-2) etas per variant
-            min_eta = order//2 - 0.5*var + 0.05
-            max_eta = order//2 - 0.5*(var-1) - 0.05
-            eta = np.linspace(min_eta, max_eta, 9)[::-1]
-
-            stencil = stencils_lambda[0, var]
-
-            for eta_val in eta:
-                evaluated = 0
-                for coeff in range(order+1):
-                    func = stencil[coeff]
-                    multiplier = u_func(coeff-order//2, eta_val)
-                    evaluated += multiplier*func(0, eta_val)
-                err = abs(evaluated-u_func(0, eta_val, deriv=derivative))
-                errors.append(err)
-
-        assert np.median(errors) < thres
-
-    @pytest.mark.parametrize('offset', [0.5, -0.5])
-    @pytest.mark.parametrize('bc_type', ['even', 'odd'])
+class TestStencilSet:
+    """Tests for the StencilSet class and its functions"""
     @pytest.mark.parametrize('order', [4, 6])
-    def test_special_variants(self, offset, bc_type, order):
+    @pytest.mark.parametrize('setup', [{'offset': 0, 'deriv': 2, 'bcs': 'even'},
+                                       {'offset': 0.5, 'deriv': 1, 'bcs': 'even'},
+                                       {'offset': -0.5, 'deriv': 1, 'bcs': 'odd'}])
+    def test_get_keys(self, order, setup):
         """
-        Check that special stencil variants generated for cases where the staggered
-        and unstaggered points lie on either side of the boundary are generated.
+        Test that the keys returned are correct
         """
-        # TODO: Possibly make this test more robust
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        # Staggered stencils only really used with first derivatives
-        deriv = 1
+        offset = setup['offset']
+        deriv = setup['deriv']
 
-        if bc_type == 'even':
+        if setup['bcs'] == 'even':
             bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+            key_len = order+1
+            min_left = 0.5-order//2
+            max_right = order//2-0.5
         else:
             bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+            key_len = order+3
+            min_left = -0.5-order//2
+            max_right = order//2 + 0.5
 
-        stencils = get_stencils(deriv, offset, bcs, cache=cache)
+        stencils = StencilSet(deriv, offset, bcs, cache=cache)
 
+        keys = stencils._get_keys()
+
+        if offset == 0:
+            assert keys.shape[0] == key_len**2
+        else:
+            assert keys.shape[0] == key_len*(key_len+1)
+
+        left = keys[:, 0]
+        right = keys[:, 1]
+
+        max_left = 0
+        min_right = 0
         if offset == -0.5:
-            assert stencils.shape == (order+1, order+2, order+1)
+            min_right = -0.5
         elif offset == 0.5:
-            assert stencils.shape == (order+2, order+1, order+1)
+            max_left = 0.5
 
-        # raise NotImplementedError
+        assert np.amax(left[~np.isnan(left)]) == max_left
+        assert np.amin(left[~np.isnan(left)]) == min_left
+
+        assert np.amax(right[~np.isnan(right)]) == max_right
+        assert np.amin(right[~np.isnan(right)]) == min_right
+
+    @pytest.mark.parametrize('setup', [{'ord': 4, 'l': -1.5, 'r': 0.5, 'el': [-2], 'er': [1]},
+                                       {'ord': 4, 'l': -2.5, 'r': 0., 'el': [], 'er': [1]},
+                                       {'ord': 4, 'l': -0.5, 'r': 2., 'el': [-2, -1], 'er': []},
+                                       {'ord': 6, 'l': -1.5, 'r': 0.5, 'el': [-3, -2], 'er': [1, 2, 3]},
+                                       {'ord': 6, 'l': -2.5, 'r': 0., 'el': [-3], 'er': [1, 2, 3]},
+                                       {'ord': 6, 'l': -0.5, 'r': 2., 'el': [-3, -2, -1], 'er': [3]}])
+    def test_get_outside(self, setup):
+        """Check that oints outside boundary are identified correctly"""
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+        order = setup['ord']
+        key = (setup['l'], setup['r'])
+
+        bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        # Quick test so only on one stencil type
+        stencils = StencilSet(1, -0.5, bcs, cache=cache)
+
+        points_l, points_r = stencils._get_outside(key)
+
+        assert np.all(points_l == setup['el'])
+        assert np.all(points_r == setup['er'])
+
+    @pytest.mark.parametrize('setup', [{'key': (-0.5, np.NaN), 'el': [0, 1], 'er': [1, 2], 'f': False},
+                                       {'key': (-1, np.NaN), 'el': [0, 1], 'er': [1, 2], 'f': False},
+                                       {'key': (-1.5, np.NaN), 'el': [-1, 0], 'er': [1, 2], 'f': False},
+                                       {'key': (np.NaN, 0.5), 'el': [-2, -1], 'er': [-1, 0], 'f': False},
+                                       {'key': (np.NaN, 1), 'el': [-2, -1], 'er': [-1, 0], 'f': False},
+                                       {'key': (np.NaN, 1.5), 'el': [-2, -1], 'er': [0, 1], 'f': False},
+                                       {'key': (-0.5, 1.5), 'el': [0, 1], 'er': [0, 1], 'f': False},
+                                       {'key': (-1, 1), 'el': [0, 1], 'er': [-1, 0], 'f': False},
+                                       {'key': (-1.5, 0), 'el': [-1, 0], 'er': [-1], 'f': False},
+                                       {'key': (-1.5, 0.5), 'el': [-1, 0], 'er': [-1, 0], 'f': False},
+                                       {'key': (-1.5, 1), 'el': [-1, 0], 'er': [-1, 0], 'f': False},
+                                       {'key': (-0.5, 1.5), 'el': [0, 1], 'er': [0, 1], 'f': False},
+                                       {'key': (-0.5, 0.5), 'el': [0], 'er': [0], 'f': False},
+                                       {'key': (-0.5, 0), 'el': [0], 'er': [0], 'f': False},
+                                       {'key': (0, 0), 'el': [0], 'er': [0], 'f': True}])
+    def test_get_extrapolation_points(self, setup):
+        """
+        Check that the points to be used for extrapolation are identified
+        correctly.
+        """
+        key = setup['key']
+        order = 4
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+
+        stencils = StencilSet(2, 0, bcs, cache=cache)
+
+        out_l, out_r = stencils._get_outside(key)
+
+        ext_l, ext_r, l_floor, r_floor = stencils._get_extrapolation_points(key, out_l, out_r)
+
+        # Should be false in this case
+        if setup['f']:
+            assert l_floor or r_floor
+        else:
+            assert not l_floor or r_floor
+
+        assert np.all(ext_l == setup['el'])
+        assert np.all(ext_r == setup['er'])
