@@ -266,10 +266,101 @@ class TestStencilSet:
         assert np.all(ext_l == setup['el'])
         assert np.all(ext_r == setup['er'])
 
-    @pytest.mark.parametrize('setup', [])
+    @pytest.mark.parametrize('setup', [{'order': 4, 'deriv': 2, 'offset': 0, 'bcs': 'even'},
+                                       {'order': 6, 'deriv': 2, 'offset': 0, 'bcs': 'even'},
+                                       {'order': 4, 'deriv': 1, 'offset': 0.5, 'bcs': 'even'},
+                                       {'order': 4, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'},
+                                       {'order': 6, 'deriv': 1, 'offset': 0.5, 'bcs': 'even'},
+                                       {'order': 6, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'}])
     def test_stencil_convergence(self, setup):
         """
         Check that grid refinement increases accuracy in line with discretization order.
         """
-        # TODO: Finish this
-        pass
+        # First need to create the stencils and get the lambdaified versions
+        order = setup['order']
+
+        if setup['bcs'] == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+            # Define benchmark function
+            def fnc(x):
+                return np.sin(x)
+            if setup['deriv'] == 1:
+                def tru_drv(x):
+                    return np.cos(x)
+            elif setup['deriv'] == 2:
+                def tru_drv(x):
+                    return -np.sin(x)
+        else:
+            bcs = BoundaryConditions({2*i+1: 0 for i in range(1+order//2)}, order)
+            # Define benchmark function
+            def fnc(x):
+                return np.cos(x)
+            if setup['deriv'] == 1:
+                def tru_drv(x):
+                    return -np.sin(x)
+            elif setup['deriv'] == 2:
+                def tru_drv(x):
+                    return -np.cos(x)
+
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils = StencilSet(setup['deriv'], setup['offset'], bcs, cache=cache)
+
+        lambdas = stencils.lambdaify
+
+        # Create a set of distances to test and a corresponding set of keys
+        l_mod = setup['offset'] == 0.5
+        r_mod = setup['offset'] == -0.5
+        # TODO: Would be more rigorous if it used separate left and right distances
+        distances = np.linspace(0.1-order/2 + l_mod, order/2-0.1 - r_mod, 5*order)
+        if setup['offset'] == 0.5:
+            max_l = 0.5
+        else:
+            max_l = 0
+        if setup['offset'] == -0.5:
+            min_r = -0.5
+        else:
+            min_r = 0
+
+        l_dist = distances[distances < max_l]
+        r_dist = distances[distances > min_r]
+        l_len = l_dist.shape
+        r_len = r_dist.shape
+
+        l_dist = np.append(l_dist, np.full(r_len, np.NaN))
+        r_dist = np.append(np.full(l_len, np.NaN), r_dist)
+        
+        # Create a set of spacings
+        spacings = np.linspace(2, 0.2, 20)
+
+        misfit = np.zeros((len(spacings), len(l_dist)))
+        for i in range(len(spacings)):
+            dx = spacings[i]
+            # Loop over lambda keys
+            for key in lambdas:
+                eta_l, eta_r = key
+                if np.isnan(eta_l):
+                    mask = np.logical_and(r_dist >= eta_r, r_dist < eta_r + 0.5)
+                elif np.isnan(eta_r):
+                    mask = np.logical_and(l_dist < eta_l, l_dist >= eta_l - 0.5)
+                else:
+                    mask = np.full(l_dist.shape, False)
+                key_l = l_dist[mask]
+                key_r = r_dist[mask]
+                key_s = np.zeros(key_l.shape)
+                for index in lambdas[key]:
+                    if np.isnan(eta_l):
+                        key_s += lambdas[key][index](key_l, key_r)*fnc((index-key_r)*dx)
+                    elif np.isnan(eta_r):
+                        key_s += lambdas[key][index](key_l, key_r)*fnc((index-key_l)*dx)
+                if np.isnan(eta_l):
+                    misfit[i, mask] = np.abs((key_s/dx**setup['deriv']) - tru_drv((setup['offset']-key_r)*dx))
+                elif np.isnan(eta_r):
+                    misfit[i, mask] = np.abs((key_s/dx**setup['deriv']) - tru_drv((setup['offset']-key_l)*dx))
+
+        log_dx = np.log10(spacings)
+        log_m = np.log10(misfit)
+
+        convergence_gradients = np.polyfit(log_dx, log_m, 1)[0]
+        assert np.mean(convergence_gradients) > order-1
