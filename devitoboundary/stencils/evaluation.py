@@ -9,7 +9,6 @@ import numpy as np
 
 from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
-from devitoboundary.stencils.stencils import get_stencils_lambda
 from devitoboundary.stencils.stencil_utils import standard_stencil, get_grid_offset
 
 _feps = np.finfo(np.float32).eps  # Get the eps

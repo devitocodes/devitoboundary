@@ -46,5 +46,5 @@ def get_interior(sdf, i_point, qc=False):
         plt.colorbar()
         plt.show()
 
-    return segmented
+    return np.array(segmented)
 
