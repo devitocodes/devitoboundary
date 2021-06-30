@@ -9,6 +9,7 @@ import numpy as np
 
 from devito import Coefficient, Dimension, Function
 from devitoboundary import __file__
+from devitoboundary.stencils.stencils import StencilSet
 from devitoboundary.stencils.stencil_utils import standard_stencil, get_grid_offset
 
 _feps = np.finfo(np.float32).eps  # Get the eps
@@ -293,223 +294,72 @@ def split_types(data, axis, axis_size):
     return first, last, double, paired_left, paired_right
 
 
-def evaluate_stencils(df, point_type, n_stencils, left_variants, right_variants,
-                      space_order, stencil_lambda):
+def drop_outside_points(df, segment):
+    """Drop points where the grid node is outside the domain"""
+    x_vals = df.index.get_level_values('x').to_numpy()
+    y_vals = df.index.get_level_values('y').to_numpy()
+    z_vals = df.index.get_level_values('z').to_numpy()
+
+    ext_int = segment[x_vals, y_vals, z_vals] == 1
+    return df[ext_int]
+
+
+def shift_grid_endpoint(df, axis, eval_offset):
     """
-    Evaluate the stencils associated with a set of boundary-adjacent
-    points.
-
-    Parameters
-    ----------
-    df : pandas DataFrame
-        The dataframe of boundary-adjacent points
-    point_type : string
-        The category of the points. Can be 'first', 'last', 'double',
-        'paired_left', or 'paired_right'.
-    n_stencils : int
-        The number of stencils associated with each point. Each point must have
-        the same number of stencils associated with it.
-    left_variants: ndarray
-        The left-side stencil variants for each of the stencils
-    right_variants: ndarray
-        The right-side stencil variants for each of the stencils
-    space_order : int
-        The space order of the function for which stencils are to be evaluated
-    stencil_lambda : ndarray
-        The functions for stencils to be evaluated
-
-    Returns
-    -------
-    stencils : ndarray
-        The evaluated stencil coefficients
+    If the last point within the domain in the direction opposite to staggering
+    is not a grid node, then an extra grid node needs to be included on this side.
     """
-    # The base "index" for eta
-    eta_base = np.tile(np.arange(n_stencils), (left_variants.shape[0], 1))
-    # Initialise empty stencil array
-    stencils = np.zeros(left_variants.shape + (space_order + 1,), dtype=np.float32)
+    # I think this is not strictly the best way to do this, but is definitely
+    # more simple than the alternative
+    if np.sign(eval_offset) == 1:
+        # Make a mask for points where shift is necessary
+        mask = df.eta_l + 0.5 < _feps
 
-    if point_type == 'first':
-        eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
-                            (1, n_stencils)) + n_stencils - eta_base - 1
+        x_ind = df.index.get_level_values('x').to_numpy()
+        y_ind = df.index.get_level_values('y').to_numpy()
+        z_ind = df.index.get_level_values('z').to_numpy()
 
-        # Want to check largest and smallest stencil variants
-        # Set a range between these
-        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-
-        for right_var in range(r_min, r_max+1):
-            mask = right_variants == right_var
-            for coeff in range(space_order+1):
-                func = stencil_lambda[0, right_var, coeff]
-                stencils[mask, coeff] = func(0, eta_right[mask])
-
-    if point_type == 'last':
-        eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
-                           (1, n_stencils)) - eta_base
-
-        # Want to check largest and smallest stencil variants
-        # Set a range between these
-        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-
-        for left_var in range(l_min, l_max+1):
-            mask = left_variants == left_var
-            for coeff in range(space_order+1):
-                func = stencil_lambda[left_var, 0, coeff]
-                stencils[mask, coeff] = func(eta_left[mask], 0)
-
-    if point_type == 'double':
-        eta_left = df.eta_l.to_numpy()[:, np.newaxis]
-        eta_right = df.eta_r.to_numpy()[:, np.newaxis]
-
-        # Want to check largest and smallest stencil variants
-        # Set a range between these
-        try:
-            l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-            l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-            r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-            r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-        except ValueError as err:
-            # If all placeholder NaN, then the amin and amax throw this exception
-            if str(err) == 'zero-size array to reduction operation minimum which has no identity':
-                # Just return stencils, since they're all zero
-                return stencils
-
-        for left_var in range(l_min, l_max+1):
-            for right_var in range(r_min, r_max+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
-                for coeff in range(space_order+1):
-                    func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask],
-                                                 eta_right[mask])
-
-    if point_type == 'paired_left':
-        dst = df.dist.to_numpy()[:, np.newaxis]
-        eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
-                           (1, n_stencils)) - eta_base
-        eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
-                            (1, n_stencils)) + dst - eta_base
-
-        # Want to check largest and smallest stencil variants
-        # Set a range between these
-        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-
-        for left_var in range(l_min, l_max+1):
-            for right_var in range(r_min, r_max+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
-                for coeff in range(space_order+1):
-                    func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask],
-                                                 eta_right[mask])
-
-    if point_type == 'paired_right':
-        dst = df.dist.to_numpy()[:, np.newaxis]
-        # dst used to have a minus (this was wrong)
-        eta_left = np.tile(df.eta_l.to_numpy()[:, np.newaxis],
-                           (1, n_stencils)) + n_stencils + dst - eta_base - 1
-        eta_right = np.tile(df.eta_r.to_numpy()[:, np.newaxis],
-                            (1, n_stencils)) + n_stencils - eta_base - 1
-
-        # Want to check largest and smallest stencil variants
-        # Set a range between these
-        l_min = np.amin(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-        l_max = np.amax(left_variants[np.logical_not(np.isnan(left_variants))]).astype(int)
-        r_min = np.amin(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-        r_max = np.amax(right_variants[np.logical_not(np.isnan(right_variants))]).astype(int)
-
-        for left_var in range(l_min, l_max+1):
-            for right_var in range(r_min, r_max+1):
-                mask = np.logical_and(left_variants == left_var,
-                                      right_variants == right_var)
-                for coeff in range(space_order+1):
-                    func = stencil_lambda[left_var, right_var, coeff]
-                    stencils[mask, coeff] = func(eta_left[mask],
-                                                 eta_right[mask])
-    return stencils
-
-
-def fill_weights(points, stencils, point_type, weights, axis, n_pts=1):
-    """
-    Fill a specified Function with the corresponding weights.
-
-    Parameters:
-    points : pandas DataFrame
-        The set of boundary-adjacent points from which the function should
-        be filled.
-    stencils : ndarray
-        The set of stencils to fill with
-    point_type : string
-        The category of the points. Can be 'first', 'last', 'double',
-        'paired_left', or 'paired_right'.
-    weights : devito Function
-        The Function to fill with stencil coefficients
-    axis : str
-        The axis along which the stencils are orientated. Can be 'x', 'y', or
-        'z'.
-    n_pts : int
-        The number of stencils associated with each point. Each point must have
-        the same number of stencils associated with it.
-    """
-    x = points.index.get_level_values('x').values
-    y = points.index.get_level_values('y').values
-    z = points.index.get_level_values('z').values
-
-    if point_type == 'first' or point_type == 'paired_right':
         if axis == 'x':
-            for i in range(n_pts):
-                weights.data[x-n_pts+1+i, y, z] = stencils[:, i, :]
+            x_ind[mask] -= 1
         elif axis == 'y':
-            for i in range(n_pts):
-                weights.data[x, y-n_pts+1+i, z] = stencils[:, i, :]
+            y_ind[mask] -= 1
         elif axis == 'z':
-            for i in range(n_pts):
-                weights.data[x, y, z-n_pts+1+i] = stencils[:, i, :]
+            z_ind[mask] -= 1
 
-    elif point_type == 'last' or point_type == 'paired_left':
+        # Increment eta_l, distance
+        df.loc[mask, 'eta_l'] += 1
+        df.loc[mask, 'dist'] += 1
+
+    elif np.sign(eval_offset) == -1:
+        # Make a mask for points where shift is necessary
+        mask = df.eta_r - 0.5 > -_feps
+
+        x_ind = df.index.get_level_values('x').to_numpy()
+        y_ind = df.index.get_level_values('y').to_numpy()
+        z_ind = df.index.get_level_values('z').to_numpy()
+
         if axis == 'x':
-            for i in range(n_pts):
-                weights.data[x+i, y, z] = stencils[:, i, :]
+            x_ind[mask] += 1
         elif axis == 'y':
-            for i in range(n_pts):
-                weights.data[x, y+i, z] = stencils[:, i, :]
+            y_ind[mask] += 1
         elif axis == 'z':
-            for i in range(n_pts):
-                weights.data[x, y, z+i] = stencils[:, i, :]
+            z_ind[mask] += 1
 
-    elif point_type == 'double':
-        weights.data[x, y, z] = stencils[:, 0, :]
+        # Increment eta_r, distance
+        df.loc[mask, 'eta_r'] -= 1
+        df.loc[mask, 'dist'] -= 1
+
+    # Add the new incremented indices
+    df['x'] = x_ind
+    df['y'] = y_ind
+    df['z'] = z_ind
+
+    df = df.set_index(['z', 'y', 'x'])
+    return df
 
 
-def get_variants(df, space_order, point_type, axis, stencils, weights, eval_offset):
-    """
-    Get the all the stencil variants associated with the points, evaluate them,
-    and fill the respective positions in the weight function.
-
-    Parameters
-    ----------
-    df : pandas DataFrame
-        The dataframe of boundary-adjacent points
-    space_order : int
-        The order of the function for which stencils are to be generated
-    point_type : string
-        The category of the points. Can be 'first', 'last', 'double',
-        'paired_left', or 'paired_right'.
-    axis : str
-        The axis along which the stencils are orientated. Can be 'x', 'y', or
-        'z'.
-    stencils : ndarray
-        The functions for stencils to be evaluated
-    weights : devito Function
-        The Function to fill with stencil coefficients
-    eval_offset : float
-        The relative offset at which the derivative should be evaluated.
-        Used to toggle certain special cases
-    """
+def get_n_pts(df, point_type, space_order, eval_offset):
+    """Get the number of points associated with each end point"""
     if point_type == 'first':
         if abs(eval_offset) >= _feps:
             # Need to increase max number of points to use if eta sign is wrong
@@ -518,31 +368,6 @@ def get_variants(df, space_order, point_type, axis, stencils, weights, eval_offs
             modifier_eta_r = 0
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r, 1-df.dist.to_numpy())
-        # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
-
-        # Starting point for the right stencil (moving from left to right)
-        start_right = space_order-2*(n_pts-1)-modifier_right+modifier_eta_r
-
-        i_min = np.amin(n_pts)
-        i_max = np.amax(n_pts)
-
-        # FIXME: Couldn't these all be done with np.arange?
-        for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
-            mask = n_pts == i
-            mask_size = np.count_nonzero(mask)
-            left_variants = np.zeros((mask_size, i), dtype=int)
-
-            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) + start_right[mask, np.newaxis]
-
-            # Iterate over left and right variants
-            eval_stencils = evaluate_stencils(df[mask], 'first', i,
-                                              left_variants, right_variants,
-                                              space_order, stencils)
-
-            # Insert the stencils into the weight function
-            fill_weights(df[mask], eval_stencils, 'first',
-                         weights, axis, n_pts=i)
 
     elif point_type == 'last':
         if abs(eval_offset) >= _feps:
@@ -552,110 +377,22 @@ def get_variants(df, space_order, point_type, axis, stencils, weights, eval_offs
             modifier_eta_l = 0
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
-        # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
-
-        start_left = space_order-modifier_left+modifier_eta_l
-
-        i_min = np.amin(n_pts)
-        i_max = np.amax(n_pts)
-        for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
-            mask = n_pts == i
-            mask_size = np.count_nonzero(mask)
-            # This is capped at space_order to prevent invalid variant numbers
-            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) + start_left[mask, np.newaxis]
-
-            right_variants = np.zeros((mask_size, i), dtype=int)
-
-            # Iterate over left and right variants
-            eval_stencils = evaluate_stencils(df[mask], 'last', i,
-                                              left_variants, right_variants,
-                                              space_order, stencils)
-
-            # Insert the stencils into the weight function
-            fill_weights(df[mask], eval_stencils, 'last',
-                         weights, axis, n_pts=i)
 
     elif point_type == 'double':
-        if abs(eval_offset) >= _feps:
-            # No need to increase number of points, but variant number may change
-            modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-            modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
-        else:
-            modifier_eta_l = 0
-            modifier_eta_r = 0
-
         n_pts = 1
-        # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
-
-        # Mask for where both etas are zero (points on boundary)
-        zero_mask = np.logical_and(np.abs(df.eta_l.to_numpy()) < _feps,
-                                   np.abs(df.eta_r.to_numpy()) < _feps)
-
-        if abs(eval_offset) < _feps:
-            # Only if evaluation offset is zero (non-staggered equations)
-            # Stencil wants to be zero for points exactly on boundary, so set invalid variant numbers
-            modifier_zero = np.where(zero_mask, np.NaN, 0)
-            # This will cause stencil to default to zero
-        else:
-            modifier_zero = 0
-
-        start_left = space_order-modifier_left+modifier_zero+modifier_eta_l
-        start_right = space_order-modifier_right+modifier_zero+modifier_eta_r
-
-        left_variants = start_left[:, np.newaxis]
-        right_variants = start_right[:, np.newaxis]
-
-        # Iterate over left and right variants
-        eval_stencils = evaluate_stencils(df, 'double', 1,
-                                          left_variants, right_variants,
-                                          space_order, stencils)
-
-        # Insert the stencils into the weight function
-        fill_weights(df, eval_stencils, 'double', weights, axis)
 
     elif point_type == 'paired_left':
         if abs(eval_offset) >= _feps:
-            # Increase number of points based on eta_l, but modify start positions
-            # based on both eta_l and eta_r
+            # Increase number of points based on eta_l
             modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-            modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
         else:
             modifier_eta_l = 0
-            modifier_eta_r = 0
 
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, df.dist.to_numpy())
-        # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
-
-        start_left = space_order-modifier_left+modifier_eta_l
-        start_right = space_order-2*df.dist.to_numpy()-modifier_right+modifier_eta_r
-
-        i_min = np.amin(n_pts)
-        i_max = np.amax(n_pts)
-        for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
-            mask = n_pts == i
-            mask_size = np.count_nonzero(mask)
-
-            left_variants = np.tile(-2*np.arange(i), (mask_size, 1)) + start_left[mask, np.newaxis]
-            right_variants = np.maximum(np.tile(2*np.arange(i), (mask_size, 1))
-                                        + start_right[mask, np.newaxis], 0)
-
-            # Iterate over left and right variants
-            eval_stencils = evaluate_stencils(df[mask], 'paired_left', i,
-                                              left_variants, right_variants,
-                                              space_order, stencils)
-            # Insert the stencils into the weight function
-            fill_weights(df[mask], eval_stencils, 'paired_left',
-                         weights, axis, n_pts=i)
 
     elif point_type == 'paired_right':
         if abs(eval_offset) >= _feps:
-            # Increase number of points based on eta_r, but modify start positions
-            # based on both eta_l and eta_r
+            # Increase number of points based on eta_r, but cap affected by eta_l
             modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
             modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
         else:
@@ -665,33 +402,135 @@ def get_variants(df, space_order, point_type, axis, stencils, weights, eval_offs
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r,
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l,
                                                            -df.dist.to_numpy()))
-        # Modifier for points which lie within half a grid spacing of the boundary
-        modifier_left = np.where(df.eta_l.to_numpy() - -0.5 > _feps, 0, 1)
-        modifier_right = np.where(df.eta_r.to_numpy() - 0.5 < _feps, 0, 1)
 
-        start_left = space_order+2*df.dist.to_numpy()-modifier_left+modifier_eta_l
-        start_right = space_order-2*(n_pts-1)-modifier_right+modifier_eta_r
+    df['n_pts'] = n_pts
 
-        i_min = np.amin(n_pts)
-        i_max = np.amax(n_pts)
-        for i in np.linspace(i_min, i_max, 1+i_max-i_min, dtype=int):
-            mask = n_pts == i
-            mask_size = np.count_nonzero(mask)
-            left_variants = np.maximum(np.tile(-2*np.arange(i), (mask_size, 1))
-                                       + start_left[mask, np.newaxis], 0)
-            right_variants = np.tile(2*np.arange(i), (mask_size, 1)) + start_right[mask, np.newaxis]
-
-            # Iterate over left and right variants
-            eval_stencils = evaluate_stencils(df[mask], 'paired_right', i,
-                                              left_variants, right_variants,
-                                              space_order, stencils)
-
-            # Insert the stencils into the weight function
-            fill_weights(df[mask], eval_stencils, 'paired_right',
-                         weights, axis, n_pts=i)
+    return df
 
 
-def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
+def get_next_point(df, inc, axis):
+    """Increment to get the next points along"""
+    df = df.copy()
+    # Need to increment the axis
+    x_ind = df.index.get_level_values('x').to_numpy()
+    y_ind = df.index.get_level_values('y').to_numpy()
+    z_ind = df.index.get_level_values('z').to_numpy()
+
+    if axis == 'x':
+        x_ind += inc
+    elif axis == 'y':
+        y_ind += inc
+    elif axis == 'z':
+        z_ind += inc
+
+    # Add the new incremented indices
+    df['x'] = x_ind
+    df['y'] = y_ind
+    df['z'] = z_ind
+
+    df = df.set_index(['z', 'y', 'x'])
+    # Need to increment eta_l
+    df.eta_l -= inc
+    # Need to increment eta_r
+    df.eta_r -= inc
+
+    return df
+
+
+def get_master_df(msk_pts, point_type, pts):
+    """
+    Create a dataframe containing all the points for a given points
+    count.
+    """
+    # Make a big master dataframe for this number of points
+    if point_type == 'last' or point_type == 'paired_left':
+        frames = [get_next_point(msk_pts, inc, 'x') for inc in range(pts)]
+        master_df = pd.concat(frames)
+    elif point_type == 'first' or point_type == 'paired_right':
+        frames = [get_next_point(msk_pts, -inc, 'x') for inc in range(pts)]
+        master_df = pd.concat(frames)
+    elif point_type == 'double':
+        master_df = msk_pts.copy()
+    return master_df
+
+
+def get_key_mask(key, df, max_ext_points):
+    """Get the mask for a given key"""
+    # Unpack key
+    eta_l_in, eta_r_in = key
+    eta_l_out = eta_l_in - 0.5
+    eta_r_out = eta_r_in + 0.5
+
+    # Make a mask for this key
+    if np.isnan(eta_l_in):
+        l_msk = np.logical_or(np.isnan(df.eta_l), df.eta_l < -max_ext_points + _feps)
+    else:
+        l_msk = np.logical_and(df.eta_l >= eta_l_out - _feps,
+                               df.eta_l < eta_l_in + _feps)
+
+    if np.isnan(eta_r_in):
+        r_msk = np.logical_or(np.isnan(df.eta_r), df.eta_r >= max_ext_points - _feps)
+    else:
+        r_msk = np.logical_and(df.eta_r >= eta_r_in - _feps,
+                               df.eta_r < eta_r_out + _feps)
+    key_msk = np.logical_and(l_msk, r_msk)
+
+    return key_msk
+
+
+def eval_stencils(df, sten_lambda, max_ext_points):
+    """
+    Evaluate the stencils for this particular stencil variant
+    and associated points.
+    """
+    # Make a set of empty stencils to fill
+    stencils = np.zeros((len(df), 1+2*max_ext_points))
+
+    # Loop over stencil indices
+    for index in sten_lambda:
+        func = sten_lambda[index]
+        stencils[:, index+max_ext_points] = func(df.eta_l, df.eta_r)
+
+    return stencils
+
+
+def fill_weights(df, stencils, weights):
+    """
+    Fill the weight function with stencil coefficients.
+    """
+    # Get the point indices
+    x_ind = df.index.get_level_values('x').to_numpy()
+    y_ind = df.index.get_level_values('y').to_numpy()
+    z_ind = df.index.get_level_values('z').to_numpy()
+
+    # Fill the weights
+    weights.data[x_ind, y_ind, z_ind] = stencils
+
+
+def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
+    """Fill the stencil weights using the identified points"""
+    for pts in range(df.n_pts.min(), df.n_pts.max()+1):
+        msk_pts = df[df.n_pts == pts]
+
+        # Get all the points
+        master_df = get_master_df(msk_pts, point_type, pts)
+
+        # Now loop over keys
+        for key in lambdas:
+            # Make a mask for this key
+            key_msk = get_key_mask(key, master_df, max_ext_points)
+
+            # Now evaluate the stencils and drop them into place
+            sten_lambda = lambdas[key]
+            msk_pts = master_df[key_msk]
+
+            mod_stencils = eval_stencils(msk_pts, sten_lambda, max_ext_points)
+
+            fill_weights(msk_pts, mod_stencils, weights)
+
+
+def get_component_weights(data, axis, function, deriv, lambdas, interior,
+                          max_ext_points, eval_offset):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -706,8 +545,12 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
         The function for which stencils should be calculated
     deriv : int
         The order of the derivative to which the stencils pertain
-    stencils : ndarray
+    lambdas : dict
         The functions for stencils to be evaluated
+    interior : ndarray
+        The interior-exterior segmentation of the domain
+    max_ext_points : int
+        The maximum number of points required by the extrapolation
     eval_offset : float
         The relative offset at which the derivative should be evaluated.
         Used for setting the default fill stencil.
@@ -717,6 +560,7 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     w : devito Function
         Function containing the stencil coefficients
     """
+    # FIXME: Need to pass the interior/exterior segmentation to this
     grid_offset = get_grid_offset(function, axis)
 
     f_grid = function.grid
@@ -730,42 +574,70 @@ def get_component_weights(data, axis, function, deriv, stencils, eval_offset):
     first, last, double, paired_left, paired_right \
         = split_types(full_data, axis_dim, f_grid.shape[axis])
 
+    # Need to drop exterior points and shift grid endpoint
+    first = drop_outside_points(first, interior)
+    last = drop_outside_points(last, interior)
+    double = drop_outside_points(double, interior)
+    paired_left = drop_outside_points(paired_left, interior)
+    paired_right = drop_outside_points(paired_right, interior)
+
+    if abs(grid_offset) < _feps:
+        first = shift_grid_endpoint(first, axis_dim, eval_offset)
+        last = shift_grid_endpoint(last, axis_dim, eval_offset)
+        double = shift_grid_endpoint(double, axis_dim, eval_offset)
+        paired_left = shift_grid_endpoint(paired_left, axis_dim, eval_offset)
+        paired_right = shift_grid_endpoint(paired_right, axis_dim, eval_offset)
+
     # Additional dimension for storing weights
-    # FIXME: there is probably a better way to do this, with dimensions stored in
-    # a dict
-    s_dim = Dimension(name='s'+str(function.space_order))
-    ncoeffs = function.space_order + 1
+    # This will be dependent on the number of extrapolation points required
+    # and the space order.
+    dim_size = max(function.space_order//2, max_ext_points)
+    s_dim = Dimension(name='s'+str(2*dim_size))
+    ncoeffs = 2*dim_size + 1
 
     w_shape = f_grid.shape + (ncoeffs,)
     w_dims = f_grid.dimensions + (s_dim,)
 
     w = Function(name='w_'+function.name+'_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
-    w.data[:] = standard_stencil(deriv, function.space_order, offset=eval_offset)
+    # Do the initial stencil fill, padding where needs be
+    if max_ext_points > function.space_order//2:
+        # Need to zero pad the standard stencil
+        zero_pad = max_ext_points - function.space_order//2
+        w.data[interior == 1, zero_pad:-zero_pad] = standard_stencil(deriv,
+                                                                     function.space_order,
+                                                                     offset=eval_offset)
+    else:
+        w.data[interior == 1] = standard_stencil(deriv, function.space_order,
+                                                 offset=eval_offset)
 
     # Fill the stencils
-    get_variants(first, function.space_order, 'first',
-                 axis_dim, stencils, w, eval_offset)
-    get_variants(last, function.space_order, 'last',
-                 axis_dim, stencils, w, eval_offset)
+    if len(first.index) != 0:
+        first = get_n_pts(first, 'first', function.space_order, eval_offset)
+        fill_stencils(first, 'first', max_ext_points, lambdas, w)
 
-    # Check lengths before doing these three
+    if len(last.index) != 0:
+        last = get_n_pts(last, 'last', function.space_order, eval_offset)
+        fill_stencils(last, 'last', max_ext_points, lambdas, w)
+
     if len(double.index) != 0:
-        get_variants(double, function.space_order, 'double',
-                     axis_dim, stencils, w, eval_offset)
-    if len(paired_left.index) != 0:
-        get_variants(paired_left, function.space_order, 'paired_left',
-                     axis_dim, stencils, w, eval_offset)
-    if len(paired_right.index) != 0:
-        get_variants(paired_right, function.space_order, 'paired_right',
-                     axis_dim, stencils, w, eval_offset)
+        double = get_n_pts(double, 'double', function.space_order, eval_offset)
+        fill_stencils(double, 'double', max_ext_points, lambdas, w)
 
-    w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
+    if len(paired_left.index) != 0:
+        paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
+        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w)
+
+    if len(paired_right.index) != 0:
+        paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
+        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w)
+
+    # w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
 
 
-def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
+def get_weights(data, function, deriv, bcs, interior, eval_offsets=(0., 0., 0.)):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
@@ -780,6 +652,8 @@ def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
         The order of the derivative to which the stencils pertain
     bcs : list of devito Eq
         The boundary conditions which should hold at the surface
+    interior : ndarray
+        The interior-exterior segmentation of the domain
     eval_offsets : tuple of float
         The relative offsets at which derivatives should be evaluated for each
         axis.
@@ -801,10 +675,14 @@ def get_weights(data, function, deriv, bcs, eval_offsets=(0., 0., 0.)):
             print(deriv, function, function.grid.dimensions[axis])
             # If True, then behave as normal
             # If False then pass
-            stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
+            # stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
+            stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache)
+            lambdas = stencils.lambdaify
+            max_ext_points = stencils.max_ext_points
 
             axis_weights = get_component_weights(data[axis].data, axis, function,
-                                                 deriv, stencils, eval_offsets[axis])
+                                                 deriv, lambdas, interior,
+                                                 max_ext_points, eval_offsets[axis])
 
             weights.append(Coefficient(deriv, function,
                                        function.grid.dimensions[axis],

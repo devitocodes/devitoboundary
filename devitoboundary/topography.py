@@ -3,10 +3,10 @@ A module for implementation of topography in Devito via the immersed
 boundary method.
 """
 import numpy as np
-import matplotlib.pyplot as plt
 from devito import Substitutions
 from devitoboundary.distance import AxialDistanceFunction
 from devitoboundary.stencils.evaluation import get_weights
+from devitoboundary.segmentation import get_interior
 
 __all__ = ['ImmersedBoundary']
 
@@ -39,13 +39,22 @@ class ImmersedBoundary:
     functions : pandas DataFrame
         A dataframe of the functions to which the immersed boundary surface is
         to be applied. Should contain the columns 'function' and 'bcs'.
+    interior_point : tuple of float
+        x, y, and z coordinates of a point located in the interior of the domain.
+        Default is (0., 0., 0.)
+    qc : bool
+        If True, display the interior-exterior segmentation for quality checking
+        purposes. If striped or reversed, toggle_normals may want flipping.
+    toggle_normals : bool
+        If true, toggle the direction of surface normals.
 
     Methods
     -------
     subs(derivs)
     """
 
-    def __init__(self, name, surface, functions):
+    def __init__(self, name, surface, functions, interior_point=(0., 0., 0.),
+                 qc=False, toggle_normals=False):
         self._name = name
         self._surface = surface
         # Check functions contain columns with specified names
@@ -54,6 +63,11 @@ class ImmersedBoundary:
         if 'bcs' not in functions.columns:
             raise ValueError("No boundary conditions column specified")
         self._functions = functions
+
+        self._interior_point = interior_point
+
+        self._qc = qc
+        self._toggle_normals = toggle_normals
 
     def _get_function_weights(self, group):
         """
@@ -73,16 +87,11 @@ class ImmersedBoundary:
         bcs = self._functions.loc[function_mask, 'bcs'].values[0]
 
         # Create the axial distance function
-        ax = AxialDistanceFunction(first.function, self._surface)
+        ax = AxialDistanceFunction(first.function, self._surface,
+                                   toggle_normals=self._toggle_normals)
 
-        """
-        # Temp debugging
-        if function.name == 'p_d':
-            plt.imshow(ax.axial[2].data[:, 2, :].T/function.grid.spacing[2])
-            plt.title("Axis "+str(2))
-            plt.colorbar()
-            plt.show()
-        """
+        # Get interior segmentation
+        interior = get_interior(ax.sdf, self._interior_point, qc=True)
 
         # Empty tuple for weights
         weights = ()
@@ -90,7 +99,7 @@ class ImmersedBoundary:
         for i, row in group.iterrows():
             derivative = row.derivative
             eval_offset = row.eval_offset
-            weights += get_weights(ax.axial, function, derivative, bcs, eval_offsets=eval_offset)
+            weights += get_weights(ax.axial, function, derivative, bcs, interior, eval_offsets=eval_offset)
 
         return weights
 
