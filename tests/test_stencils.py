@@ -272,6 +272,7 @@ class TestStencilSet:
                                        {'order': 4, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'},
                                        {'order': 6, 'deriv': 1, 'offset': 0.5, 'bcs': 'even'},
                                        {'order': 6, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # Comparison to NaN
     def test_stencil_convergence(self, setup):
         """
         Check that grid refinement increases accuracy in line with discretization order.
@@ -281,6 +282,7 @@ class TestStencilSet:
 
         if setup['bcs'] == 'even':
             bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+
             # Define benchmark function
             def fnc(x):
                 return np.sin(x)
@@ -292,6 +294,7 @@ class TestStencilSet:
                     return -np.sin(x)
         else:
             bcs = BoundaryConditions({2*i+1: 0 for i in range(1+order//2)}, order)
+
             # Define benchmark function
             def fnc(x):
                 return np.cos(x)
@@ -301,7 +304,6 @@ class TestStencilSet:
             elif setup['deriv'] == 2:
                 def tru_drv(x):
                     return -np.cos(x)
-
 
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
@@ -330,7 +332,7 @@ class TestStencilSet:
 
         l_dist = np.append(l_dist, np.full(r_len, np.NaN))
         r_dist = np.append(np.full(l_len, np.NaN), r_dist)
-        
+
         # Create a set of spacings
         spacings = np.linspace(2, 0.2, 20)
 
@@ -364,3 +366,99 @@ class TestStencilSet:
 
         convergence_gradients = np.polyfit(log_dx, log_m, 1)[0]
         assert np.mean(convergence_gradients) > order-1
+
+    @pytest.mark.parametrize('setup', [{'order': 4, 'deriv': 2, 'offset': 0, 'bcs': 'even'},
+                                       {'order': 6, 'deriv': 2, 'offset': 0, 'bcs': 'even'},
+                                       {'order': 4, 'deriv': 1, 'offset': 0.5, 'bcs': 'even'},
+                                       {'order': 4, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'},
+                                       {'order': 6, 'deriv': 1, 'offset': 0.5, 'bcs': 'even'},
+                                       {'order': 6, 'deriv': 1, 'offset': -0.5, 'bcs': 'odd'}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # Comparison to NaN
+    def test_derivative_recovery(self, setup):
+        """
+        Test that appropriate polynomials and their derivatives are exactly
+        recovered by the generated stencils.
+        """
+        print(setup)
+        # First need to create the stencils and get the lambdaified versions
+        order = setup['order']
+
+        if setup['bcs'] == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+
+            # Define benchmark function
+            def fnc(x):
+                return sum([x**term if term % 2 != 0 else 0 for term in range(order+1)])
+            if setup['deriv'] == 1:
+                def tru_drv(x):
+                    return sum([term*x**(term-1) if term % 2 != 0 else 0 for term in range(1, order+1)])
+            elif setup['deriv'] == 2:
+                def tru_drv(x):
+                    return sum([term*(term-1)*x**(term-2) if term % 2 != 0 else 0 for term in range(2, order+1)])
+        else:
+            bcs = BoundaryConditions({2*i+1: 0 for i in range(1+order//2)}, order)
+
+            # Define benchmark function
+            def fnc(x):
+                return sum([x**term if term % 2 == 0 else 0 for term in range(order+1)])
+            if setup['deriv'] == 1:
+                def tru_drv(x):
+                    return sum([term*x**(term-1) if term % 2 == 0 else 0 for term in range(1, order+1)])
+            elif setup['deriv'] == 2:
+                def tru_drv(x):
+                    return sum([term*(term-1)*x**(term-2) if term % 2 == 0 else 0 for term in range(2, order+1)])
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils = StencilSet(setup['deriv'], setup['offset'], bcs, cache=cache)
+
+        lambdas = stencils.lambdaify
+
+        # Create a set of distances to test and a corresponding set of keys
+        l_mod = setup['offset'] == 0.5
+        r_mod = setup['offset'] == -0.5
+        # TODO: Would be more rigorous if it used separate left and right distances
+        distances = np.linspace(0.1-order/2 + l_mod, order/2-0.1 - r_mod, 5*order)
+        if setup['offset'] == 0.5:
+            max_l = 0.5
+        else:
+            max_l = 0
+        if setup['offset'] == -0.5:
+            min_r = -0.5
+        else:
+            min_r = 0
+
+        l_dist = distances[distances < max_l]
+        r_dist = distances[distances > min_r]
+        l_len = l_dist.shape
+        r_len = r_dist.shape
+
+        l_dist = np.append(l_dist, np.full(r_len, np.NaN))
+        r_dist = np.append(np.full(l_len, np.NaN), r_dist)
+
+        misfit = np.zeros(len(l_dist))
+
+        dx = 1
+        # Loop over lambda keys
+        for key in lambdas:
+            eta_l, eta_r = key
+            if np.isnan(eta_l):
+                mask = np.logical_and(r_dist >= eta_r, r_dist < eta_r + 0.5)
+            elif np.isnan(eta_r):
+                mask = np.logical_and(l_dist < eta_l, l_dist >= eta_l - 0.5)
+            else:
+                mask = np.full(l_dist.shape, False)
+            key_l = l_dist[mask]
+            key_r = r_dist[mask]
+            key_s = np.zeros(key_l.shape)
+            for index in lambdas[key]:
+                if np.isnan(eta_l):
+                    key_s += lambdas[key][index](key_l, key_r)*fnc((index-key_r)*dx)
+                elif np.isnan(eta_r):
+                    key_s += lambdas[key][index](key_l, key_r)*fnc((index-key_l)*dx)
+            if np.isnan(eta_l):
+                misfit[mask] = np.abs((key_s/dx**setup['deriv']) - tru_drv((setup['offset']-key_r)*dx))
+            elif np.isnan(eta_r):
+                misfit[mask] = np.abs((key_s/dx**setup['deriv']) - tru_drv((setup['offset']-key_l)*dx))
+
+        assert np.median(misfit) < 5e-6
