@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 
 from devito import Coefficient, Dimension, Function
+from devito.logger import warning
 from devitoboundary import __file__
 from devitoboundary.stencils.stencils import StencilSet
 from devitoboundary.stencils.stencil_utils import standard_stencil, get_grid_offset
@@ -304,50 +305,90 @@ def drop_outside_points(df, segment):
     return df[ext_int]
 
 
-def shift_grid_endpoint(df, axis, eval_offset):
+def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     """
     If the last point within the domain in the direction opposite to staggering
     is not a grid node, then an extra grid node needs to be included on this side.
     """
+    # FIXME: Needs to operate differently for non-zero grid offsets
     # I think this is not strictly the best way to do this, but is definitely
     # more simple than the alternative
-    if np.sign(eval_offset) == 1:
-        # Make a mask for points where shift is necessary
-        mask = df.eta_l + 0.5 < _feps
+    if abs(grid_offset) < _feps:
+        if np.sign(eval_offset) == 1:
+            # Make a mask for points where shift is necessary
+            mask = df.eta_l + 0.5 < _feps
 
-        x_ind = df.index.get_level_values('x').to_numpy()
-        y_ind = df.index.get_level_values('y').to_numpy()
-        z_ind = df.index.get_level_values('z').to_numpy()
+            x_ind = df.index.get_level_values('x').to_numpy()
+            y_ind = df.index.get_level_values('y').to_numpy()
+            z_ind = df.index.get_level_values('z').to_numpy()
 
-        if axis == 'x':
-            x_ind[mask] -= 1
-        elif axis == 'y':
-            y_ind[mask] -= 1
-        elif axis == 'z':
-            z_ind[mask] -= 1
+            if axis == 'x':
+                x_ind[mask] -= 1
+            elif axis == 'y':
+                y_ind[mask] -= 1
+            elif axis == 'z':
+                z_ind[mask] -= 1
 
-        # Increment eta_l, distance
-        df.loc[mask, 'eta_l'] += 1
-        df.loc[mask, 'dist'] += 1
+            # Increment eta_l, distance
+            df.loc[mask, 'eta_l'] += 1
+            df.loc[mask, 'dist'] += 1
 
-    elif np.sign(eval_offset) == -1:
-        # Make a mask for points where shift is necessary
-        mask = df.eta_r - 0.5 > -_feps
+        elif np.sign(eval_offset) == -1:
+            # Make a mask for points where shift is necessary
+            mask = df.eta_r - 0.5 > -_feps
 
-        x_ind = df.index.get_level_values('x').to_numpy()
-        y_ind = df.index.get_level_values('y').to_numpy()
-        z_ind = df.index.get_level_values('z').to_numpy()
+            x_ind = df.index.get_level_values('x').to_numpy()
+            y_ind = df.index.get_level_values('y').to_numpy()
+            z_ind = df.index.get_level_values('z').to_numpy()
 
-        if axis == 'x':
-            x_ind[mask] += 1
-        elif axis == 'y':
-            y_ind[mask] += 1
-        elif axis == 'z':
-            z_ind[mask] += 1
+            if axis == 'x':
+                x_ind[mask] += 1
+            elif axis == 'y':
+                y_ind[mask] += 1
+            elif axis == 'z':
+                z_ind[mask] += 1
 
-        # Increment eta_r, distance
-        df.loc[mask, 'eta_r'] -= 1
-        df.loc[mask, 'dist'] -= 1
+            # Increment eta_r, distance
+            df.loc[mask, 'eta_r'] -= 1
+            df.loc[mask, 'dist'] -= 1
+
+    else:  # Non-zero grid offset
+        if np.sign(eval_offset) == 1:
+            # Make a mask for points where shift is necessary
+            mask = df.eta_r - 1 > -_feps
+
+            x_ind = df.index.get_level_values('x').to_numpy()
+            y_ind = df.index.get_level_values('y').to_numpy()
+            z_ind = df.index.get_level_values('z').to_numpy()
+
+            if axis == 'x':
+                x_ind[mask] += 1
+            elif axis == 'y':
+                y_ind[mask] += 1
+            elif axis == 'z':
+                z_ind[mask] += 1
+
+            # Increment eta_r, distance
+            df.loc[mask, 'eta_r'] -= 1
+            df.loc[mask, 'dist'] -= 1
+        elif np.sign(eval_offset) == -1:
+            # Make a mask for points where shift is necessary
+            mask = df.eta_l + 1 < _feps
+
+            x_ind = df.index.get_level_values('x').to_numpy()
+            y_ind = df.index.get_level_values('y').to_numpy()
+            z_ind = df.index.get_level_values('z').to_numpy()
+
+            if axis == 'x':
+                x_ind[mask] -= 1
+            elif axis == 'y':
+                y_ind[mask] -= 1
+            elif axis == 'z':
+                z_ind[mask] -= 1
+
+            # Increment eta_l, distance
+            df.loc[mask, 'eta_l'] += 1
+            df.loc[mask, 'dist'] += 1
 
     # Add the new incremented indices
     df['x'] = x_ind
@@ -514,6 +555,7 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
 
         # Get all the points
         master_df = get_master_df(msk_pts, point_type, pts)
+        # print(master_df)
 
         # Now loop over keys
         for key in lambdas:
@@ -522,6 +564,7 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
 
             # Now evaluate the stencils and drop them into place
             sten_lambda = lambdas[key]
+
             msk_pts = master_df[key_msk]
 
             mod_stencils = eval_stencils(msk_pts, sten_lambda, max_ext_points)
@@ -560,7 +603,6 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     w : devito Function
         Function containing the stencil coefficients
     """
-    # FIXME: Need to pass the interior/exterior segmentation to this
     grid_offset = get_grid_offset(function, axis)
 
     f_grid = function.grid
@@ -581,12 +623,11 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     paired_left = drop_outside_points(paired_left, interior)
     paired_right = drop_outside_points(paired_right, interior)
 
-    if abs(grid_offset) < _feps:
-        first = shift_grid_endpoint(first, axis_dim, eval_offset)
-        last = shift_grid_endpoint(last, axis_dim, eval_offset)
-        double = shift_grid_endpoint(double, axis_dim, eval_offset)
-        paired_left = shift_grid_endpoint(paired_left, axis_dim, eval_offset)
-        paired_right = shift_grid_endpoint(paired_right, axis_dim, eval_offset)
+    first = shift_grid_endpoint(first, axis_dim, grid_offset, eval_offset)
+    last = shift_grid_endpoint(last, axis_dim, grid_offset, eval_offset)
+    double = shift_grid_endpoint(double, axis_dim, grid_offset, eval_offset)
+    paired_left = shift_grid_endpoint(paired_left, axis_dim, grid_offset, eval_offset)
+    paired_right = shift_grid_endpoint(paired_right, axis_dim, grid_offset, eval_offset)
 
     # Additional dimension for storing weights
     # This will be dependent on the number of extrapolation points required
@@ -607,6 +648,13 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         w.data[interior == 1, zero_pad:-zero_pad] = standard_stencil(deriv,
                                                                      function.space_order,
                                                                      offset=eval_offset)
+        # Needs to return a warning if padding is used for the time being
+        # Will need a dummy function to create the substitutions, with a higher
+        # order function to substitute into
+        warning("Generated stencils have been padded due to required number of"
+                " extrapolation points. A dummy function will be needed to"
+                " create the substitutions. The required order for substitution"
+                " is {}".format(2*max_ext_points))
     else:
         w.data[interior == 1] = standard_stencil(deriv, function.space_order,
                                                  offset=eval_offset)
@@ -632,12 +680,14 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
         fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w)
 
+    # FIXME: Put this back
     # w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
 
 
-def get_weights(data, function, deriv, bcs, interior, eval_offsets=(0., 0., 0.)):
+def get_weights(data, function, deriv, bcs, interior, fill_function=None,
+                eval_offsets=(0., 0., 0.)):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
@@ -654,13 +704,16 @@ def get_weights(data, function, deriv, bcs, interior, eval_offsets=(0., 0., 0.))
         The boundary conditions which should hold at the surface
     interior : ndarray
         The interior-exterior segmentation of the domain
+    fill_function : devito Function
+        A secondary function to use when creating the Coefficient objects. If none
+        then the Function supplied with the function argument will be used instead.
     eval_offsets : tuple of float
         The relative offsets at which derivatives should be evaluated for each
         axis.
 
     Returns
     -------
-    substitutions : Devito Substitutions
+    substitutions : tuple of Coefficient
         The substitutions to be included in the devito equation
     """
     cache = os.path.dirname(__file__) + '/extrapolation_cache.dat'
@@ -684,9 +737,14 @@ def get_weights(data, function, deriv, bcs, interior, eval_offsets=(0., 0., 0.))
                                                  deriv, lambdas, interior,
                                                  max_ext_points, eval_offsets[axis])
 
-            weights.append(Coefficient(deriv, function,
-                                       function.grid.dimensions[axis],
-                                       axis_weights))
+            if fill_function is None:
+                weights.append(Coefficient(deriv, function,
+                                           function.grid.dimensions[axis],
+                                           axis_weights))
+            else:
+                weights.append(Coefficient(deriv, fill_function,
+                                           fill_function.grid.dimensions[axis],
+                                           axis_weights))
         else:
             pass  # No boundary-adjacent points so don't return any subs
     # Raise error if list is empty

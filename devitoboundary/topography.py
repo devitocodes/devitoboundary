@@ -38,7 +38,10 @@ class ImmersedBoundary:
         The path to the geometry file
     functions : pandas DataFrame
         A dataframe of the functions to which the immersed boundary surface is
-        to be applied. Should contain the columns 'function' and 'bcs'.
+        to be applied. Should contain the columns 'function' and 'bcs'. May also
+        contain a column 'subs_function' if the substitutions should be created
+        for a different function to the one used to generate the stencils. If this
+        functionality is not required for a Function, then set the value to None
     interior_point : tuple of float
         x, y, and z coordinates of a point located in the interior of the domain.
         Default is (0., 0., 0.)
@@ -62,6 +65,8 @@ class ImmersedBoundary:
             raise ValueError("No function column specified")
         if 'bcs' not in functions.columns:
             raise ValueError("No boundary conditions column specified")
+        if 'subs_function' not in functions.columns:
+            functions['subs_function'] = None
         self._functions = functions
 
         self._interior_point = interior_point
@@ -86,6 +91,8 @@ class ImmersedBoundary:
 
         bcs = self._functions.loc[function_mask, 'bcs'].values[0]
 
+        fill_function = self._functions.loc[function_mask, 'subs_function'].values[0]
+
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface,
                                    toggle_normals=self._toggle_normals)
@@ -99,7 +106,8 @@ class ImmersedBoundary:
         for i, row in group.iterrows():
             derivative = row.derivative
             eval_offset = row.eval_offset
-            weights += get_weights(ax.axial, function, derivative, bcs, interior, eval_offsets=eval_offset)
+            weights += get_weights(ax.axial, function, derivative, bcs, interior,
+                                   fill_function=fill_function, eval_offsets=eval_offset)
 
         return weights
 
