@@ -745,9 +745,9 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     if max_ext_points > function.space_order//2:
         # Need to zero pad the standard stencil
         zero_pad = max_ext_points - function.space_order//2
-        w.data[interior == 1, zero_pad:-zero_pad] = standard_stencil(deriv,
-                                                                     function.space_order,
-                                                                     offset=eval_offset)
+        w.data[:, :, :, zero_pad:-zero_pad] = standard_stencil(deriv,
+                                                               function.space_order,
+                                                               offset=eval_offset)
         # Needs to return a warning if padding is used for the time being
         # Will need a dummy function to create the substitutions, with a higher
         # order function to substitute into
@@ -756,8 +756,9 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
                 " create the substitutions. The required order for substitution"
                 " is {}".format(2*max_ext_points))
     else:
-        w.data[interior == 1] = standard_stencil(deriv, function.space_order,
-                                                 offset=eval_offset)
+        w.data[:] = standard_stencil(deriv, function.space_order,
+                                     offset=eval_offset)
+    w.data[interior == 1] = 0
 
     # Fill the stencils
     if len(first.index) != 0:

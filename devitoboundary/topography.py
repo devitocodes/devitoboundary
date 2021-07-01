@@ -98,7 +98,7 @@ class ImmersedBoundary:
                                    toggle_normals=self._toggle_normals)
 
         # Get interior segmentation
-        interior = get_interior(ax.sdf, self._interior_point, qc=True)
+        interior = get_interior(ax.sdf, self._interior_point, qc=self._qc)
 
         # Empty tuple for weights
         weights = ()
