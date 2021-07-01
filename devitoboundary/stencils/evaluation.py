@@ -259,7 +259,6 @@ def split_types(data, axis, axis_size):
     levels = ['z', 'y', 'x']
     levels.remove(axis)
 
-    # FIXME: Can copies be removed?
     first = data.groupby(level=levels).head(1).copy()  # Get head
     last = data.groupby(level=levels).tail(1).copy()  # Get tail
 
@@ -296,7 +295,16 @@ def split_types(data, axis, axis_size):
 
 
 def drop_outside_points(df, segment):
-    """Drop points where the grid node is outside the domain"""
+    """
+    Drop points where the grid node is outside the domain.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    segment : ndarray
+        The interior-exterior segmentation of the domain
+    """
     x_vals = df.index.get_level_values('x').to_numpy()
     y_vals = df.index.get_level_values('y').to_numpy()
     z_vals = df.index.get_level_values('z').to_numpy()
@@ -309,8 +317,18 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     """
     If the last point within the domain in the direction opposite to staggering
     is not a grid node, then an extra grid node needs to be included on this side.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    axis : str
+        The axis along which to increment. Can be 'x', 'y', or 'z'
+    grid_offset : float
+        The grid offset for this axis
+    eval_offset : float
+        The relative offset at which the derivative is evaluated
     """
-    # FIXME: Needs to operate differently for non-zero grid offsets
     # I think this is not strictly the best way to do this, but is definitely
     # more simple than the alternative
     if abs(grid_offset) < _feps:
@@ -400,7 +418,21 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
 
 
 def get_n_pts(df, point_type, space_order, eval_offset):
-    """Get the number of points associated with each end point"""
+    """
+    Get the number of points associated with each boundary-adjacent point.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    point_type : str
+        The category which the set of points fall into. Can be 'first', 'last',
+        'double', 'paired_left', or 'paired_right'.
+    space_order : int
+        The order of the function which stencils are being generated for
+    eval_offset : float
+        The relative offset at which the derivative should be evaluated.
+    """
     if point_type == 'first':
         if abs(eval_offset) >= _feps:
             # Need to increase max number of points to use if eta sign is wrong
@@ -450,7 +482,18 @@ def get_n_pts(df, point_type, space_order, eval_offset):
 
 
 def get_next_point(df, inc, axis):
-    """Increment to get the next points along"""
+    """
+    Increment to get the next points along.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    inc : int
+        The amount to increment
+    axis : str
+        The axis along which to increment. Can be 'x', 'y', or 'z'
+    """
     df = df.copy()
     # Need to increment the axis
     x_ind = df.index.get_level_values('x').to_numpy()
@@ -482,6 +525,18 @@ def get_master_df(msk_pts, point_type, pts):
     """
     Create a dataframe containing all the points for a given points
     count.
+
+    Parameters
+    ----------
+    msk_pts : pandas DataFrame
+         A dataframe of boundary-adjacent points which have the same number of
+         modified stencils associated with them.
+    point_type : str
+        The category which the set of points fall into. Can be 'first', 'last',
+        'double', 'paired_left', or 'paired_right'.
+    pts : int
+        The number of modified stencils associated with each boundary-adjacent
+        point.
     """
     # Make a big master dataframe for this number of points
     if point_type == 'last' or point_type == 'paired_left':
@@ -496,7 +551,18 @@ def get_master_df(msk_pts, point_type, pts):
 
 
 def get_key_mask(key, df, max_ext_points):
-    """Get the mask for a given key"""
+    """
+    Get the mask for a given key.
+
+    Parameters
+    ----------
+    key : tuple of float
+        The key consisting of the inner bounds at which the stencil is valid
+    df : pandas DataFrame
+        The dataframe of points
+    max_ext_points : int
+        The maximum number of points required by the extrapolation
+    """
     # Unpack key
     eta_l_in, eta_r_in = key
     eta_l_out = eta_l_in - 0.5
@@ -523,6 +589,16 @@ def eval_stencils(df, sten_lambda, max_ext_points):
     """
     Evaluate the stencils for this particular stencil variant
     and associated points.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    sten_lambda : dict
+        The dictionary containing the function to evaluate the coefficient for
+        each point.
+    max_ext_points : int
+        The maximum number of points required by the extrapolation
     """
     # Make a set of empty stencils to fill
     stencils = np.zeros((len(df), 1+2*max_ext_points))
@@ -538,6 +614,15 @@ def eval_stencils(df, sten_lambda, max_ext_points):
 def fill_weights(df, stencils, weights):
     """
     Fill the weight function with stencil coefficients.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    stencils : ndarray
+        The stencils corresponding with each of the points in the DataFrame
+    weights : Function
+        The Function containing the finite difference coefficients
     """
     # Get the point indices
     x_ind = df.index.get_level_values('x').to_numpy()
@@ -549,13 +634,28 @@ def fill_weights(df, stencils, weights):
 
 
 def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
-    """Fill the stencil weights using the identified points"""
+    """
+    Fill the stencil weights using the identified points.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        The dataframe of points
+    point_type : str
+        The category which the set of points fall into. Can be 'first', 'last',
+        'double', 'paired_left', or 'paired_right'.
+    max_ext_points : int
+        The maximum number of points required by the extrapolation
+    lambdas : dict
+        The functions for stencils to be evaluated
+    weights : Function
+        The Function containing the finite difference coefficients
+    """
     for pts in range(df.n_pts.min(), df.n_pts.max()+1):
         msk_pts = df[df.n_pts == pts]
 
         # Get all the points
         master_df = get_master_df(msk_pts, point_type, pts)
-        # print(master_df)
 
         # Now loop over keys
         for key in lambdas:
@@ -680,8 +780,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
         fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w)
 
-    # FIXME: Put this back
-    # w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
+    w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
     return w
 
@@ -728,7 +827,6 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
             print(deriv, function, function.grid.dimensions[axis])
             # If True, then behave as normal
             # If False then pass
-            # stencils = get_stencils_lambda(deriv, eval_offsets[axis], bcs, cache=cache)
             stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache)
             lambdas = stencils.lambdaify
             max_ext_points = stencils.max_ext_points
