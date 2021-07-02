@@ -7,8 +7,9 @@ from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 split_types, add_distance_column,
                                                 get_component_weights,
                                                 find_boundary_points,
-                                                apply_grid_offset, shift_grid_endpoint)
-from devitoboundary.stencils.stencils import BoundaryConditions
+                                                apply_grid_offset, shift_grid_endpoint,
+                                                fill_stencils)
+from devitoboundary.stencils.stencils import BoundaryConditions, StencilSet
 from devito import Grid, Function, Dimension
 
 
@@ -261,76 +262,13 @@ class TestStencils:
     """
     A class containing tests to check stencil evaluation.
     """
-    # TODO: Need to check evaluate_stencils
-    # TODO: Need to check fill_weights
-    @pytest.mark.parametrize('offset', [0.5, -0.5])
-    @pytest.mark.parametrize('point_type', ['first', 'last'])
-    @pytest.mark.parametrize('order', [4, 6])
-    @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
-    def test_evaluate_stencils_offset(self, offset, point_type, order, spacing):
-        """
-        Check that offsetting the grid and boundary by the same amount results
-        in identical stencils for both cases. This is checked on both sides of
-        the boundary.
-        """
-        spec = {2*i: 0 for i in range(1+order//2)}
-        bcs = BoundaryConditions(spec, order)
-        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
-
-        stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
-
-        distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
-        distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
-
-        offset_distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
-        if offset == 0.5:
-            # +ve stagger
-            offset_distances[4, :, :5] = np.linspace(0.5*spacing, 0.9*spacing, 5)
-            offset_distances[5, :, 5:] = np.linspace(0, 0.4*spacing, 5)
-        else:
-            # -ve stagger
-            offset_distances[4, :, :] = np.linspace(-0.5*spacing, 0.4*spacing, 10)
-
-        data = get_data_inc_reciprocals(distances, spacing, 'x', 0, 0)
-        offset_data = get_data_inc_reciprocals(offset_distances, spacing, 'x', offset, 0)
-        dmask = np.full(21, True, dtype=bool)
-        dmask[1] = False
-        data = data[dmask]
-        offset_data = offset_data[dmask]
-        add_distance_column(data)
-        add_distance_column(offset_data)
-        if point_type == 'first':
-            data = data[::2]
-            data.dist = -order//2
-            offset_data = offset_data[::2]
-            offset_data.dist = -order//2
-            left_variants = np.zeros((10, order//2), dtype=int)
-            right_variants = np.tile(2*np.arange(order//2), (10, 1)) + 2
-            right_variants[5:] -= 1
-            right_variants[0] -= 1
-
-        else:
-            data = data[1::2]
-            data.dist = order//2
-            offset_data = offset_data[1::2]
-            offset_data.dist = order//2
-            left_variants = np.tile(-2*np.arange(order//2), (10, 1)) + order - 1
-            left_variants[5:] += 1
-            right_variants = np.zeros((10, order//2), dtype=int)
-
-        normal_stencils = evaluate_stencils(data, point_type, order//2, left_variants,
-                                            right_variants, order, stencils_lambda)
-        offset_stencils = evaluate_stencils(offset_data, point_type, order//2, left_variants,
-                                            right_variants, order, stencils_lambda)
-
-        assert np.all(normal_stencils == offset_stencils)
 
     @pytest.mark.parametrize('offset', [0.5, -0.5])
     @pytest.mark.parametrize('point_type', ['first', 'last'])
     @pytest.mark.parametrize('order', [4, 6])
     @pytest.mark.parametrize('spacing', [0.1, 1., 10.])
     @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y dimension of 1
-    def test_get_variants_offset(self, offset, point_type, order, spacing):
+    def test_fill_stencils_offset(self, offset, point_type, order, spacing):
         """
         Check that offsetting the grid and boundary by the same amount results
         in identical stencils for both cases. This is checked on both sides of
@@ -342,7 +280,11 @@ class TestStencils:
         bcs = BoundaryConditions(spec, order)
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
+        stencils = StencilSet(2, 0, bcs, cache=cache)
+        lambdas = stencils.lambdaify
+        max_ext_points = stencils.max_ext_points
+
+        # stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
 
         distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
         distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
@@ -369,12 +311,18 @@ class TestStencils:
             data.dist = -order//2
             offset_data = offset_data[::2]
             offset_data.dist = -order//2
+            # No need to drop points or shift grid endpoint, as that is done here
 
         else:
             data = data[1::2]
             data.dist = order//2
             offset_data = offset_data[1::2]
             offset_data.dist = order//2
+            # No need to drop points or shift grid endpoint, as that is done here
+
+        # Set n_pts
+        data['n_pts'] = order//2
+        offset_data['n_pts'] = order//2
 
         grid = Grid(shape=(10, 1, 10), extent=(9*spacing, 0, 9*spacing))
         s_dim = Dimension(name='s')
@@ -386,8 +334,9 @@ class TestStencils:
         w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
         w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
 
-        get_variants(data, order, point_type, 'x', stencils_lambda, w_normal, 0)
-        get_variants(offset_data, order, point_type, 'x', stencils_lambda, w_offset, 0)
+        # fill_stencils(df, point_type, max_ext_points, lambdas, weights)
+        fill_stencils(data, point_type, max_ext_points, lambdas, w_normal)
+        fill_stencils(offset_data, point_type, max_ext_points, lambdas, w_offset)
 
         if point_type == 'first':
             assert np.all(np.isclose(w_normal.data[2:5], w_offset.data[2:5]))
