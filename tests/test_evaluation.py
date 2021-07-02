@@ -349,7 +349,57 @@ class TestStencils:
         """
         Check that stencils with distances of zero evaluate correctly.
         """
-        print(spec)
+        # Unpack the spec
+        bc_type = spec['bcs']
+        deriv = spec['deriv']
+        goffset = spec['goffset']
+        eoffset = spec['eoffset']
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
+
+        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
+
+        stencils = StencilSet(deriv, eoffset, bcs, cache=cache)
+        lambdas = stencils.lambdaify
+        max_ext_points = stencils.max_ext_points
+
+        distances = np.full((10, 1, 1), -2*order, dtype=float)
+        if goffset == 0.5:
+            distances[4, :, :] = 0.5
+        else:
+            distances[4, :, :] = 0
+
+        data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
+        add_distance_column(data)
+        data = data.iloc[1:-1]
+        data = get_n_pts(data, 'double', order, eoffset)
+
+        grid = Grid(shape=(10, 1, 11), extent=(9, 0, 0))
+        s_dim = Dimension(name='s')
+        ncoeffs = 2*max_ext_points + 1
+
+        w_shape = grid.shape + (ncoeffs,)
+        w_dims = grid.dimensions + (s_dim,)
+
+        w = Function(name='w', dimensions=w_dims, shape=w_shape)
+
+        fill_stencils(data, 'double', max_ext_points, lambdas, w)
+
+        # Derivative stencils should be zero if evaluation offset is zero
+        assert(np.all(np.abs(w.data) < np.finfo(np.float).eps))
+
+    @pytest.mark.parametrize('side', ['first', 'last'])
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5}])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
+    def test_zero_handling_staggered(self, side, order, spec):
+        """
+        Check that stencils with distances of zero evaluate correctly for staggered
+        systems.
+        """
         # Unpack the spec
         bc_type = spec['bcs']
         deriv = spec['deriv']
@@ -375,11 +425,20 @@ class TestStencils:
 
         data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
         add_distance_column(data)
-        data = data.iloc[1:-1]
-        # data['n_pts'] = 1
-        data = get_n_pts(data, 'double', order, eoffset)
 
-        grid = Grid(shape=(10, 1, 11), extent=(9, 0, 0))
+        right_dist = pd.notna(data.eta_l)
+        left_dist = pd.notna(data.eta_r)
+        data.loc[right_dist, 'dist'] = order
+        data.loc[left_dist, 'dist'] = -order
+
+        first = data.loc[left_dist]
+        last = data.loc[right_dist]
+        first = shift_grid_endpoint(first, 'x', goffset, eoffset)
+        last = shift_grid_endpoint(last, 'x', goffset, eoffset)
+        first = get_n_pts(first, 'first', order, eoffset)
+        last = get_n_pts(last, 'last', order, eoffset)
+
+        grid = Grid(shape=(10, 1, 1), extent=(9, 0, 0))
         s_dim = Dimension(name='s')
         ncoeffs = 2*max_ext_points + 1
 
@@ -388,67 +447,24 @@ class TestStencils:
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
 
-        fill_stencils(data, 'double', max_ext_points, lambdas, w)
-        # get_variants(data, order, 'double', 'x', stencils_lambda, w, eoffset)
+        if side == 'first':
+            fill_stencils(first, 'first', max_ext_points, lambdas, w)
+        if side == 'last':
+            fill_stencils(last, 'last', max_ext_points, lambdas, w)
 
-        # Derivative stencils should be zero if evaluation offset is zero
-        assert(np.all(np.abs(w.data) < np.finfo(np.float).eps))
-
-    @pytest.mark.parametrize('order', [4, 6])
-    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
-                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5}])
-    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
-    def test_zero_handling_staggered(self, order, spec):
-        """
-        Check that stencils with distances of zero evaluate correctly for staggered
-        systems.
-        """
-        # Unpack the spec
-        bc_type = spec['bcs']
-        deriv = spec['deriv']
-        goffset = spec['goffset']
-        eoffset = spec['eoffset']
-        if bc_type == 'even':
-            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
-        else:
-            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
-
-        cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
-
-        stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
-
-        distances = np.full((10, 1, 1), -2*order, dtype=float)
-        if goffset == 0.5:
-            distances[4, :, :] = 0.5
-        else:
-            distances[4, :, :] = 0
-
-        data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
-        add_distance_column(data)
-
-        right_dist = pd.notna(data.eta_l)
-        left_dist = pd.notna(data.eta_r)
-        data.loc[right_dist, 'dist'] = order
-        data.loc[left_dist, 'dist'] = -order
-
-        grid = Grid(shape=(10, 1, 1), extent=(9, 0, 0))
-        s_dim = Dimension(name='s')
-        ncoeffs = order + 1
-
-        w_shape = grid.shape + (ncoeffs,)
-        w_dims = grid.dimensions + (s_dim,)
-
-        w = Function(name='w', dimensions=w_dims, shape=w_shape)
-
-        get_variants(data.loc[left_dist], order, 'first', 'x', stencils_lambda, w, eoffset)
-        get_variants(data.loc[right_dist], order, 'last', 'x', stencils_lambda, w, eoffset)
-
-        if goffset == 0.5:
-            assert np.all(np.isclose(w.data[4, 0, 0], np.array([stencils_lambda[0, 1+order, i](0, 0) for i in range(order+1)])))
-            assert np.all(np.isclose(w.data[5, 0, 0], np.array([stencils_lambda[order-1, 0, i](-1, 0) for i in range(order+1)])))
-        else:
-            assert np.all(np.isclose(w.data[3, 0, 0], np.array([stencils_lambda[0, order-1, i](0, 1) for i in range(order+1)])))
-            assert np.all(np.isclose(w.data[4, 0, 0], np.array([stencils_lambda[order+1, 0, i](0, 0) for i in range(order+1)])))
+        # Happy up to here, just need to figure out how to rewrite the last bit
+        # Just check that the side of the stencil to one side of the center
+        # is zero
+        # Not ideal, but floating point error makes checking the exact values
+        # a nightmare due to point selection issues (can go one way or the other)
+        # However, either choice is valid.
+        if side == 'first':
+            for i in range(order//2):
+                assert np.all(np.absolute(w.data[4-i, 0, 0, i-max_ext_points:]) < np.finfo(float).eps)
+            # assert np.all(np.absolute(w.data[4-order//2:4]) < np.finfo(float).eps)
+        else:  # Side is 'last'
+            for i in range(order//2):
+                assert np.all(np.absolute(w.data[4+i, 0, 0, :max_ext_points-i]) < np.finfo(float).eps)
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
