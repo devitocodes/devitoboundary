@@ -8,7 +8,7 @@ from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 get_component_weights,
                                                 find_boundary_points,
                                                 apply_grid_offset, shift_grid_endpoint,
-                                                fill_stencils)
+                                                fill_stencils, get_n_pts)
 from devitoboundary.stencils.stencils import BoundaryConditions, StencilSet
 from devito import Grid, Function, Dimension
 
@@ -284,8 +284,6 @@ class TestStencils:
         lambdas = stencils.lambdaify
         max_ext_points = stencils.max_ext_points
 
-        # stencils_lambda = get_stencils_lambda(2, 0, bcs, cache=cache)
-
         distances = np.full((10, 1, 10), -2*order*spacing, dtype=float)
         distances[4, :, :] = np.linspace(0, 0.9*spacing, 10)
 
@@ -334,7 +332,6 @@ class TestStencils:
         w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
         w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
 
-        # fill_stencils(df, point_type, max_ext_points, lambdas, weights)
         fill_stencils(data, point_type, max_ext_points, lambdas, w_normal)
         fill_stencils(offset_data, point_type, max_ext_points, lambdas, w_offset)
 
@@ -352,6 +349,7 @@ class TestStencils:
         """
         Check that stencils with distances of zero evaluate correctly.
         """
+        print(spec)
         # Unpack the spec
         bc_type = spec['bcs']
         deriv = spec['deriv']
@@ -364,7 +362,10 @@ class TestStencils:
 
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+        # stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+        stencils = StencilSet(deriv, eoffset, bcs, cache=cache)
+        lambdas = stencils.lambdaify
+        max_ext_points = stencils.max_ext_points
 
         distances = np.full((10, 1, 1), -2*order, dtype=float)
         if goffset == 0.5:
@@ -375,20 +376,23 @@ class TestStencils:
         data = get_data_inc_reciprocals(distances, 1, 'x', goffset, eoffset)
         add_distance_column(data)
         data = data.iloc[1:-1]
+        # data['n_pts'] = 1
+        data = get_n_pts(data, 'double', order, eoffset)
 
         grid = Grid(shape=(10, 1, 11), extent=(9, 0, 0))
         s_dim = Dimension(name='s')
-        ncoeffs = order + 1
+        ncoeffs = 2*max_ext_points + 1
 
         w_shape = grid.shape + (ncoeffs,)
         w_dims = grid.dimensions + (s_dim,)
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
 
-        get_variants(data, order, 'double', 'x', stencils_lambda, w, eoffset)
+        fill_stencils(data, 'double', max_ext_points, lambdas, w)
+        # get_variants(data, order, 'double', 'x', stencils_lambda, w, eoffset)
 
         # Derivative stencils should be zero if evaluation offset is zero
-        assert(np.all(w.data == 0))
+        assert(np.all(np.abs(w.data) < np.finfo(np.float).eps))
 
     @pytest.mark.parametrize('order', [4, 6])
     @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},

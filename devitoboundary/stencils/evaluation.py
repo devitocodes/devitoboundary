@@ -543,6 +543,10 @@ def get_master_df(msk_pts, point_type, pts):
         master_df = pd.concat(frames)
     elif point_type == 'double':
         master_df = msk_pts.copy()
+        # Drop points exactly on the boundary
+        drop_mask = np.logical_and(np.abs(master_df.eta_l) > _feps,
+                                   np.abs(master_df.eta_r) > _feps)
+        master_df = master_df[drop_mask]
     return master_df
 
 
