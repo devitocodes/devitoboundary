@@ -79,8 +79,13 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
 
             frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
             points = pd.DataFrame(frame)
+            print("Points before")
+            print(points)
+
             # Explicitly remove <= -1 (prevents spurious double points)
-            points = points[points.eta_l > -1]
+            points = points[np.logical_or(points.eta_l > -1, np.isnan(points.eta_l))]
+            print("Points after")
+            print(points)
         elif np.sign(eval_offset) == -1:
             eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
             eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
@@ -88,15 +93,20 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
             frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
             points = pd.DataFrame(frame)
             # Explicitly remove >= 1
-            points = points[points.eta_r < 1]
+            points = points[np.logical_or(points.eta_r < 1, np.isnan(points.eta_r))]
     elif grid_offset >= _feps:
         eta_r = pd.Series(np.where(eta > 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta <= 0, eta/spacing, np.NaN), name='eta_1')
 
         frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
         points = pd.DataFrame(frame)
+        print("Points before")
+        print(points)
+
         # Explicitly remove <= -1
-        points = points[points.eta_l > -1]
+        points = points[np.logical_or(points.eta_l > -1, np.isnan(points.eta_l))]
+        print("Points after")
+        print(points)
     elif grid_offset <= -_feps:
         eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
@@ -104,7 +114,7 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
         frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
         points = pd.DataFrame(frame)
         # Explicitly remove >= 1
-        points = points[points.eta_r < 1]
+        points = points[np.logical_or(points.eta_r < 1, np.isnan(points.eta_r))]
 
     return points
 

@@ -6,9 +6,9 @@ import pandas as pd
 from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 split_types, add_distance_column,
                                                 get_component_weights,
-                                                find_boundary_points, evaluate_stencils,
-                                                get_variants, apply_grid_offset)
-from devitoboundary.stencils.stencils import BoundaryConditions, get_stencils_lambda
+                                                find_boundary_points,
+                                                apply_grid_offset)
+from devitoboundary.stencils.stencils import BoundaryConditions
 from devito import Grid, Function, Dimension
 
 
