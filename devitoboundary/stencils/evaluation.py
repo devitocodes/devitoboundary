@@ -79,13 +79,9 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
 
             frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
             points = pd.DataFrame(frame)
-            print("Points before")
-            print(points)
 
             # Explicitly remove <= -1 (prevents spurious double points)
             points = points[np.logical_or(points.eta_l > -1, np.isnan(points.eta_l))]
-            print("Points after")
-            print(points)
         elif np.sign(eval_offset) == -1:
             eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
             eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
@@ -100,13 +96,9 @@ def build_dataframe(data, spacing, grid_offset, eval_offset):
 
         frame = {'x': col_x, 'y': col_y, 'z': col_z, 'eta_l': eta_l, 'eta_r': eta_r}
         points = pd.DataFrame(frame)
-        print("Points before")
-        print(points)
 
         # Explicitly remove <= -1
         points = points[np.logical_or(points.eta_l > -1, np.isnan(points.eta_l))]
-        print("Points after")
-        print(points)
     elif grid_offset <= -_feps:
         eta_r = pd.Series(np.where(eta >= 0, eta/spacing, np.NaN), name='eta_r')
         eta_l = pd.Series(np.where(eta < 0, eta/spacing, np.NaN), name='eta_1')
@@ -339,16 +331,19 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     eval_offset : float
         The relative offset at which the derivative is evaluated
     """
+    df = df.copy()  # Stop implace modification
     # I think this is not strictly the best way to do this, but is definitely
     # more simple than the alternative
+    # FIXME: I think this might be able to produce points outside the domain
+    x_ind = df.index.get_level_values('x').to_numpy()
+    y_ind = df.index.get_level_values('y').to_numpy()
+    z_ind = df.index.get_level_values('z').to_numpy()
+
     if abs(grid_offset) < _feps:
         if np.sign(eval_offset) == 1:
             # Make a mask for points where shift is necessary
             mask = df.eta_l + 0.5 < _feps
-
-            x_ind = df.index.get_level_values('x').to_numpy()
-            y_ind = df.index.get_level_values('y').to_numpy()
-            z_ind = df.index.get_level_values('z').to_numpy()
+            mask = mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] -= 1
@@ -364,10 +359,7 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
         elif np.sign(eval_offset) == -1:
             # Make a mask for points where shift is necessary
             mask = df.eta_r - 0.5 > -_feps
-
-            x_ind = df.index.get_level_values('x').to_numpy()
-            y_ind = df.index.get_level_values('y').to_numpy()
-            z_ind = df.index.get_level_values('z').to_numpy()
+            mask = mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] += 1
@@ -381,13 +373,10 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
             df.loc[mask, 'dist'] -= 1
 
     else:  # Non-zero grid offset
-        if np.sign(eval_offset) == 1:
+        if np.sign(grid_offset) == -1:
             # Make a mask for points where shift is necessary
             mask = df.eta_r - 1 > -_feps
-
-            x_ind = df.index.get_level_values('x').to_numpy()
-            y_ind = df.index.get_level_values('y').to_numpy()
-            z_ind = df.index.get_level_values('z').to_numpy()
+            mask = mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] += 1
@@ -399,13 +388,10 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
             # Increment eta_r, distance
             df.loc[mask, 'eta_r'] -= 1
             df.loc[mask, 'dist'] -= 1
-        elif np.sign(eval_offset) == -1:
+        elif np.sign(grid_offset) == 1:
             # Make a mask for points where shift is necessary
             mask = df.eta_l + 1 < _feps
-
-            x_ind = df.index.get_level_values('x').to_numpy()
-            y_ind = df.index.get_level_values('y').to_numpy()
-            z_ind = df.index.get_level_values('z').to_numpy()
+            mask = mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] -= 1

@@ -7,7 +7,7 @@ from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 split_types, add_distance_column,
                                                 get_component_weights,
                                                 find_boundary_points,
-                                                apply_grid_offset)
+                                                apply_grid_offset, shift_grid_endpoint)
 from devitoboundary.stencils.stencils import BoundaryConditions
 from devito import Grid, Function, Dimension
 
@@ -115,7 +115,6 @@ class TestDistances:
         points = pd.DataFrame(frame)
 
         offset_points = apply_grid_offset(points, 'x', grid_offset, -grid_offset)
-        print(offset_points)
 
         if grid_offset == -0.5:
             # Check left side
@@ -157,6 +156,105 @@ class TestDistances:
         assert(np.all(double.index.get_level_values(xyz[axis]).to_numpy() == 2))
         assert(np.all(paired_left.index.get_level_values(xyz[axis]).to_numpy() == 3))
         assert(np.all(paired_right.index.get_level_values(xyz[axis]).to_numpy() == 5))
+
+    @pytest.mark.parametrize('offsets', [(-0.5, 0.), (0., 0.), (0.5, 0.),
+                                         (-0.5, 0.5), (0.5, -0.5), (0., 0.5),
+                                         (0., -0.5)])
+    def test_shift_grid_endpoint(self, offsets):
+        """
+        Check that the endpoint shift to grab points where the grid node is on the
+        exterior, but the stagger point is on the interior functions as intended.
+        """
+        grid_offset, eval_offset = offsets
+        # shift_grid_endpoint(df, axis, grid_offset, eval_offset)
+
+        # Coordinates for the points
+        x = np.arange(10)
+        y = np.arange(10)
+        z = np.arange(10)
+
+        if grid_offset == 0 and eval_offset == 0:
+            # No shift needs applying here so skip
+            pass
+        else:
+            # Shift will need applying for some points
+            pass
+
+        # Need to create a set of points where the shift needs applying
+        # Need to create a set of points where no shift needs applying
+        if grid_offset == 0:
+            if eval_offset == 0.5:
+                # eta l > -0.5 for no shift
+                eta_l = np.linspace(-0.6, -0.9, 10)
+                eta_r = np.NaN
+                no_eta_l = np.linspace(-0.1, -0.4, 10)
+                no_eta_r = np.NaN
+            elif eval_offset == -0.5:
+                # eta r < 0.5 for no shift
+                eta_l = np.NaN
+                eta_r = np.linspace(0.6, 0.9, 10)
+                no_eta_l = np.NaN
+                no_eta_r = np.linspace(0.1, 0.4, 10)
+            else:
+                # Set eta_l and eta_r to whatever
+                eta_l = np.linspace(-0.1, -0.9, 10)
+                eta_r = np.linspace(0.1, 0.9, 10)
+                no_eta_l = np.linspace(-0.1, -0.9, 10)
+                no_eta_r = np.linspace(0.1, 0.9, 10)
+        elif grid_offset == -0.5:
+            # eta r < 1 for no shift
+            eta_l = np.NaN
+            eta_r = np.linspace(1.1, 1.4, 10)
+            no_eta_l = np.NaN
+            no_eta_r = np.linspace(0.1, 0.9, 10)
+        elif grid_offset == 0.5:
+            # eta l > -1 for no shift
+            eta_l = np.linspace(-1.1, -1.4, 10)
+            eta_r = np.NaN
+            no_eta_l = np.linspace(-0.1, -0.9, 10)
+            no_eta_r = np.NaN
+
+        # Dataframe of points which don't want shifting
+        no_shift = pd.DataFrame({'x': x, 'y': y, 'z': z,
+                                 'eta_l': no_eta_l, 'eta_r': no_eta_r})
+        no_shift = no_shift.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
+        no_shift['dist'] = 2
+
+        no_shift_shifted = shift_grid_endpoint(no_shift, 'x', grid_offset, eval_offset)
+
+        assert np.all(no_shift.index.get_level_values('x').to_numpy() == no_shift_shifted.index.get_level_values('x').to_numpy())
+        if ~np.any(np.isnan(no_eta_l)):
+            assert np.all(no_shift.eta_l.to_numpy() == no_shift_shifted.eta_l.to_numpy())
+        if ~np.any(np.isnan(no_eta_r)):
+            assert np.all(no_shift.eta_r.to_numpy() == no_shift_shifted.eta_r.to_numpy())
+        assert np.all(no_shift.dist.to_numpy() == no_shift_shifted.dist.to_numpy())
+
+        if grid_offset != 0 or eval_offset != 0:
+            # Skip over case where no shift occurs
+            # Dataframe of points which want shifting
+            shift = pd.DataFrame({'x': x, 'y': y, 'z': z,
+                                  'eta_l': eta_l, 'eta_r': eta_r})
+            shift = shift.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
+            shift['dist'] = 2
+
+            shift_shifted = shift_grid_endpoint(shift, 'x', grid_offset, eval_offset)
+
+            if grid_offset == 0:
+                if eval_offset == 0.5:
+                    inc = -1
+                if eval_offset == -0.5:
+                    inc = 1
+            elif grid_offset == -0.5:
+                inc = 1
+            elif grid_offset == 0.5:
+                inc = -1
+
+            assert np.all(shift.index.get_level_values('x').to_numpy() + inc == shift_shifted.index.get_level_values('x').to_numpy())
+            if ~np.any(np.isnan(eta_l)):
+                assert np.all(shift.eta_l.to_numpy() - inc == shift_shifted.eta_l.to_numpy())
+            if ~np.any(np.isnan(eta_r)):
+                assert np.all(shift.eta_r.to_numpy() - inc == shift_shifted.eta_r.to_numpy())
+            assert np.all(shift.dist.to_numpy() - inc == shift_shifted.dist.to_numpy())
 
 
 class TestStencils:
