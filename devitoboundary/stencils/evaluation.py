@@ -345,108 +345,65 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
             mask = df.eta_l + 0.5 < _feps
             mask = mask.to_numpy()
 
-            # Make a mask for points where eta_r >= 1
-            other_mask = df.eta_r - 1 > -_feps
-            other_mask = other_mask.to_numpy()
-
             if axis == 'x':
                 x_ind[mask] -= 1
-                x_ind[other_mask] += 1
             elif axis == 'y':
                 y_ind[mask] -= 1
-                y_ind[other_mask] += 1
             elif axis == 'z':
                 z_ind[mask] -= 1
-                z_ind[other_mask] += 1
 
             # Increment eta_l, distance
             df.loc[mask, 'eta_l'] += 1
             df.loc[mask, 'dist'] += 1
-
-            # Increment eta_r, distance
-            df.loc[other_mask, 'eta_r'] -= 1
-            df.loc[other_mask, 'dist'] += 1
 
         elif np.sign(eval_offset) == -1:
             # Make a mask for points where shift is necessary
             mask = df.eta_r - 0.5 > -_feps
             mask = mask.to_numpy()
 
-            # Make a mask for points where eta_l <= 1
-            other_mask = df.eta_l + 1 < _feps
-            other_mask = other_mask.to_numpy()
-
             if axis == 'x':
                 x_ind[mask] += 1
-                x_ind[other_mask] -= 1
             elif axis == 'y':
                 y_ind[mask] += 1
-                y_ind[other_mask] -= 1
             elif axis == 'z':
                 z_ind[mask] += 1
-                z_ind[other_mask] -= 1
 
             # Increment eta_r, distance
             df.loc[mask, 'eta_r'] -= 1
             df.loc[mask, 'dist'] += 1
-
-            # Increment eta_l, distance
-            df.loc[other_mask, 'eta_l'] += 1
-            df.loc[other_mask, 'dist'] += 1
 
     else:  # Non-zero grid offset
         if np.sign(grid_offset) == -1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_r - 1 > -_feps
+            mask = df.eta_r - 1 > _feps  # Less forgiving
             mask = mask.to_numpy()
-
-            # Make a mask for points where eta_l <= 1
-            other_mask = df.eta_l + 1 < _feps
-            other_mask = other_mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] += 1
-                x_ind[other_mask] -= 1
             elif axis == 'y':
                 y_ind[mask] += 1
-                y_ind[other_mask] -= 1
             elif axis == 'z':
                 z_ind[mask] += 1
-                z_ind[other_mask] -= 1
 
             # Increment eta_r, distance
             df.loc[mask, 'eta_r'] -= 1
             df.loc[mask, 'dist'] += 1
 
-            # Increment eta_l, distance
-            df.loc[other_mask, 'eta_l'] += 1
-            df.loc[other_mask, 'dist'] += 1
         elif np.sign(grid_offset) == 1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_l + 1 < _feps
+            mask = df.eta_l + 1 < -_feps  # Less forgiving
             mask = mask.to_numpy()
-
-            # Make a mask for points where eta_r >= 1
-            other_mask = df.eta_r - 1 > -_feps
-            other_mask = other_mask.to_numpy()
 
             if axis == 'x':
                 x_ind[mask] -= 1
-                x_ind[other_mask] += 1
             elif axis == 'y':
                 y_ind[mask] -= 1
-                y_ind[other_mask] += 1
             elif axis == 'z':
                 z_ind[mask] -= 1
-                z_ind[other_mask] += 1
 
             # Increment eta_l, distance
             df.loc[mask, 'eta_l'] += 1
             df.loc[mask, 'dist'] += 1
-
-            # Increment eta_r, distance
-            df.loc[other_mask, 'eta_r'] -= 1
-            df.loc[other_mask, 'dist'] += 1
 
     # Add the new incremented indices
     df['x'] = x_ind
@@ -591,6 +548,8 @@ def get_master_df(msk_pts, point_type, pts):
         drop_mask = np.logical_and(np.abs(master_df.eta_l) > _feps,
                                    np.abs(master_df.eta_r) > _feps)
         master_df = master_df[drop_mask]
+
+    # Drop out of bounds points
     return master_df
 
 
@@ -614,15 +573,15 @@ def get_key_mask(key, df, max_ext_points):
 
     # Make a mask for this key
     if np.isnan(eta_l_in):
-        l_msk = np.logical_or(np.isnan(df.eta_l), df.eta_l < -max_ext_points + _feps)
+        l_msk = np.logical_or(np.isnan(df.eta_l), df.eta_l < -max_ext_points - _feps)
     else:
-        l_msk = np.logical_and(df.eta_l >= eta_l_out - _feps,
-                               df.eta_l < eta_l_in + _feps)
+        l_msk = np.logical_and(df.eta_l > eta_l_out - _feps,
+                               df.eta_l < eta_l_in - _feps)
 
     if np.isnan(eta_r_in):
-        r_msk = np.logical_or(np.isnan(df.eta_r), df.eta_r >= max_ext_points - _feps)
+        r_msk = np.logical_or(np.isnan(df.eta_r), df.eta_r >= max_ext_points + _feps)
     else:
-        r_msk = np.logical_and(df.eta_r >= eta_r_in - _feps,
+        r_msk = np.logical_and(df.eta_r > eta_r_in + _feps,
                                df.eta_r < eta_r_out + _feps)
     key_msk = np.logical_and(l_msk, r_msk)
 
@@ -655,7 +614,7 @@ def eval_stencils(df, sten_lambda, max_ext_points):
     return stencils
 
 
-def fill_weights(df, stencils, weights):
+def fill_weights(df, stencils, weights, dim_limit):
     """
     Fill the weight function with stencil coefficients.
 
@@ -673,11 +632,21 @@ def fill_weights(df, stencils, weights):
     y_ind = df.index.get_level_values('y').to_numpy()
     z_ind = df.index.get_level_values('z').to_numpy()
 
+    valid_x = np.logical_and(x_ind >= 0, x_ind < dim_limit)
+    valid_y = np.logical_and(x_ind >= 0, y_ind < dim_limit)
+    valid_z = np.logical_and(x_ind >= 0, z_ind < dim_limit)
+
+    valid = np.logical_and(valid_x, np.logical_and(valid_y, valid_z))
+
+    x_ind = x_ind[valid]
+    y_ind = y_ind[valid]
+    z_ind = z_ind[valid]
+
     # Fill the weights
-    weights.data[x_ind, y_ind, z_ind] = stencils
+    weights.data[x_ind, y_ind, z_ind] = stencils[valid]
 
 
-def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
+def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit):
     """
     Fill the stencil weights using the identified points.
 
@@ -713,7 +682,7 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights):
 
             mod_stencils = eval_stencils(msk_pts, sten_lambda, max_ext_points)
 
-            fill_weights(msk_pts, mod_stencils, weights)
+            fill_weights(msk_pts, mod_stencils, weights, dim_limit)
 
 
 def get_component_weights(data, axis, function, deriv, lambdas, interior,
@@ -750,6 +719,8 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     grid_offset = get_grid_offset(function, axis)
 
     f_grid = function.grid
+
+    dim_limit = f_grid.shape[axis]
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
 
     full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim,
@@ -807,23 +778,23 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     # Fill the stencils
     if len(first.index) != 0:
         first = get_n_pts(first, 'first', function.space_order, eval_offset)
-        fill_stencils(first, 'first', max_ext_points, lambdas, w)
+        fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit)
 
     if len(last.index) != 0:
         last = get_n_pts(last, 'last', function.space_order, eval_offset)
-        fill_stencils(last, 'last', max_ext_points, lambdas, w)
+        fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit)
 
     if len(double.index) != 0:
         double = get_n_pts(double, 'double', function.space_order, eval_offset)
-        fill_stencils(double, 'double', max_ext_points, lambdas, w)
+        fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit)
 
     if len(paired_left.index) != 0:
         paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
-        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w)
+        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit)
 
     if len(paired_right.index) != 0:
         paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
-        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w)
+        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit)
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 

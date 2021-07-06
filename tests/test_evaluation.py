@@ -10,6 +10,7 @@ from devitoboundary.stencils.evaluation import (get_data_inc_reciprocals,
                                                 apply_grid_offset, shift_grid_endpoint,
                                                 fill_stencils, get_n_pts)
 from devitoboundary.stencils.stencils import BoundaryConditions, StencilSet
+from devitoboundary.stencils.stencil_utils import standard_stencil
 from devito import Grid, Function, Dimension
 
 
@@ -447,24 +448,32 @@ class TestStencils:
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
 
-        if side == 'first':
-            fill_stencils(first, 'first', max_ext_points, lambdas, w)
-        if side == 'last':
-            fill_stencils(last, 'last', max_ext_points, lambdas, w)
+        # Fill the weights using the standard stencil (for interior)
+        if max_ext_points > order//2:
+            # Need to zero pad the standard stencil
+            zero_pad = max_ext_points - order//2
+            w.data[:, :, :, zero_pad:-zero_pad] = standard_stencil(deriv,
+                                                                   order,
+                                                                   offset=eoffset)
+        else:
+            w.data[:] = standard_stencil(deriv, order,
+                                         offset=eoffset)
 
-        # Happy up to here, just need to figure out how to rewrite the last bit
-        # Just check that the side of the stencil to one side of the center
-        # is zero
-        # Not ideal, but floating point error makes checking the exact values
-        # a nightmare due to point selection issues (can go one way or the other)
-        # However, either choice is valid.
         if side == 'first':
-            for i in range(order//2):
-                assert np.all(np.absolute(w.data[4-i, 0, 0, i-max_ext_points:]) < np.finfo(float).eps)
-            # assert np.all(np.absolute(w.data[4-order//2:4]) < np.finfo(float).eps)
-        else:  # Side is 'last'
-            for i in range(order//2):
-                assert np.all(np.absolute(w.data[4+i, 0, 0, :max_ext_points-i]) < np.finfo(float).eps)
+            w.data[4:] = 0
+            fill_stencils(first, 'first', max_ext_points, lambdas, w, 10)
+        if side == 'last':
+            w.data[:5] = 0
+            fill_stencils(last, 'last', max_ext_points, lambdas, w, 10)
+
+        # Check against a pickled correct version
+        # Generate filename
+        filename = side + '_' + str(order) + '_' + bc_type + '_' + str(deriv) + '_' + str(goffset) + '_' + str(eoffset)
+
+        # Load reference data
+        reference = np.load(os.path.dirname(__file__) + '/zero_handling_stencils/' + filename + '.npy')
+
+        assert np.all(np.absolute(w.data-reference) < np.finfo(float).eps)
 
     @pytest.mark.parametrize('axis', [0, 1, 2])
     @pytest.mark.parametrize('deriv', [1, 2])
