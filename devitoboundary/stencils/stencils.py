@@ -520,7 +520,7 @@ class StencilSet():
                 stencils[key] = stencil
 
             else:
-                # If all stencil points lie outside boundary, then this entry can be removed
-                del stencils[key]
+                # If all stencil points lie outside boundary, then this entry is set to be zero
+                stencils[key] = {0: 0}
 
         return stencils

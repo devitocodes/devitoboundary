@@ -315,7 +315,7 @@ def drop_outside_points(df, segment):
     return df[ext_int]
 
 
-def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
+def shift_grid_endpoint(df, axis, grid_offset, eval_offset, paired_point=None):
     """
     If the last point within the domain in the direction opposite to staggering
     is not a grid node, then an extra grid node needs to be included on this side.
@@ -342,7 +342,7 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     if abs(grid_offset) < _feps:
         if np.sign(eval_offset) == 1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_l + 0.5 < _feps
+            mask = np.logical_and(df.eta_l + 0.5 < _feps, df.dist >= 0)
             mask = mask.to_numpy()
 
             if axis == 'x':
@@ -358,7 +358,7 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
 
         elif np.sign(eval_offset) == -1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_r - 0.5 > -_feps
+            mask = np.logical_and(df.eta_r - 0.5 > -_feps, df.dist <= 0)
             mask = mask.to_numpy()
 
             if axis == 'x':
@@ -370,12 +370,12 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
 
             # Increment eta_r, distance
             df.loc[mask, 'eta_r'] -= 1
-            df.loc[mask, 'dist'] += 1
+            df.loc[mask, 'dist'] -= 1
 
     else:  # Non-zero grid offset
         if np.sign(grid_offset) == -1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_r - 1 > _feps  # Less forgiving
+            mask = np.logical_and(df.eta_r - 1 > _feps, df.dist <= 0)  # Less forgiving
             mask = mask.to_numpy()
 
             if axis == 'x':
@@ -387,11 +387,11 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
 
             # Increment eta_r, distance
             df.loc[mask, 'eta_r'] -= 1
-            df.loc[mask, 'dist'] += 1
+            df.loc[mask, 'dist'] -= 1
 
         elif np.sign(grid_offset) == 1:
             # Make a mask for points where shift is necessary
-            mask = df.eta_l + 1 < -_feps  # Less forgiving
+            mask = np.logical_and(df.eta_l + 1 < -_feps, df.dist >= 0)  # Less forgiving
             mask = mask.to_numpy()
 
             if axis == 'x':
@@ -411,6 +411,26 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     df['z'] = z_ind
 
     df = df.set_index(['z', 'y', 'x'])
+    return df
+
+
+def apply_dist(df, point_type):
+    """
+    Add distances to eta_l and eta_r for paired cases. (Also applied to double
+    cases).
+    """
+    if point_type == 'paired_left':
+        df.eta_r += df.dist
+    elif point_type == 'paired_right':
+        df.eta_l += df.dist
+    elif point_type == 'double':
+        # If dist is positive, add to eta_r
+        eta_r_mask = df.dist > 0
+        df.loc[eta_r_mask, 'eta_r'] += df.loc[eta_r_mask, 'dist']
+        # Else if dist is negative, subtract from eta_l
+        eta_l_mask = df.dist < 0
+        df.loc[eta_l_mask, 'eta_l'] += df.loc[eta_l_mask, 'dist']
+
     return df
 
 
@@ -449,12 +469,13 @@ def get_n_pts(df, point_type, space_order, eval_offset):
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
 
     elif point_type == 'double':
-        n_pts = 1
+        # Needs to consider dist, as in staggered cases, may have a second point
+        n_pts = np.absolute(df.dist) + 1
 
     elif point_type == 'paired_left':
         if abs(eval_offset) >= _feps:
             # Increase number of points based on eta_l
-            modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
+            modifier_eta_l = np.where(df.eta_l.to_numpy() - eval_offset > -_feps, 1, 0)
         else:
             modifier_eta_l = 0
 
@@ -463,8 +484,8 @@ def get_n_pts(df, point_type, space_order, eval_offset):
     elif point_type == 'paired_right':
         if abs(eval_offset) >= _feps:
             # Increase number of points based on eta_r, but cap affected by eta_l
-            modifier_eta_l = np.where(df.eta_l.to_numpy() > -_feps, 1, 0)
-            modifier_eta_r = np.where(df.eta_r.to_numpy() < _feps, 1, 0)
+            modifier_eta_l = np.where(df.eta_l.to_numpy() - eval_offset > -_feps, 1, 0)
+            modifier_eta_r = np.where(df.eta_r.to_numpy() - eval_offset < _feps, 1, 0)
         else:
             modifier_eta_l = 0
             modifier_eta_r = 0
@@ -543,7 +564,11 @@ def get_master_df(msk_pts, point_type, pts):
         frames = [get_next_point(msk_pts, -inc, 'x') for inc in range(pts)]
         master_df = pd.concat(frames)
     elif point_type == 'double':
-        master_df = msk_pts.copy()
+        # Wants to behave as a special kind of 'paired'
+        inc_dir = np.sign(msk_pts.dist.to_numpy())
+        frames = [get_next_point(msk_pts, inc_dir*inc, 'x') for inc in range(pts)]
+        master_df = pd.concat(frames)
+
         # Drop points exactly on the boundary
         drop_mask = np.logical_and(np.abs(master_df.eta_l) > _feps,
                                    np.abs(master_df.eta_r) > _feps)
@@ -744,6 +769,10 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     paired_left = shift_grid_endpoint(paired_left, axis_dim, grid_offset, eval_offset)
     paired_right = shift_grid_endpoint(paired_right, axis_dim, grid_offset, eval_offset)
 
+    double = apply_dist(double, 'double')
+    paired_left = apply_dist(paired_left, 'paired_left')
+    paired_right = apply_dist(paired_right, 'paired_right')
+
     # Additional dimension for storing weights
     # This will be dependent on the number of extrapolation points required
     # and the space order.
@@ -773,7 +802,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     else:
         w.data[:] = standard_stencil(deriv, function.space_order,
                                      offset=eval_offset)
-    w.data[interior == 1] = 0
+    w.data[interior == -1] = 0
 
     # Fill the stencils
     if len(first.index) != 0:

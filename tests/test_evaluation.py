@@ -466,7 +466,7 @@ class TestStencils:
             w.data[:5] = 0
             fill_stencils(last, 'last', max_ext_points, lambdas, w, 10)
 
-        # Check against a pickled correct version
+        # Check against a saved correct version
         # Generate filename
         filename = side + '_' + str(order) + '_' + bc_type + '_' + str(deriv) + '_' + str(goffset) + '_' + str(eoffset)
 
@@ -475,75 +475,64 @@ class TestStencils:
 
         assert np.all(np.absolute(w.data-reference) < np.finfo(float).eps)
 
-    @pytest.mark.parametrize('axis', [0, 1, 2])
-    @pytest.mark.parametrize('deriv', [1, 2])
-    def test_get_component_weights(self, axis, deriv):
-        """
-        Check that get_component_weights returns stencils evaluated to their correct
-        values.
-        """
-        def evaluate_variant(stencils_lambda, left_var, right_var,
-                             left_eta, right_eta):
-            """Evaluate the specified stencil"""
-            stencil = stencils_lambda[left_var, right_var]
-            eval_stencil = np.array([stencil[i](left_eta, right_eta)
-                                     for i in range(5)])
-            return eval_stencil
+    @pytest.mark.parametrize('order', [4, 6])
+    @pytest.mark.parametrize('spec', [{'bcs': 'even', 'deriv': 2, 'goffset': 0., 'eoffset': 0},
+                                      {'bcs': 'even', 'deriv': 1, 'goffset': 0., 'eoffset': 0.5},
+                                      {'bcs': 'odd', 'deriv': 1, 'goffset': 0.5, 'eoffset': -0.5}])
+    @pytest.mark.parametrize('inside', [True, False])
+    @pytest.mark.parametrize('dist_val', [0.6, 0.4])
+    @pytest.mark.filterwarnings('ignore::RuntimeWarning')  # y and z dimensions of 1
+    def test_stencil_evaluation(self, order, spec, inside, dist_val):
+        """Check that stencil coefficients are selected and evaluated to expected values"""
+        # Unpack the spec
+        bc_type = spec['bcs']
+        deriv = spec['deriv']
+        goffset = spec['goffset']
+        eoffset = spec['eoffset']
 
-        def check_row(data, index, stencils_lambda):
-            """Check values in the specified row are as intended"""
-            indices = [slice(None), slice(None), slice(None)]
-            indices[axis] = index
-            stencils = data[indices[0], indices[1], indices[2]]
-
-            if index == 0:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                0, 1, 0, 1.6)
-            elif index == 1:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                0, 3, 0, 0.6)
-            elif index == 2:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                4, 3, -0.4, 0.6)
-            elif index == 3:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                4, 0, -0.4, 0)
-            elif index == 4:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                2, 1, -1.4, 1.6)
-            elif index == 5:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                0, 3, 0, 0.6)
-            elif index == 6:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                4, 0, -0.4, 0)
-            elif index == 7:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                2, 0, -1.4, 0)
-            elif index >= 8:
-                true_stencil = evaluate_variant(stencils_lambda,
-                                                0, 0, 0, 0)
-
-            misfit = stencils - true_stencil
-            assert np.amax(np.absolute(misfit)) < 1e-6
-
-        order = 4
-        spec = {2*i: 0 for i in range(1+order//2)}
-        bcs = BoundaryConditions(spec, order)
-
-        grid = Grid(shape=(10, 10, 10), extent=(9., 9., 9.))
-        function = Function(name='function', grid=grid, space_order=order)
-
-        distances = np.full((10, 10, 10), -2, dtype=float)
-        ind = [slice(None), slice(None), slice(None)]
-        ind[axis] = np.array([1, 2, 5])
-        distances[ind[0], ind[1], ind[2]] = 0.6
+        if bc_type == 'even':
+            bcs = BoundaryConditions({2*i: 0 for i in range(1+order//2)}, order)
+        else:
+            bcs = BoundaryConditions({2*i + 1: 0 for i in range(1+order//2)}, order)
 
         cache = os.path.dirname(__file__) + '/../devitoboundary/extrapolation_cache.dat'
 
-        stencils_lambda = get_stencils_lambda(deriv, 0, bcs, cache=cache)
+        # stencils_lambda = get_stencils_lambda(deriv, eoffset, bcs, cache=cache)
+        stencils = StencilSet(deriv, eoffset, bcs, cache=cache)
+        lambdas = stencils.lambdaify
+        max_ext_points = stencils.max_ext_points
 
-        w = get_component_weights(distances, axis, function, deriv, stencils_lambda, 0)
+        # Generate a suitable 1D distance field, hitting several stencil types
+        distances = np.full((10, 1, 1), -order//2, dtype=float)
+        ind = np.array([1, 2, 5])
+        distances[ind] = dist_val
 
-        for i in range(10):
-            check_row(w.data, i, stencils_lambda)
+        # Create a function to generate weights for
+        grid = Grid(shape=(10, 1, 1), extent=(9, 0, 0))
+        x, y, z = grid.dimensions
+        if goffset == 0.:
+            f = Function(name='f', grid=grid, space_order=order)
+        elif goffset == 0.5:
+            f = Function(name='f', grid=grid, space_order=order, staggered=x)
+
+        # Generate an accompanying section
+        interior = np.full((10, 1, 1), -1)
+        if inside:
+            # Generate one segmentation
+            inner_points = np.array([0, 1, 3, 4, 5])
+        else:
+            # Generate the other segmentation
+            inner_points = np.array([2, 6, 7, 8, 9])
+        interior[inner_points] = 1
+
+        # Evaluate stencils
+        w = get_component_weights(distances, 0, f, deriv, lambdas, interior,
+                                  max_ext_points, eoffset)
+
+        # Check against precalculated stencils
+        # Generate filename
+        filename = str(dist_val) + '_' + str(inside) + '_' + str(order) + '_' + bc_type + '_' + str(deriv) + '_' + str(goffset) + '_' + str(eoffset)
+        # Load reference data
+        reference = np.load(os.path.dirname(__file__) + '/evaluated_stencils/' + filename + '.npy')
+
+        assert np.all(np.absolute(w.data-reference) < np.finfo(float).eps)
