@@ -17,7 +17,6 @@ def get_point_index(i_point, spacing, origin):
     return i_ind
 
 
-
 def get_interior(sdf, i_point, qc=False):
     """
     A function to identify interior points given an interior point specified
@@ -37,6 +36,7 @@ def get_interior(sdf, i_point, qc=False):
 
     flooded = flood_fill(sdf.data, point_index, -np.amin(sdf.data))
 
+    # FIXME: This wants tolerance
     segmented = np.sign(flooded)
 
     # Show a slice of the segmentation for qc
@@ -47,4 +47,3 @@ def get_interior(sdf, i_point, qc=False):
         plt.show()
 
     return np.array(segmented)
-

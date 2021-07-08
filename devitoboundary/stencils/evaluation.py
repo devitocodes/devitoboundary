@@ -539,7 +539,7 @@ def get_next_point(df, inc, axis):
     return df
 
 
-def get_master_df(msk_pts, point_type, pts):
+def get_master_df(msk_pts, point_type, pts, axis):
     """
     Create a dataframe containing all the points for a given points
     count.
@@ -555,18 +555,20 @@ def get_master_df(msk_pts, point_type, pts):
     pts : int
         The number of modified stencils associated with each boundary-adjacent
         point.
+    axis : str
+        The axis along which these stencils are aligned
     """
     # Make a big master dataframe for this number of points
     if point_type == 'last' or point_type == 'paired_left':
-        frames = [get_next_point(msk_pts, inc, 'x') for inc in range(pts)]
+        frames = [get_next_point(msk_pts, inc, axis) for inc in range(pts)]
         master_df = pd.concat(frames)
     elif point_type == 'first' or point_type == 'paired_right':
-        frames = [get_next_point(msk_pts, -inc, 'x') for inc in range(pts)]
+        frames = [get_next_point(msk_pts, -inc, axis) for inc in range(pts)]
         master_df = pd.concat(frames)
     elif point_type == 'double':
         # Wants to behave as a special kind of 'paired'
         inc_dir = np.sign(msk_pts.dist.to_numpy())
-        frames = [get_next_point(msk_pts, inc_dir*inc, 'x') for inc in range(pts)]
+        frames = [get_next_point(msk_pts, inc_dir*inc, axis) for inc in range(pts)]
         master_df = pd.concat(frames)
 
         # Drop points exactly on the boundary
@@ -671,7 +673,7 @@ def fill_weights(df, stencils, weights, dim_limit):
     weights.data[x_ind, y_ind, z_ind] = stencils[valid]
 
 
-def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit):
+def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit, axis):
     """
     Fill the stencil weights using the identified points.
 
@@ -688,12 +690,17 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit):
         The functions for stencils to be evaluated
     weights : Function
         The Function containing the finite difference coefficients
+    axis : str
+        The axis along which these stencils are aligned
     """
     for pts in range(df.n_pts.min(), df.n_pts.max()+1):
         msk_pts = df[df.n_pts == pts]
 
         # Get all the points
-        master_df = get_master_df(msk_pts, point_type, pts)
+        master_df = get_master_df(msk_pts, point_type, pts, axis)
+        print(point_type, pts)
+        mini_df = master_df[master_df.index.get_level_values('y') == 50]
+        print(mini_df[::10])
 
         # Now loop over keys
         for key in lambdas:
@@ -807,23 +814,43 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     # Fill the stencils
     if len(first.index) != 0:
         first = get_n_pts(first, 'first', function.space_order, eval_offset)
-        fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit)
+        fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit, axis_dim)
 
     if len(last.index) != 0:
         last = get_n_pts(last, 'last', function.space_order, eval_offset)
-        fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit)
+        fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit, axis_dim)
 
     if len(double.index) != 0:
         double = get_n_pts(double, 'double', function.space_order, eval_offset)
-        fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit)
+        fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit, axis_dim)
 
     if len(paired_left.index) != 0:
         paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
-        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit)
+        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit, axis_dim)
 
     if len(paired_right.index) != 0:
         paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
-        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit)
+        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+    # Print the stencils for each side of boundary to check over
+    if function.name == 'p' or function.name == 'v_z_d':
+        print(function.name)
+        # Print stencils on both sides of the boundary
+        # Print every fifth stencil in x direction
+        for i in range(10):
+            print("x = {}".format(10*i))
+            print("z = 48")
+            print(w.data[10*i, 50, 48])
+            print("z = 49")
+            print(w.data[10*i, 50, 49])
+            print("z = 50")
+            print(w.data[10*i, 50, 50])
+            print("z = 51")
+            print(w.data[10*i, 50, 51])
+            print("z = 52")
+            print(w.data[10*i, 50, 52])
+            print("z = 53")
+            print(w.data[10*i, 50, 53])
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
@@ -889,6 +916,7 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
                                            fill_function.grid.dimensions[axis],
                                            axis_weights))
         else:
+            # Sould instead return a subs where stencils are zeroed above boundary
             pass  # No boundary-adjacent points so don't return any subs
     # Raise error if list is empty
     if len(weights) == 0:
