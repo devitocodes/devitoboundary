@@ -698,9 +698,6 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit, a
 
         # Get all the points
         master_df = get_master_df(msk_pts, point_type, pts, axis)
-        print(point_type, pts)
-        mini_df = master_df[master_df.index.get_level_values('y') == 50]
-        print(mini_df[::10])
 
         # Now loop over keys
         for key in lambdas:
@@ -755,31 +752,6 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     dim_limit = f_grid.shape[axis]
     axis_dim = 'x' if axis == 0 else 'y' if axis == 1 else 'z'
 
-    full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim,
-                                         grid_offset, eval_offset)
-
-    add_distance_column(full_data)
-
-    first, last, double, paired_left, paired_right \
-        = split_types(full_data, axis_dim, f_grid.shape[axis])
-
-    # Need to drop exterior points and shift grid endpoint
-    first = drop_outside_points(first, interior)
-    last = drop_outside_points(last, interior)
-    double = drop_outside_points(double, interior)
-    paired_left = drop_outside_points(paired_left, interior)
-    paired_right = drop_outside_points(paired_right, interior)
-
-    first = shift_grid_endpoint(first, axis_dim, grid_offset, eval_offset)
-    last = shift_grid_endpoint(last, axis_dim, grid_offset, eval_offset)
-    double = shift_grid_endpoint(double, axis_dim, grid_offset, eval_offset)
-    paired_left = shift_grid_endpoint(paired_left, axis_dim, grid_offset, eval_offset)
-    paired_right = shift_grid_endpoint(paired_right, axis_dim, grid_offset, eval_offset)
-
-    double = apply_dist(double, 'double')
-    paired_left = apply_dist(paired_left, 'paired_left')
-    paired_right = apply_dist(paired_right, 'paired_right')
-
     # Additional dimension for storing weights
     # This will be dependent on the number of extrapolation points required
     # and the space order.
@@ -811,46 +783,78 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
                                      offset=eval_offset)
     w.data[interior == -1] = 0
 
-    # Fill the stencils
-    if len(first.index) != 0:
-        first = get_n_pts(first, 'first', function.space_order, eval_offset)
-        fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit, axis_dim)
+    fill_val = np.amin(data)
 
-    if len(last.index) != 0:
-        last = get_n_pts(last, 'last', function.space_order, eval_offset)
-        fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit, axis_dim)
+    # Still want to zero above boundary if no points in need of modification
+    # So skip this if no points are available
+    if np.any(data != fill_val):
+        full_data = get_data_inc_reciprocals(data, f_grid.spacing[axis], axis_dim,
+                                             grid_offset, eval_offset)
 
-    if len(double.index) != 0:
-        double = get_n_pts(double, 'double', function.space_order, eval_offset)
-        fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit, axis_dim)
+        add_distance_column(full_data)
 
-    if len(paired_left.index) != 0:
-        paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
-        fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit, axis_dim)
+        first, last, double, paired_left, paired_right \
+            = split_types(full_data, axis_dim, f_grid.shape[axis])
 
-    if len(paired_right.index) != 0:
-        paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
-        fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit, axis_dim)
+        # Need to drop exterior points and shift grid endpoint
+        first = drop_outside_points(first, interior)
+        last = drop_outside_points(last, interior)
+        double = drop_outside_points(double, interior)
+        paired_left = drop_outside_points(paired_left, interior)
+        paired_right = drop_outside_points(paired_right, interior)
 
-    # Print the stencils for each side of boundary to check over
-    if function.name == 'p' or function.name == 'v_z_d':
-        print(function.name)
-        # Print stencils on both sides of the boundary
-        # Print every fifth stencil in x direction
-        for i in range(10):
-            print("x = {}".format(10*i))
-            print("z = 48")
-            print(w.data[10*i, 50, 48])
-            print("z = 49")
-            print(w.data[10*i, 50, 49])
-            print("z = 50")
-            print(w.data[10*i, 50, 50])
-            print("z = 51")
-            print(w.data[10*i, 50, 51])
-            print("z = 52")
-            print(w.data[10*i, 50, 52])
-            print("z = 53")
-            print(w.data[10*i, 50, 53])
+        first = shift_grid_endpoint(first, axis_dim, grid_offset, eval_offset)
+        last = shift_grid_endpoint(last, axis_dim, grid_offset, eval_offset)
+        double = shift_grid_endpoint(double, axis_dim, grid_offset, eval_offset)
+        paired_left = shift_grid_endpoint(paired_left, axis_dim, grid_offset, eval_offset)
+        paired_right = shift_grid_endpoint(paired_right, axis_dim, grid_offset, eval_offset)
+
+        double = apply_dist(double, 'double')
+        paired_left = apply_dist(paired_left, 'paired_left')
+        paired_right = apply_dist(paired_right, 'paired_right')
+
+        # Fill the stencils
+        if len(first.index) != 0:
+            first = get_n_pts(first, 'first', function.space_order, eval_offset)
+            fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+        if len(last.index) != 0:
+            last = get_n_pts(last, 'last', function.space_order, eval_offset)
+            fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+        if len(double.index) != 0:
+            double = get_n_pts(double, 'double', function.space_order, eval_offset)
+            fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+        if len(paired_left.index) != 0:
+            paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
+            fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+        if len(paired_right.index) != 0:
+            paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
+            fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit, axis_dim)
+
+        """
+        # Print the stencils for each side of boundary to check over
+        if function.name == 'p' or function.name == 'v_z_d':
+            print(function.name)
+            # Print stencils on both sides of the boundary
+            # Print every fifth stencil in x direction
+            for i in range(10):
+                print("x = {}".format(10*i))
+                print("z = 48")
+                print(w.data[10*i, 50, 48])
+                print("z = 49")
+                print(w.data[10*i, 50, 49])
+                print("z = 50")
+                print(w.data[10*i, 50, 50])
+                print("z = 51")
+                print(w.data[10*i, 50, 51])
+                print("z = 52")
+                print(w.data[10*i, 50, 52])
+                print("z = 53")
+                print(w.data[10*i, 50, 53])
+        """
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
@@ -892,32 +896,24 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
     # This wants to start as an empty list
     weights = []
     for axis in range(3):
-        # Check any != filler value in data[axis].data
-        # TODO: Could just calculate this rather than finding the minimum
-        fill_val = np.amin(data[axis].data)
-        if np.any(data[axis].data != fill_val):
-            print(deriv, function, function.grid.dimensions[axis])
-            # If True, then behave as normal
-            # If False then pass
-            stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache)
-            lambdas = stencils.lambdaify
-            max_ext_points = stencils.max_ext_points
+        print(deriv, function, function.grid.dimensions[axis])
+        stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache)
+        lambdas = stencils.lambdaify
+        max_ext_points = stencils.max_ext_points
 
-            axis_weights = get_component_weights(data[axis].data, axis, function,
-                                                 deriv, lambdas, interior,
-                                                 max_ext_points, eval_offsets[axis])
+        axis_weights = get_component_weights(data[axis].data, axis, function,
+                                             deriv, lambdas, interior,
+                                             max_ext_points, eval_offsets[axis])
 
-            if fill_function is None:
-                weights.append(Coefficient(deriv, function,
-                                           function.grid.dimensions[axis],
-                                           axis_weights))
-            else:
-                weights.append(Coefficient(deriv, fill_function,
-                                           fill_function.grid.dimensions[axis],
-                                           axis_weights))
+        if fill_function is None:
+            weights.append(Coefficient(deriv, function,
+                                       function.grid.dimensions[axis],
+                                       axis_weights))
         else:
-            # Sould instead return a subs where stencils are zeroed above boundary
-            pass  # No boundary-adjacent points so don't return any subs
+            weights.append(Coefficient(deriv, fill_function,
+                                       fill_function.grid.dimensions[axis],
+                                       axis_weights))
+
     # Raise error if list is empty
     if len(weights) == 0:
         raise ValueError("No boundary-adjacent points in provided fields")
