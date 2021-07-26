@@ -513,9 +513,6 @@ class StencilSet():
 
         # Initial pass to remove keys where no points require extrapolation
         initial_keys = list(stencils.keys())
-        print(initial_keys)
-        # FIXME: Will need to modify this for the case where the last point is
-        # on the interior, but still needs extrapolation for stability
 
         for key in initial_keys:
             if self._cautious:
@@ -528,16 +525,9 @@ class StencilSet():
         # Loop over each key
         shortened_keys = list(stencils.keys())
         for key in shortened_keys:
-            print(key)
             # For left and right sides
             # Need to get points to extrapolate to
-            # FIXME; Will need to detect edge cases where stabilization is necessary
-            # and adjust the outside points accordingly.
-            # Edge case is only for pressure, so will need a switch (cautious=True)
-            # Want to modify the values of out_l and out_r if cautious==True
             out_l, out_r = self._get_outside(key)
-            print("out_l", out_l)
-            print("out_r", out_r)
 
             # Need to get points to extrapolate from
             ext_l, ext_r, l_floor, r_floor = self._get_extrapolation_points(key, out_l, out_r)
@@ -563,7 +553,5 @@ class StencilSet():
             else:
                 # If all stencil points lie outside boundary, then this entry is set to be zero
                 stencils[key] = {0: 0}
-
-            print('\n')
 
         return stencils
