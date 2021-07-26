@@ -8,6 +8,8 @@ from devitoboundary.symbolics.symbols import (a, x_b, x_a, x_t, E, eta_l, eta_r)
 
 __all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs', 'StencilSet']
 
+_feps = np.finfo(np.float32).eps  # Get the eps
+
 
 def taylor(x, order):
     """Generate a taylor series expansion of a given order"""
@@ -213,13 +215,18 @@ class StencilSet():
         The boundary conditions imposed by these stencils
     cache : str
         The path to the extrapolation coefficient cache
+    cautious : bool
+        If True, then stencil points within half a grid increment of the boundary
+        will have their values extrapolated rather than simply being skipped in
+        the extrapolation. Default is False
     """
 
-    def __init__(self, deriv, offset, bcs, cache=None):
+    def __init__(self, deriv, offset, bcs, cache=None, cautious=False):
         # Set various parameters
         self._deriv = deriv
         self._offset = offset
         self._bcs = bcs
+        self._cautious = cautious
 
         # Calculate the extrapolation coefficients
         self._ext_coeffs = get_ext_coeffs(bcs, cache=cache)
@@ -272,6 +279,14 @@ class StencilSet():
         return self._stencils
 
     @property
+    def is_cautious(self):
+        """
+        StencilSet uses cautious evaluation (points within half a grid spacing
+        of the boundary get extrapolated).
+        """
+        return self._cautious
+
+    @property
     def lambdaify(self):
         """
         The stencils with coefficients in the form of functions with
@@ -292,16 +307,17 @@ class StencilSet():
     def _get_keys(self):
         """Generate keys for the stencil dict"""
         # Generate number of variants per side
-        count_l = 2*self.max_ext_points
-        count_r = 2*self.max_ext_points
+        # Note: Need to generate an extra key in cautious case
+        count_l = 2*self.max_ext_points + self._cautious
+        count_r = 2*self.max_ext_points + self._cautious
         if np.sign(self.offset) == 1:
             count_l += 1
         elif np.sign(self.offset) == -1:
             count_r += 1
 
         # Innermost valid eta values
-        variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5
-        variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5
+        variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5 - self._cautious/2
+        variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5 + self._cautious/2
 
         # Append a NaN for where eta is too large to care about
         variants_l = np.append(np.NaN, variants_l)
@@ -332,19 +348,26 @@ class StencilSet():
         """
         eta_l, eta_r = key
 
+        # FIXME: Will want to be modified to work with shifted stencils in due course
         base_indices = list(range(-self.order//2, 1+self.order//2))
 
         if not np.isnan(eta_l):
+            # Create the modifier to add one if cautious is True and eta_l%1 == 0.5
+            l_mod = self._cautious and abs(eta_l % 1) < _feps
+
             # Stencil points outside on the left
-            out_l = max(0, self.order//2 + np.ceil(eta_l))
+            out_l = max(0, self.order//2 + np.ceil(eta_l) + l_mod)
 
             points_l = base_indices[:int(out_l)]
         else:
             points_l = []
 
         if not np.isnan(eta_r):
+            # Create the modifier to add one if cautious is True and eta_l%1 == 0.5
+            r_mod = self._cautious and abs(eta_r % 1) < _feps
+
             # Stencil points outside on the right
-            out_r = max(0, self.order//2 - np.floor(eta_r))
+            out_r = max(0, self.order//2 - np.floor(eta_r) + r_mod)
 
             # Need to handle out_r = -out_r = 0 for backward indexing
             if out_r != 0:
@@ -442,6 +465,7 @@ class StencilSet():
         for target in out_l:
             target_coeffs_l = get_target_coeffs(coeffs_l, target)
             # Stencil coefficient for the target point
+            # FIXME: Will want to use a shifted stencil in due course sometimes
             target_coefficient = self._std_stencil[target]
 
             # Loop over extrapolation points
@@ -455,6 +479,7 @@ class StencilSet():
         for target in out_r:
             target_coeffs_r = get_target_coeffs(coeffs_r, target)
             # Stencil coefficient for the target point
+            # FIXME: Will want to use a shifted stencil in due course sometimes
             target_coefficient = self._std_stencil[target]
 
             # Loop over extrapolation points
@@ -471,6 +496,7 @@ class StencilSet():
 
     def _get_short_stencil(self, out_l, out_r):
         """Get the shortened version of the stencil"""
+        # FIXME: Will want to use a shifted stencil in due course sometimes
         short_stencil = self._std_stencil.copy()
         to_remove = out_l + out_r
         for outside in to_remove:
@@ -487,16 +513,31 @@ class StencilSet():
 
         # Initial pass to remove keys where no points require extrapolation
         initial_keys = list(stencils.keys())
+        print(initial_keys)
+        # FIXME: Will need to modify this for the case where the last point is
+        # on the interior, but still needs extrapolation for stability
+
         for key in initial_keys:
-            if (key[0] - 0.5 < min(self._std_stencil.keys()) or np.isnan(key[0])) and (key[1] + 0.5 > max(self._std_stencil.keys()) or np.isnan(key[1])):
-                del stencils[key]
+            if self._cautious:
+                if (key[0] < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
+                    del stencils[key]
+            else:
+                if (key[0] - 0.5 < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] + 0.5 > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
+                    del stencils[key]
 
         # Loop over each key
         shortened_keys = list(stencils.keys())
         for key in shortened_keys:
+            print(key)
             # For left and right sides
             # Need to get points to extrapolate to
+            # FIXME; Will need to detect edge cases where stabilization is necessary
+            # and adjust the outside points accordingly.
+            # Edge case is only for pressure, so will need a switch (cautious=True)
+            # Want to modify the values of out_l and out_r if cautious==True
             out_l, out_r = self._get_outside(key)
+            print("out_l", out_l)
+            print("out_r", out_r)
 
             # Need to get points to extrapolate from
             ext_l, ext_r, l_floor, r_floor = self._get_extrapolation_points(key, out_l, out_r)
@@ -522,5 +563,7 @@ class StencilSet():
             else:
                 # If all stencil points lie outside boundary, then this entry is set to be zero
                 stencils[key] = {0: 0}
+
+            print('\n')
 
         return stencils

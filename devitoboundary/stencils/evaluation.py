@@ -834,7 +834,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
             paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
             fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit, axis_dim)
 
-        # """
+        """
         # Print the stencils for each side of boundary to check over
         if function.name == 'p' or function.name == 'v_z_d':
             print(function.name)
@@ -855,7 +855,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
                 print(w.data[10*i, 50, 52])
                 print("z = 53")
                 print(w.data[10*i, 50, 53])
-        # """
+        """
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
