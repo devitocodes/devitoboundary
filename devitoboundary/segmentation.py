@@ -38,8 +38,6 @@ def get_interior(sdf, i_point, qc=False):
 
     flooded = flood_fill(sdf.data, point_index, -np.amin(sdf.data))
 
-    # FIXME: This wants tolerance
-    # segmented = np.sign(flooded)
     segmented = flooded > -_feps
 
     # Show a slice of the segmentation for qc

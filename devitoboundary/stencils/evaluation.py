@@ -372,39 +372,6 @@ def shift_grid_endpoint(df, axis, grid_offset, eval_offset, paired_point=None):
             df.loc[mask, 'eta_r'] -= 1
             df.loc[mask, 'dist'] -= 1
 
-    else:  # Non-zero grid offset
-        if np.sign(grid_offset) == -1:
-            # Make a mask for points where shift is necessary
-            mask = np.logical_and(df.eta_r - 1 > _feps, df.dist <= 0)  # Less forgiving
-            mask = mask.to_numpy()
-
-            if axis == 'x':
-                x_ind[mask] += 1
-            elif axis == 'y':
-                y_ind[mask] += 1
-            elif axis == 'z':
-                z_ind[mask] += 1
-
-            # Increment eta_r, distance
-            df.loc[mask, 'eta_r'] -= 1
-            df.loc[mask, 'dist'] -= 1
-
-        elif np.sign(grid_offset) == 1:
-            # Make a mask for points where shift is necessary
-            mask = np.logical_and(df.eta_l + 1 < -_feps, df.dist >= 0)  # Less forgiving
-            mask = mask.to_numpy()
-
-            if axis == 'x':
-                x_ind[mask] -= 1
-            elif axis == 'y':
-                y_ind[mask] -= 1
-            elif axis == 'z':
-                z_ind[mask] -= 1
-
-            # Increment eta_l, distance
-            df.loc[mask, 'eta_l'] += 1
-            df.loc[mask, 'dist'] += 1
-
     # Add the new incremented indices
     df['x'] = x_ind
     df['y'] = y_ind
@@ -789,7 +756,6 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     else:
         w.data[:] = standard_stencil(deriv, function.space_order,
                                      offset=eval_offset)
-    # w.data[interior == -1] = 0
     w.data[~interior] = 0
 
     fill_val = np.amin(data)
