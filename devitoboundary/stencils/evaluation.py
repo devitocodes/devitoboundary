@@ -789,7 +789,8 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     else:
         w.data[:] = standard_stencil(deriv, function.space_order,
                                      offset=eval_offset)
-    w.data[interior == -1] = 0
+    # w.data[interior == -1] = 0
+    w.data[~interior] = 0
 
     fill_val = np.amin(data)
 

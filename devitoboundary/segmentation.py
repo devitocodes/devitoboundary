@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.segmentation import flood_fill
 
+_feps = np.finfo(np.float32).eps  # Get the eps
+
 
 def get_point_index(i_point, spacing, origin):
     """
@@ -37,7 +39,8 @@ def get_interior(sdf, i_point, qc=False):
     flooded = flood_fill(sdf.data, point_index, -np.amin(sdf.data))
 
     # FIXME: This wants tolerance
-    segmented = np.sign(flooded)
+    # segmented = np.sign(flooded)
+    segmented = flooded > -_feps
 
     # Show a slice of the segmentation for qc
     if qc:
