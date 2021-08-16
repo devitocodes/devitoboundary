@@ -308,16 +308,16 @@ class StencilSet():
         """Generate keys for the stencil dict"""
         # Generate number of variants per side
         # Note: Need to generate an extra key in cautious case
-        count_l = 2*self.max_ext_points + self._cautious
-        count_r = 2*self.max_ext_points + self._cautious
+        count_l = 2*self.max_ext_points  # + self._cautious
+        count_r = 2*self.max_ext_points  # + self._cautious
         if np.sign(self.offset) == 1:
             count_l += 1
         elif np.sign(self.offset) == -1:
             count_r += 1
 
         # Innermost valid eta values
-        variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5 - self._cautious/2
-        variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5 + self._cautious/2
+        variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5  # - self._cautious/2
+        variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5  # + self._cautious/2
 
         # Append a NaN for where eta is too large to care about
         variants_l = np.append(np.NaN, variants_l)
@@ -352,22 +352,18 @@ class StencilSet():
         base_indices = list(range(-self.order//2, 1+self.order//2))
 
         if not np.isnan(eta_l):
-            # Create the modifier to add one if cautious is True and eta_l%1 == 0.5
-            l_mod = self._cautious and abs(eta_l % 1) < _feps
 
             # Stencil points outside on the left
-            out_l = max(0, self.order//2 + np.ceil(eta_l) + l_mod)
+            out_l = max(0, self.order//2 + np.ceil(eta_l))
 
             points_l = base_indices[:int(out_l)]
         else:
             points_l = []
 
         if not np.isnan(eta_r):
-            # Create the modifier to add one if cautious is True and eta_l%1 == 0.5
-            r_mod = self._cautious and abs(eta_r % 1) < _feps
 
             # Stencil points outside on the right
-            out_r = max(0, self.order//2 - np.floor(eta_r) + r_mod)
+            out_r = max(0, self.order//2 - np.floor(eta_r))
 
             # Need to handle out_r = -out_r = 0 for backward indexing
             if out_r != 0:
@@ -515,12 +511,8 @@ class StencilSet():
         initial_keys = list(stencils.keys())
 
         for key in initial_keys:
-            if self._cautious:
-                if (key[0] < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
-                    del stencils[key]
-            else:
-                if (key[0] - 0.5 < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] + 0.5 > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
-                    del stencils[key]
+            if (key[0] - 0.5 < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] + 0.5 > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
+                del stencils[key]
 
         # Loop over each key
         shortened_keys = list(stencils.keys())

@@ -428,7 +428,8 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_r = 0
 
-        n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious, 1-df.dist.to_numpy())
+        # n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious, 1-df.dist.to_numpy())
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_r, 1-df.dist.to_numpy())
 
     elif point_type == 'last':
         if abs(eval_offset) >= _feps:
@@ -437,7 +438,8 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_l = 0
 
-        n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, 1+df.dist.to_numpy())
+        # n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, 1+df.dist.to_numpy())
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
 
     elif point_type == 'double':
         # Needs to consider dist, as in staggered cases, may have a second point
@@ -450,7 +452,8 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_l = 0
 
-        n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, df.dist.to_numpy())
+        # n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, df.dist.to_numpy())
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_l, df.dist.to_numpy())
 
     elif point_type == 'paired_right':
         if abs(eval_offset) >= _feps:
@@ -461,8 +464,11 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
             modifier_eta_l = 0
             modifier_eta_r = 0
 
-        n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious,
-                           1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l+cautious,
+        # n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious,
+        #                    1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l+cautious,
+        #                                                    -df.dist.to_numpy()))
+        n_pts = np.minimum(int(space_order/2)+modifier_eta_r,
+                           1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l,
                                                            -df.dist.to_numpy()))
 
     df['n_pts'] = n_pts
