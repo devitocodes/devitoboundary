@@ -162,31 +162,6 @@ def _get_ext_coeffs(bcs):
     return coeff_dict
 
 
-def build_main_subs(ext_l, ext_r, l_floor, r_floor):
-    """
-    Build the substitutions for each side. These substitutions
-    will be applied to the extrapolation coefficients to replace
-    everything except the target point.
-    """
-    # Left side main subs
-    subs_l = [(x_a[i], ext_l[i]) for i in range(len(ext_l))]
-    # Set floor on eta if necessary
-    if not l_floor:
-        subs_l += [(x_b, eta_l)]
-    else:
-        subs_l += [(x_b, -0.5)]
-
-    # Right side main subs
-    subs_r = [(x_a[i], ext_r[i]) for i in range(len(ext_r))]
-    # Set floor on eta if necessary
-    if not r_floor:
-        subs_r += [(x_b, eta_r)]
-    else:
-        subs_r += [(x_b, 0.5)]
-
-    return subs_l, subs_r
-
-
 def get_target_coeffs(coeffs, out):
     """Get the coeffs for a particular target"""
     target_subs = [(x_t, out)]
@@ -233,7 +208,12 @@ class StencilSet():
 
         # Determine the maximum number of extrapolation points from
         # keys in the extrapolation coefficient dictionary
+
         self._max_ext_points = np.amax([*self._ext_coeffs])
+
+        # Maximum span of the stencil
+        # An extra point is required in the cautious case
+        self._max_span = self.max_ext_points + self._cautious
 
         # Base stencil (used in stencil determination)
         self._std_stencil = standard_stencil(self.deriv, self.order,
@@ -249,6 +229,14 @@ class StencilSet():
         in this set use.
         """
         return self._max_ext_points
+
+    @property
+    def max_span(self):
+        """
+        The maximum span from the centre point that stencils in this set will
+        have.
+        """
+        return self._max_span
 
     @property
     def deriv(self):
@@ -307,17 +295,18 @@ class StencilSet():
     def _get_keys(self):
         """Generate keys for the stencil dict"""
         # Generate number of variants per side
-        # Note: Need to generate an extra key in cautious case
-        count_l = 2*self.max_ext_points  # + self._cautious
-        count_r = 2*self.max_ext_points  # + self._cautious
+        count_l = 2*self.max_span  # 2*self.max_ext_points
+        count_r = 2*self.max_span  # 2*self.max_ext_points
         if np.sign(self.offset) == 1:
             count_l += 1
         elif np.sign(self.offset) == -1:
             count_r += 1
 
         # Innermost valid eta values
-        variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5  # - self._cautious/2
-        variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5  # + self._cautious/2
+        # variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5
+        # variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5
+        variants_l = -self.max_span + np.arange(count_l)/2 + 0.5
+        variants_r = self.max_span - np.arange(count_r)[::-1]/2 - 0.5
 
         # Append a NaN for where eta is too large to care about
         variants_l = np.append(np.NaN, variants_l)
@@ -388,25 +377,37 @@ class StencilSet():
         # Need to find the first available points to figure out where to start
         # Eta (or max number of extrapolation points) on other side limits other bound
         if not np.isnan(eta_l):
-            bound_l = int(np.floor(eta_l)+1)
+            if self._cautious:
+                bound_l = int(np.ceil(eta_l)+1)
+            else:
+                bound_l = int(np.floor(eta_l)+1)
         else:
-            bound_l = -self.max_ext_points
+            # bound_l = -self.max_ext_points
+            bound_l = -self.max_span
 
         if not np.isnan(eta_r):
-            bound_r = int(np.ceil(eta_r)-1)
+            if self._cautious:
+                bound_r = int(np.floor(eta_r)-1)
+            else:
+                bound_r = int(np.ceil(eta_r)-1)
         else:
-            bound_r = self.max_ext_points
+            # bound_r = self.max_ext_points
+            bound_r = self.max_span
 
         # Bounds at the other end
         if not np.isnan(eta_r):
             other_l = min(bound_l + self.max_ext_points - 1, int(np.floor(eta_r)))
+            # other_l = min(bound_l + self.max_span - 1, int(np.floor(eta_r)))
         else:
             other_l = bound_l + self.max_ext_points - 1
+            # other_l = bound_l + self.max_span - 1
 
         if not np.isnan(eta_l):
             other_r = max(bound_r - self.max_ext_points + 1, int(np.ceil(eta_l)))
+            # other_r = max(bound_r - self.max_span + 1, int(np.ceil(eta_l)))
         else:
             other_r = bound_r - self.max_ext_points + 1
+            # other_r = bound_r - self.max_span + 1
 
         base_indices = list(self._std_stencil.keys())
 
@@ -426,6 +427,36 @@ class StencilSet():
             right_floor = True
 
         return ext_points_l, ext_points_r, left_floor, right_floor
+
+    def _build_main_subs(self, ext_l, ext_r, l_floor, r_floor):
+        """
+        Build the substitutions for each side. These substitutions
+        will be applied to the extrapolation coefficients to replace
+        everything except the target point.
+        """
+        # Left side main subs
+        subs_l = [(x_a[i], ext_l[i]) for i in range(len(ext_l))]
+        # Set floor on eta if necessary
+        if not l_floor:
+            subs_l += [(x_b, eta_l)]
+        else:
+            if self._cautious:
+                subs_l += [(x_b, -1)]
+            else:
+                subs_l += [(x_b, -0.5)]
+
+        # Right side main subs
+        subs_r = [(x_a[i], ext_r[i]) for i in range(len(ext_r))]
+        # Set floor on eta if necessary
+        if not r_floor:
+            subs_r += [(x_b, eta_r)]
+        else:
+            if self._cautious:
+                subs_r += [(x_b, 1)]
+            else:
+                subs_r += [(x_b, 0.5)]
+
+        return subs_l, subs_r
 
     def _get_ext_coefficients(self, main_subs_l, main_subs_r):
         """
@@ -461,7 +492,6 @@ class StencilSet():
         for target in out_l:
             target_coeffs_l = get_target_coeffs(coeffs_l, target)
             # Stencil coefficient for the target point
-            # FIXME: Will want to use a shifted stencil in due course sometimes
             target_coefficient = self._std_stencil[target]
 
             # Loop over extrapolation points
@@ -526,7 +556,7 @@ class StencilSet():
 
             if len(ext_l) > 0 and len(ext_r) > 0:
                 # Get the main substitutions for the extrapolation coefficients
-                main_subs_l, main_subs_r = build_main_subs(ext_l, ext_r, l_floor, r_floor)
+                main_subs_l, main_subs_r = self._build_main_subs(ext_l, ext_r, l_floor, r_floor)
 
                 # Get the extrapolation coefficients (sans target)
                 coeffs_l, coeffs_r = self._get_ext_coefficients(main_subs_l, main_subs_r)

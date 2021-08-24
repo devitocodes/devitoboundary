@@ -557,7 +557,7 @@ def get_master_df(msk_pts, point_type, pts, axis):
     return master_df
 
 
-def get_key_mask(key, df, max_ext_points):
+def get_key_mask(key, df, max_span):
     """
     Get the mask for a given key.
 
@@ -567,8 +567,8 @@ def get_key_mask(key, df, max_ext_points):
         The key consisting of the inner bounds at which the stencil is valid
     df : pandas DataFrame
         The dataframe of points
-    max_ext_points : int
-        The maximum number of points required by the extrapolation
+    max_span : int
+        The maximum span of the stencil from the center point
     """
     # Unpack key
     eta_l_in, eta_r_in = key
@@ -577,13 +577,13 @@ def get_key_mask(key, df, max_ext_points):
 
     # Make a mask for this key
     if np.isnan(eta_l_in):
-        l_msk = np.logical_or(np.isnan(df.eta_l), df.eta_l < -max_ext_points - _feps)
+        l_msk = np.logical_or(np.isnan(df.eta_l), df.eta_l < -max_span - _feps)
     else:
         l_msk = np.logical_and(df.eta_l > eta_l_out - _feps,
                                df.eta_l < eta_l_in - _feps)
 
     if np.isnan(eta_r_in):
-        r_msk = np.logical_or(np.isnan(df.eta_r), df.eta_r >= max_ext_points + _feps)
+        r_msk = np.logical_or(np.isnan(df.eta_r), df.eta_r >= max_span + _feps)
     else:
         r_msk = np.logical_and(df.eta_r > eta_r_in + _feps,
                                df.eta_r < eta_r_out + _feps)
@@ -592,7 +592,7 @@ def get_key_mask(key, df, max_ext_points):
     return key_msk
 
 
-def eval_stencils(df, sten_lambda, max_ext_points):
+def eval_stencils(df, sten_lambda, max_span):
     """
     Evaluate the stencils for this particular stencil variant
     and associated points.
@@ -604,16 +604,16 @@ def eval_stencils(df, sten_lambda, max_ext_points):
     sten_lambda : dict
         The dictionary containing the function to evaluate the coefficient for
         each point.
-    max_ext_points : int
-        The maximum number of points required by the extrapolation
+    max_span : int
+        The maximum span of the stencil from the center point
     """
     # Make a set of empty stencils to fill
-    stencils = np.zeros((len(df), 1+2*max_ext_points))
+    stencils = np.zeros((len(df), 1+2*max_span))
 
     # Loop over stencil indices
     for index in sten_lambda:
         func = sten_lambda[index]
-        stencils[:, index+max_ext_points] = func(df.eta_l, df.eta_r)
+        stencils[:, index+max_span] = func(df.eta_l, df.eta_r)
 
     return stencils
 
@@ -650,7 +650,7 @@ def fill_weights(df, stencils, weights, dim_limit):
     weights.data[x_ind, y_ind, z_ind] = stencils[valid]
 
 
-def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit, axis):
+def fill_stencils(df, point_type, max_span, lambdas, weights, dim_limit, axis):
     """
     Fill the stencil weights using the identified points.
 
@@ -661,8 +661,8 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit, a
     point_type : str
         The category which the set of points fall into. Can be 'first', 'last',
         'double', 'paired_left', or 'paired_right'.
-    max_ext_points : int
-        The maximum number of points required by the extrapolation
+    max_span : int
+        The maximum span of the stencil from the center point
     lambdas : dict
         The functions for stencils to be evaluated
     weights : Function
@@ -679,20 +679,20 @@ def fill_stencils(df, point_type, max_ext_points, lambdas, weights, dim_limit, a
         # Now loop over keys
         for key in lambdas:
             # Make a mask for this key
-            key_msk = get_key_mask(key, master_df, max_ext_points)
+            key_msk = get_key_mask(key, master_df, max_span)
 
             # Now evaluate the stencils and drop them into place
             sten_lambda = lambdas[key]
 
             msk_pts = master_df[key_msk]
 
-            mod_stencils = eval_stencils(msk_pts, sten_lambda, max_ext_points)
+            mod_stencils = eval_stencils(msk_pts, sten_lambda, max_span)
 
             fill_weights(msk_pts, mod_stencils, weights, dim_limit)
 
 
 def get_component_weights(data, axis, function, deriv, lambdas, interior,
-                          max_ext_points, eval_offset, cautious):
+                          max_span, eval_offset, cautious):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -711,8 +711,8 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         The functions for stencils to be evaluated
     interior : ndarray
         The interior-exterior segmentation of the domain
-    max_ext_points : int
-        The maximum number of points required by the extrapolation
+    max_span : int
+        The maximum span of the stencil from the center point
     eval_offset : float
         The relative offset at which the derivative should be evaluated.
         Used for setting the default fill stencil.
@@ -736,7 +736,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     # Additional dimension for storing weights
     # This will be dependent on the number of extrapolation points required
     # and the space order.
-    dim_size = max(function.space_order//2, max_ext_points)
+    dim_size = max(function.space_order//2, max_span)
     s_dim = Dimension(name='s'+str(2*dim_size))
     ncoeffs = 2*dim_size + 1
 
@@ -746,9 +746,9 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     w = Function(name='w_'+function.name+'_'+axis_dim, dimensions=w_dims, shape=w_shape)
 
     # Do the initial stencil fill, padding where needs be
-    if max_ext_points > function.space_order//2:
+    if max_span > function.space_order//2:
         # Need to zero pad the standard stencil
-        zero_pad = max_ext_points - function.space_order//2
+        zero_pad = max_span - function.space_order//2
         w.data[:, :, :, zero_pad:-zero_pad] = standard_stencil(deriv,
                                                                function.space_order,
                                                                offset=eval_offset)
@@ -758,7 +758,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         warning("Generated stencils have been padded due to required number of"
                 " extrapolation points. A dummy function will be needed to"
                 " create the substitutions. The required order for substitution"
-                " is {}".format(2*max_ext_points))
+                " is {}".format(2*max_span))
     else:
         w.data[:] = standard_stencil(deriv, function.space_order,
                                      offset=eval_offset)
@@ -797,23 +797,23 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
         # Fill the stencils
         if len(first.index) != 0:
             first = get_n_pts(first, 'first', function.space_order, eval_offset, cautious)
-            fill_stencils(first, 'first', max_ext_points, lambdas, w, dim_limit, axis_dim)
+            fill_stencils(first, 'first', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(last.index) != 0:
             last = get_n_pts(last, 'last', function.space_order, eval_offset, cautious)
-            fill_stencils(last, 'last', max_ext_points, lambdas, w, dim_limit, axis_dim)
+            fill_stencils(last, 'last', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(double.index) != 0:
             double = get_n_pts(double, 'double', function.space_order, eval_offset, cautious)
-            fill_stencils(double, 'double', max_ext_points, lambdas, w, dim_limit, axis_dim)
+            fill_stencils(double, 'double', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(paired_left.index) != 0:
             paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset, cautious)
-            fill_stencils(paired_left, 'paired_left', max_ext_points, lambdas, w, dim_limit, axis_dim)
+            fill_stencils(paired_left, 'paired_left', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(paired_right.index) != 0:
             paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset, cautious)
-            fill_stencils(paired_right, 'paired_right', max_ext_points, lambdas, w, dim_limit, axis_dim)
+            fill_stencils(paired_right, 'paired_right', max_span, lambdas, w, dim_limit, axis_dim)
 
         """
         # Print the stencils for each side of boundary to check over
@@ -886,11 +886,11 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
         stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache,
                               cautious=cautious)
         lambdas = stencils.lambdaify
-        max_ext_points = stencils.max_ext_points
+        max_span = stencils.max_span
 
         axis_weights = get_component_weights(data[axis].data, axis, function,
                                              deriv, lambdas, interior,
-                                             max_ext_points, eval_offsets[axis],
+                                             max_span, eval_offsets[axis],
                                              cautious)
 
         if fill_function is None:
