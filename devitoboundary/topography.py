@@ -104,7 +104,10 @@ class ImmersedBoundary:
                                    toggle_normals=self._toggle_normals)
 
         """
-        plt.imshow(ax.axial[2].data[:, 50, :].T)
+        plt.imshow(ax.axial[0].data[:, 2, :].T)
+        plt.colorbar()
+        plt.show()
+        plt.imshow(ax.axial[2].data[:, 2, :].T)
         plt.colorbar()
         plt.show()
         """
