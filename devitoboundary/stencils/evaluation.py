@@ -743,7 +743,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     w_shape = f_grid.shape + (ncoeffs,)
     w_dims = f_grid.dimensions + (s_dim,)
 
-    w = Function(name='w_'+function.name+'_'+axis_dim, dimensions=w_dims, shape=w_shape)
+    w = Function(name='w_'+function.name+'_'+axis_dim+'_'+str(deriv), dimensions=w_dims, shape=w_shape)
 
     # Do the initial stencil fill, padding where needs be
     if max_span > function.space_order//2:
