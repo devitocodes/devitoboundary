@@ -192,30 +192,23 @@ class StencilSet():
         The boundary conditions imposed by these stencils
     cache : str
         The path to the extrapolation coefficient cache
-    cautious : bool
-        If True, then stencil points within half a grid increment of the boundary
-        will have their values extrapolated rather than simply being skipped in
-        the extrapolation. Default is False
     """
 
-    def __init__(self, deriv, offset, bcs, cache=None, cautious=False):
+    def __init__(self, deriv, offset, bcs, cache=None):
         # Set various parameters
         self._deriv = deriv
         self._offset = offset
         self._bcs = bcs
-        self._cautious = cautious
 
         # Calculate the extrapolation coefficients
         self._ext_coeffs = get_ext_coeffs(bcs, cache=cache)
 
         # Determine the maximum number of extrapolation points from
         # keys in the extrapolation coefficient dictionary
-
         self._max_ext_points = np.amax([*self._ext_coeffs])
 
         # Maximum span of the stencil
-        # An extra point is required in the cautious case
-        self._max_span = self.max_ext_points + self._cautious
+        self._max_span = self.max_ext_points
 
         # Base stencil (used in stencil determination)
         self._std_stencil = standard_stencil(self.deriv, self.order,
@@ -269,14 +262,6 @@ class StencilSet():
         return self._stencils
 
     @property
-    def is_cautious(self):
-        """
-        StencilSet uses cautious evaluation (points within half a grid spacing
-        of the boundary get extrapolated).
-        """
-        return self._cautious
-
-    @property
     def lambdaify(self):
         """
         The stencils with coefficients in the form of functions with
@@ -297,16 +282,14 @@ class StencilSet():
     def _get_keys(self):
         """Generate keys for the stencil dict"""
         # Generate number of variants per side
-        count_l = 2*self.max_span  # 2*self.max_ext_points
-        count_r = 2*self.max_span  # 2*self.max_ext_points
+        count_l = 2*self.max_span
+        count_r = 2*self.max_span
         if np.sign(self.offset) == 1:
             count_l += 1
         elif np.sign(self.offset) == -1:
             count_r += 1
 
         # Innermost valid eta values
-        # variants_l = -self.max_ext_points + np.arange(count_l)/2 + 0.5
-        # variants_r = self.max_ext_points - np.arange(count_r)[::-1]/2 - 0.5
         variants_l = -self.max_span + np.arange(count_l)/2 + 0.5
         variants_r = self.max_span - np.arange(count_r)[::-1]/2 - 0.5
 
@@ -339,7 +322,6 @@ class StencilSet():
         """
         eta_l, eta_r = key
 
-        # FIXME: Will want to be modified to work with shifted stencils in due course
         base_indices = list(range(-self.order//2, 1+self.order//2))
 
         if not np.isnan(eta_l):
@@ -379,37 +361,25 @@ class StencilSet():
         # Need to find the first available points to figure out where to start
         # Eta (or max number of extrapolation points) on other side limits other bound
         if not np.isnan(eta_l):
-            if self._cautious:
-                bound_l = int(np.ceil(eta_l)+1)
-            else:
-                bound_l = int(np.floor(eta_l)+1)
+            bound_l = int(np.floor(eta_l)+1)
         else:
-            # bound_l = -self.max_ext_points
             bound_l = -self.max_span
 
         if not np.isnan(eta_r):
-            if self._cautious:
-                bound_r = int(np.floor(eta_r)-1)
-            else:
-                bound_r = int(np.ceil(eta_r)-1)
+            bound_r = int(np.ceil(eta_r)-1)
         else:
-            # bound_r = self.max_ext_points
             bound_r = self.max_span
 
         # Bounds at the other end
         if not np.isnan(eta_r):
             other_l = min(bound_l + self.max_ext_points - 1, int(np.floor(eta_r)))
-            # other_l = min(bound_l + self.max_span - 1, int(np.floor(eta_r)))
         else:
             other_l = bound_l + self.max_ext_points - 1
-            # other_l = bound_l + self.max_span - 1
 
         if not np.isnan(eta_l):
             other_r = max(bound_r - self.max_ext_points + 1, int(np.ceil(eta_l)))
-            # other_r = max(bound_r - self.max_span + 1, int(np.ceil(eta_l)))
         else:
             other_r = bound_r - self.max_ext_points + 1
-            # other_r = bound_r - self.max_span + 1
 
         base_indices = list(self._std_stencil.keys())
 
@@ -442,10 +412,7 @@ class StencilSet():
         if not l_floor:
             subs_l += [(x_b, eta_l)]
         else:
-            if self._cautious:
-                subs_l += [(x_b, -1)]
-            else:
-                subs_l += [(x_b, -0.5)]
+            subs_l += [(x_b, -0.5)]
 
         # Right side main subs
         subs_r = [(x_a[i], ext_r[i]) for i in range(len(ext_r))]
@@ -453,10 +420,7 @@ class StencilSet():
         if not r_floor:
             subs_r += [(x_b, eta_r)]
         else:
-            if self._cautious:
-                subs_r += [(x_b, 1)]
-            else:
-                subs_r += [(x_b, 0.5)]
+            subs_r += [(x_b, 0.5)]
 
         return subs_l, subs_r
 
@@ -507,7 +471,6 @@ class StencilSet():
         for target in out_r:
             target_coeffs_r = get_target_coeffs(coeffs_r, target)
             # Stencil coefficient for the target point
-            # FIXME: Will want to use a shifted stencil in due course sometimes
             target_coefficient = self._std_stencil[target]
 
             # Loop over extrapolation points
@@ -524,7 +487,6 @@ class StencilSet():
 
     def _get_short_stencil(self, out_l, out_r):
         """Get the shortened version of the stencil"""
-        # FIXME: Will want to use a shifted stencil in due course sometimes
         short_stencil = self._std_stencil.copy()
         to_remove = out_l + out_r
         for outside in to_remove:
