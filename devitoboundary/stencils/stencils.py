@@ -20,6 +20,8 @@ def taylor(x, order):
 
 def get_taylor_order(pts_count, bcs):
     """Get the maximum taylor series order given the number of bcs and points"""
+    # FIXME: Doesn't seem to work for single bcs? Should just output points_count
+    # FIXME: Probably wants a test if it doesn't have one yet
     n_skip = pts_count
     for i in range(bcs.order):
         if n_skip == 0:
