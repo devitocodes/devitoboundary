@@ -39,11 +39,10 @@ class ImmersedBoundary:
         The path to the geometry file
     functions : pandas DataFrame
         A dataframe of the functions to which the immersed boundary surface is
-        to be applied. Should contain the columns 'function', 'bcs', and 'cautious'.
-        May also contain a column 'subs_function' if the substitutions should be
-        created for a different function to the one used to generate the stencils.
-        If this functionality is not required for a Function, then set the value
-        to None
+        to be applied. Should contain the columns 'function', 'bcs', and
+        'subs_function'. The latter column should contain functions if the
+        substitutions should be created for a different function to the one
+        used to generate the stencils and None otherwise.
     interior_point : tuple of float
         x, y, and z coordinates of a point located in the interior of the domain.
         Default is (0., 0., 0.)
@@ -67,8 +66,6 @@ class ImmersedBoundary:
             raise ValueError("No function column specified")
         if 'bcs' not in functions.columns:
             raise ValueError("No boundary conditions column specified")
-        if 'cautious' not in functions.columns:
-            raise ValueError("Cautious extrapolation not set")
         if 'subs_function' not in functions.columns:
             functions['subs_function'] = None
         self._functions = functions
@@ -97,8 +94,6 @@ class ImmersedBoundary:
 
         fill_function = self._functions.loc[function_mask, 'subs_function'].values[0]
 
-        cautious = self._functions.loc[function_mask, 'cautious'].values[0]
-
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface,
                                    toggle_normals=self._toggle_normals)
@@ -122,8 +117,7 @@ class ImmersedBoundary:
             derivative = row.derivative
             eval_offset = row.eval_offset
             weights += get_weights(ax.axial, function, derivative, bcs, interior,
-                                   fill_function=fill_function, eval_offsets=eval_offset,
-                                   cautious=cautious)
+                                   fill_function=fill_function, eval_offsets=eval_offset)
 
         return weights
 
