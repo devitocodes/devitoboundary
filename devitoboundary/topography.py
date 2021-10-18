@@ -69,10 +69,37 @@ class ImmersedBoundary:
             functions['subs_function'] = None
         self._functions = functions
 
+        self._max_order_function = self._get_highest_order_func()
+
         self._interior_point = interior_point
 
         self._qc = qc
         self._toggle_normals = toggle_normals
+
+        self._get_distance_sectioning()
+
+    def _get_highest_order_func(self):
+        """Get the function with the highest order attached to the boundary"""
+        # Get orders of all functions in list
+        func_orders = [func.space_order for func in self._functions['function']]
+        # Get maximum order and find index
+        max_order = max(func_orders)
+        max_order_index = func_orders.index(max_order)
+
+        return self._functions['function'].iloc[max_order_index]
+
+    def _get_distance_sectioning(self):
+        """Generate the axial distance and the sectioning"""
+        # Create the axial distance function
+        ax = AxialDistanceFunction(self._max_order_function, self._surface,
+                                   toggle_normals=self._toggle_normals)
+
+        self._ax = ax
+
+        # Get interior segmentation
+        interior = get_interior(ax.sdf, self._interior_point, qc=self._qc)
+
+        self._interior = interior
 
     def _get_function_weights(self, group):
         """
@@ -93,20 +120,13 @@ class ImmersedBoundary:
 
         fill_function = self._functions.loc[function_mask, 'subs_function'].values[0]
 
-        # Create the axial distance function
-        ax = AxialDistanceFunction(first.function, self._surface,
-                                   toggle_normals=self._toggle_normals)
-
-        # Get interior segmentation
-        interior = get_interior(ax.sdf, self._interior_point, qc=self._qc)
-
         # Empty tuple for weights
         weights = ()
 
         for i, row in group.iterrows():
             derivative = row.derivative
             eval_offset = row.eval_offset
-            weights += get_weights(ax.axial, function, derivative, bcs, interior,
+            weights += get_weights(self._ax.axial, function, derivative, bcs, self._interior,
                                    fill_function=fill_function, eval_offsets=eval_offset)
 
         return weights
