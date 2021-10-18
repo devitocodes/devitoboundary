@@ -38,18 +38,21 @@ class ImmersedBoundary:
         The path to the geometry file
     functions : pandas DataFrame
         A dataframe of the functions to which the immersed boundary surface is
-        to be applied. Should contain the columns 'function', 'bcs', and
-        'subs_function'. The latter column should contain functions if the
+        to be applied. Should contain the columns 'function' and 'bcs'.
+        A 'subs_function' column can be included to specify functions if the
         substitutions should be created for a different function to the one
-        used to generate the stencils and None otherwise.
+        used to generate the stencils. For functions where this is not the case,
+        this should be set to None.
     interior_point : tuple of float
         x, y, and z coordinates of a point located in the interior of the domain.
         Default is (0., 0., 0.)
     qc : bool
         If True, display the interior-exterior segmentation for quality checking
-        purposes. If striped or reversed, toggle_normals may want flipping.
+        purposes. If striped or reversed, toggle_normals may want flipping. If
+        sectioning fails, check that the surface is either closed or reaches all
+        sides of the grid. Default is False.
     toggle_normals : bool
-        If true, toggle the direction of surface normals.
+        If true, toggle the direction of surface normals. Default is False
 
     Methods
     -------
@@ -134,8 +137,7 @@ class ImmersedBoundary:
     def subs(self, derivs):
         """
         Return a devito Substitutions for each specified combination of function
-        and derivative. Note that the evaluation offset of the stencils returned
-        is based on the staggering of the functions specified.
+        and derivative.
 
         Parameters
         ----------
@@ -172,3 +174,13 @@ class ImmersedBoundary:
             weights += func_weights
 
         return Substitutions(*weights)
+
+    @property
+    def axial_distances(self):
+        """The axial distance function for this boundary"""
+        return self._ax
+
+    @property
+    def interior(self):
+        """The interior-exterior segmentation for this boundary"""
+        return self._interior
