@@ -401,7 +401,7 @@ def apply_dist(df, point_type):
     return df
 
 
-def get_n_pts(df, point_type, space_order, eval_offset, cautious):
+def get_n_pts(df, point_type, space_order, eval_offset):
     """
     Get the number of points associated with each boundary-adjacent point.
 
@@ -416,10 +416,6 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         The order of the function which stencils are being generated for
     eval_offset : float
         The relative offset at which the derivative should be evaluated.
-    cautious : bool
-        If True, then stencil points within half a grid increment of the boundary
-        will have their values extrapolated rather than simply being skipped in
-        the extrapolation.
     """
     if point_type == 'first':
         if abs(eval_offset) >= _feps:
@@ -428,7 +424,6 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_r = 0
 
-        # n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious, 1-df.dist.to_numpy())
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r, 1-df.dist.to_numpy())
 
     elif point_type == 'last':
@@ -438,7 +433,6 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_l = 0
 
-        # n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, 1+df.dist.to_numpy())
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, 1+df.dist.to_numpy())
 
     elif point_type == 'double':
@@ -452,7 +446,6 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
         else:
             modifier_eta_l = 0
 
-        # n_pts = np.minimum(int(space_order/2)+modifier_eta_l+cautious, df.dist.to_numpy())
         n_pts = np.minimum(int(space_order/2)+modifier_eta_l, df.dist.to_numpy())
 
     elif point_type == 'paired_right':
@@ -464,9 +457,6 @@ def get_n_pts(df, point_type, space_order, eval_offset, cautious):
             modifier_eta_l = 0
             modifier_eta_r = 0
 
-        # n_pts = np.minimum(int(space_order/2)+modifier_eta_r+cautious,
-        #                    1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l+cautious,
-        #                                                    -df.dist.to_numpy()))
         n_pts = np.minimum(int(space_order/2)+modifier_eta_r,
                            1-df.dist.to_numpy()-np.minimum(int(space_order/2)+modifier_eta_l,
                                                            -df.dist.to_numpy()))
@@ -692,7 +682,7 @@ def fill_stencils(df, point_type, max_span, lambdas, weights, dim_limit, axis):
 
 
 def get_component_weights(data, axis, function, deriv, lambdas, interior,
-                          max_span, eval_offset, cautious):
+                          max_span, eval_offset):
     """
     Take a component of the distance field and return the associated weight
     function.
@@ -716,10 +706,6 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
     eval_offset : float
         The relative offset at which the derivative should be evaluated.
         Used for setting the default fill stencil.
-    cautious : bool
-        If True, then stencil points within half a grid increment of the boundary
-        will have their values extrapolated rather than simply being skipped in
-        the extrapolation.
 
     Returns
     -------
@@ -796,47 +782,24 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
 
         # Fill the stencils
         if len(first.index) != 0:
-            first = get_n_pts(first, 'first', function.space_order, eval_offset, cautious)
+            first = get_n_pts(first, 'first', function.space_order, eval_offset)
             fill_stencils(first, 'first', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(last.index) != 0:
-            last = get_n_pts(last, 'last', function.space_order, eval_offset, cautious)
+            last = get_n_pts(last, 'last', function.space_order, eval_offset)
             fill_stencils(last, 'last', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(double.index) != 0:
-            double = get_n_pts(double, 'double', function.space_order, eval_offset, cautious)
+            double = get_n_pts(double, 'double', function.space_order, eval_offset)
             fill_stencils(double, 'double', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(paired_left.index) != 0:
-            paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset, cautious)
+            paired_left = get_n_pts(paired_left, 'paired_left', function.space_order, eval_offset)
             fill_stencils(paired_left, 'paired_left', max_span, lambdas, w, dim_limit, axis_dim)
 
         if len(paired_right.index) != 0:
-            paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset, cautious)
+            paired_right = get_n_pts(paired_right, 'paired_right', function.space_order, eval_offset)
             fill_stencils(paired_right, 'paired_right', max_span, lambdas, w, dim_limit, axis_dim)
-
-        """
-        # Print the stencils for each side of boundary to check over
-        if function.name == 'p' or function.name == 'v_z_d':
-            print(function.name)
-            # Print stencils on both sides of the boundary
-            # Print every tenth stencil in x direction
-            for i in range(10):
-                print("x = {}".format(10*i))
-                print("eta is {}".format(data[10*i, 50, 50]/f_grid.spacing[axis]-grid_offset))
-                print("z = 48")
-                print(w.data[10*i, 50, 48])
-                print("z = 49")
-                print(w.data[10*i, 50, 49])
-                print("z = 50")
-                print(w.data[10*i, 50, 50])
-                print("z = 51")
-                print(w.data[10*i, 50, 51])
-                print("z = 52")
-                print(w.data[10*i, 50, 52])
-                print("z = 53")
-                print(w.data[10*i, 50, 53])
-        """
 
     w.data[:] /= f_grid.spacing[axis]**deriv  # Divide everything through by spacing
 
@@ -844,7 +807,7 @@ def get_component_weights(data, axis, function, deriv, lambdas, interior,
 
 
 def get_weights(data, function, deriv, bcs, interior, fill_function=None,
-                eval_offsets=(0., 0., 0.), cautious=False):
+                eval_offsets=(0., 0., 0.)):
     """
     Get the modified stencil weights for a function and derivative given the
     axial distances.
@@ -867,10 +830,6 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
     eval_offsets : tuple of float
         The relative offsets at which derivatives should be evaluated for each
         axis.
-    cautious : bool
-        If True, then stencil points within half a grid increment of the boundary
-        will have their values extrapolated rather than simply being skipped in
-        the extrapolation. Default is False
 
     Returns
     -------
@@ -883,15 +842,13 @@ def get_weights(data, function, deriv, bcs, interior, fill_function=None,
     weights = []
     for axis in range(3):
         print(deriv, function, function.grid.dimensions[axis])
-        stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache,
-                              cautious=cautious)
+        stencils = StencilSet(deriv, eval_offsets[axis], bcs, cache=cache)
         lambdas = stencils.lambdaify
         max_span = stencils.max_span
 
         axis_weights = get_component_weights(data[axis].data, axis, function,
                                              deriv, lambdas, interior,
-                                             max_span, eval_offsets[axis],
-                                             cautious)
+                                             max_span, eval_offsets[axis])
 
         if fill_function is None:
             weights.append(Coefficient(deriv, function,
