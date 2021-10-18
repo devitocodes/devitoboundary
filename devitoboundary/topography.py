@@ -2,7 +2,6 @@
 A module for implementation of topography in Devito via the immersed
 boundary method.
 """
-import matplotlib.pyplot as plt
 import numpy as np
 from devito import Substitutions
 from devitoboundary.distance import AxialDistanceFunction
@@ -97,15 +96,6 @@ class ImmersedBoundary:
         # Create the axial distance function
         ax = AxialDistanceFunction(first.function, self._surface,
                                    toggle_normals=self._toggle_normals)
-
-        """
-        plt.imshow(ax.axial[0].data[:, 2, :].T)
-        plt.colorbar()
-        plt.show()
-        plt.imshow(ax.axial[2].data[:, 2, :].T)
-        plt.colorbar()
-        plt.show()
-        """
 
         # Get interior segmentation
         interior = get_interior(ax.sdf, self._interior_point, qc=self._qc)
