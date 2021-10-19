@@ -1,5 +1,7 @@
 import pytest
+import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -61,7 +63,7 @@ def reference_shot(model, time_range, f0):
     return rec.data
 
 
-def tilted_shot(model, time_range, f0, tilt):
+def tilted_shot(model, time_range, f0, tilt, qc=False, toggle_normals=False):
     """
     Produce a shot for the same setup, but tilted with immersed free surface
     """
@@ -108,7 +110,9 @@ def tilted_shot(model, time_range, f0, tilt):
                              columns=['function', 'bcs'])
 
     # Create the immersed boundary surface
-    surface = ImmersedBoundary('topography', infile, functions)
+    surface = ImmersedBoundary('topography', infile, functions,
+                               interior_point=tuple(rec.coordinates.data[0]),
+                               qc=qc, toggle_normals=toggle_normals)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
                            'derivative': [2],
@@ -141,12 +145,15 @@ class TestGathers:
     the immersed boundary.
     """
 
-    @pytest.mark.parametrize('tilt', [5, 10, 15, 20, 25, 30, 35, 40, 45])
-    def test_tilted_boundary(self, tilt):
+    @pytest.mark.parametrize('spec', [(5, False), (10, True), (15, True),
+                                      (20, True), (25, True), (30, True),
+                                      (35, True), (40, True), (45, False)])
+    def test_tilted_boundary(self, spec):
         """
         Check that gathers for a tilted boundary match those generated with a
         conventional horizontal free surface and the same geometry.
         """
+        tilt, toggle_normals = spec
         max_thres = 0.09
         avg_thres = 0.006
         # Define a physical size
@@ -168,7 +175,49 @@ class TestGathers:
         f0 = 0.010  # Source peak frequency is 10Hz (0.010 kHz)
 
         ref = reference_shot(model, time_range, f0)
-        tilted = tilted_shot(model, time_range, f0, tilt)
+        tilted = tilted_shot(model, time_range, f0, tilt,
+                             toggle_normals=toggle_normals)
 
         assert np.amax(np.absolute(ref - tilted)) < max_thres
         assert np.mean(np.absolute(ref-tilted)) < avg_thres
+
+
+def main(tilt, toggle_normals):
+    """For troubleshooting the sectioning"""
+
+    # Define a physical size
+    shape = (101, 101, 101)  # Number of grid point (nx, ny, nz)
+    spacing = (10., 10., 10.)  # Grid spacing in m. The domain size is 1x1x1km
+    origin = (0., 0., 0.)
+
+    v = 1.5
+
+    model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
+                  space_order=4, nbl=10, bcs="damp")
+
+    t0 = 0.  # Simulation starts a t=0
+    tn = 500.  # Simulation last 0.5 seconds (500 ms)
+    dt = model.critical_dt  # Time step from model grid spacing
+
+    time_range = TimeAxis(start=t0, stop=tn, step=dt)
+
+    f0 = 0.010  # Source peak frequency is 10Hz (0.010 kHz)
+
+    ref = reference_shot(model, time_range, f0)
+    tilted = tilted_shot(model, time_range, f0, tilt, qc=True,
+                         toggle_normals=toggle_normals)
+    """
+    plt.imshow(ref)
+    plt.show()
+    plt.imshow(tilted)
+    plt.show()
+    plt.imshow(ref-tilted)
+    """
+
+
+if __name__ == "__main__":
+    tilt = int(sys.argv[1])
+    toggle_normals = bool(int(sys.argv[2]))
+    print(tilt)
+    print(toggle_normals)
+    main(tilt, toggle_normals)
