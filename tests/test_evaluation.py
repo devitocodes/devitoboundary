@@ -510,14 +510,14 @@ class TestStencils:
             f = Function(name='f', grid=grid, space_order=order, staggered=x)
 
         # Generate an accompanying section
-        interior = np.full((10, 1, 1), -1)
+        interior = np.full((10, 1, 1), False)
         if inside:
             # Generate one segmentation
             inner_points = np.array([0, 1, 3, 4, 5])
         else:
             # Generate the other segmentation
             inner_points = np.array([2, 6, 7, 8, 9])
-        interior[inner_points] = 1
+        interior[inner_points] = True
 
         # Evaluate stencils
         w = get_component_weights(distances, 0, f, deriv, lambdas, interior,
