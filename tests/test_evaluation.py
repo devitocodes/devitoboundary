@@ -231,13 +231,9 @@ class TestDistances:
             shift = pd.DataFrame({'x': x, 'y': y, 'z': z,
                                   'eta_l': eta_l, 'eta_r': eta_r})
             shift = shift.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
-            # FIXME: Should have a conditional to set +ve or -ve
             shift['dist'] = dist
-            print(offsets)
-            print(shift)
 
             shift_shifted = shift_grid_endpoint(shift, 'x', grid_offset, eval_offset)
-            print(shift_shifted)
             if grid_offset == 0:
                 if eval_offset == 0.5:
                     inc = -1
@@ -248,8 +244,6 @@ class TestDistances:
             elif grid_offset == 0.5:
                 inc = -1
 
-            print(shift.index.get_level_values('x').to_numpy())
-            print(shift_shifted.index.get_level_values('x').to_numpy())
             assert np.all(shift.index.get_level_values('x').to_numpy() + inc == shift_shifted.index.get_level_values('x').to_numpy())
             if ~np.any(np.isnan(eta_l)):
                 assert np.all(shift.eta_l.to_numpy() - inc == shift_shifted.eta_l.to_numpy())
@@ -272,8 +266,7 @@ class TestStencils:
         """
         Check that offsetting the grid and boundary by the same amount results
         in identical stencils for both cases. This is checked on both sides of
-        the boundary. Note that this tests a larger chunk of the stack than the
-        previous test.
+        the boundary.
         """
 
         spec = {2*i: 0 for i in range(1+order//2)}
@@ -332,8 +325,10 @@ class TestStencils:
         w_normal = Function(name='w_n', dimensions=w_dims, shape=w_shape)
         w_offset = Function(name='w_o', dimensions=w_dims, shape=w_shape)
 
-        fill_stencils(data, point_type, max_ext_points, lambdas, w_normal)
-        fill_stencils(offset_data, point_type, max_ext_points, lambdas, w_offset)
+        fill_stencils(data, point_type, max_ext_points,
+                      lambdas, w_normal, 10, 'x')
+        fill_stencils(offset_data, point_type, max_ext_points,
+                      lambdas, w_offset, 10, 'x')
 
         if point_type == 'first':
             assert np.all(np.isclose(w_normal.data[2:5], w_offset.data[2:5]))
