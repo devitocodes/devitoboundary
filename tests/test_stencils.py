@@ -80,7 +80,7 @@ class TestExtrapolations:
         Test to check that the lower-order coefficients generated are consistent
         """
         for i in range(2, 5):
-            spec = {2*j: 0 for j in range(i)}
+            spec = {2*j: 0 for j in range(i+1)}
             bcs_ref = BoundaryConditions(spec, 2*i-2)
             bcs_main = BoundaryConditions(spec, 2*i)
 

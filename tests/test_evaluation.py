@@ -96,7 +96,9 @@ class TestDistances:
     def test_offset_skipping(self, grid_offset):
         """
         Test to check that eta manipulations are skipped when applying grid offset
-        for points where both grid offset and evaluation offset are non-zero
+        for points where both grid offset and evaluation offset are non-zero. For
+        example, -ve eta_r values do not want to be swapped to +ve eta_l values
+        at the adjacent node in this case.
         """
         n_pts = 11
         x = 2*np.arange(2*n_pts)
@@ -159,28 +161,19 @@ class TestDistances:
         assert(np.all(paired_left.index.get_level_values(xyz[axis]).to_numpy() == 3))
         assert(np.all(paired_right.index.get_level_values(xyz[axis]).to_numpy() == 5))
 
-    @pytest.mark.parametrize('offsets', [(-0.5, 0.), (0., 0.), (0.5, 0.),
-                                         (-0.5, 0.5), (0.5, -0.5), (0., 0.5),
-                                         (0., -0.5)])
+    @pytest.mark.parametrize('offsets', [(0., 0.), (-0.5, 0.5), (0.5, -0.5),
+                                         (0., 0.5), (0., -0.5)])
     def test_shift_grid_endpoint(self, offsets):
         """
         Check that the endpoint shift to grab points where the grid node is on the
         exterior, but the stagger point is on the interior functions as intended.
         """
         grid_offset, eval_offset = offsets
-        # shift_grid_endpoint(df, axis, grid_offset, eval_offset)
 
         # Coordinates for the points
         x = np.arange(10)
         y = np.arange(10)
         z = np.arange(10)
-
-        if grid_offset == 0 and eval_offset == 0:
-            # No shift needs applying here so skip
-            pass
-        else:
-            # Shift will need applying for some points
-            pass
 
         # Need to create a set of points where the shift needs applying
         # Need to create a set of points where no shift needs applying
@@ -191,36 +184,37 @@ class TestDistances:
                 eta_r = np.NaN
                 no_eta_l = np.linspace(-0.1, -0.4, 10)
                 no_eta_r = np.NaN
+                dist = 2
             elif eval_offset == -0.5:
                 # eta r < 0.5 for no shift
                 eta_l = np.NaN
                 eta_r = np.linspace(0.6, 0.9, 10)
                 no_eta_l = np.NaN
                 no_eta_r = np.linspace(0.1, 0.4, 10)
+                dist = -2
             else:
                 # Set eta_l and eta_r to whatever
-                eta_l = np.linspace(-0.1, -0.9, 10)
-                eta_r = np.linspace(0.1, 0.9, 10)
                 no_eta_l = np.linspace(-0.1, -0.9, 10)
                 no_eta_r = np.linspace(0.1, 0.9, 10)
+                dist = 0
         elif grid_offset == -0.5:
-            # eta r < 1 for no shift
-            eta_l = np.NaN
-            eta_r = np.linspace(1.1, 1.4, 10)
+            # Should not shift for tested cases. Shift will be handled earlier
+            # if eval offset is zero
             no_eta_l = np.NaN
-            no_eta_r = np.linspace(0.1, 0.9, 10)
+            no_eta_r = np.linspace(0.6, 1.4, 10)
+            dist = -2
         elif grid_offset == 0.5:
-            # eta l > -1 for no shift
-            eta_l = np.linspace(-1.1, -1.4, 10)
-            eta_r = np.NaN
-            no_eta_l = np.linspace(-0.1, -0.9, 10)
+            # Should not shift for tested cases. Shift will be handled earlier
+            # if eval offset is zero
+            no_eta_l = np.linspace(-0.6, -1.4, 10)
             no_eta_r = np.NaN
+            dist = 2
 
         # Dataframe of points which don't want shifting
         no_shift = pd.DataFrame({'x': x, 'y': y, 'z': z,
                                  'eta_l': no_eta_l, 'eta_r': no_eta_r})
         no_shift = no_shift.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
-        no_shift['dist'] = 2
+        no_shift['dist'] = dist
 
         no_shift_shifted = shift_grid_endpoint(no_shift, 'x', grid_offset, eval_offset)
 
@@ -231,16 +225,19 @@ class TestDistances:
             assert np.all(no_shift.eta_r.to_numpy() == no_shift_shifted.eta_r.to_numpy())
         assert np.all(no_shift.dist.to_numpy() == no_shift_shifted.dist.to_numpy())
 
-        if grid_offset != 0 or eval_offset != 0:
+        if grid_offset == 0 and eval_offset != 0:
             # Skip over case where no shift occurs
             # Dataframe of points which want shifting
             shift = pd.DataFrame({'x': x, 'y': y, 'z': z,
                                   'eta_l': eta_l, 'eta_r': eta_r})
             shift = shift.groupby(['z', 'y', 'x']).agg({'eta_l': 'min', 'eta_r': 'min'})
-            shift['dist'] = 2
+            # FIXME: Should have a conditional to set +ve or -ve
+            shift['dist'] = dist
+            print(offsets)
+            print(shift)
 
             shift_shifted = shift_grid_endpoint(shift, 'x', grid_offset, eval_offset)
-
+            print(shift_shifted)
             if grid_offset == 0:
                 if eval_offset == 0.5:
                     inc = -1
@@ -251,6 +248,8 @@ class TestDistances:
             elif grid_offset == 0.5:
                 inc = -1
 
+            print(shift.index.get_level_values('x').to_numpy())
+            print(shift_shifted.index.get_level_values('x').to_numpy())
             assert np.all(shift.index.get_level_values('x').to_numpy() + inc == shift_shifted.index.get_level_values('x').to_numpy())
             if ~np.any(np.isnan(eta_l)):
                 assert np.all(shift.eta_l.to_numpy() - inc == shift_shifted.eta_l.to_numpy())

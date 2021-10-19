@@ -315,7 +315,7 @@ def drop_outside_points(df, segment):
     return df[ext_int]
 
 
-def shift_grid_endpoint(df, axis, grid_offset, eval_offset, paired_point=None):
+def shift_grid_endpoint(df, axis, grid_offset, eval_offset):
     """
     If the last point within the domain in the direction opposite to staggering
     is not a grid node, then an extra grid node needs to be included on this side.
