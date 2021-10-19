@@ -455,10 +455,10 @@ class TestStencils:
 
         if side == 'first':
             w.data[4:] = 0
-            fill_stencils(first, 'first', max_ext_points, lambdas, w, 10)
+            fill_stencils(first, 'first', max_ext_points, lambdas, w, 10, 'x')
         if side == 'last':
             w.data[:5] = 0
-            fill_stencils(last, 'last', max_ext_points, lambdas, w, 10)
+            fill_stencils(last, 'last', max_ext_points, lambdas, w, 10, 'x')
 
         # Check against a saved correct version
         # Generate filename
