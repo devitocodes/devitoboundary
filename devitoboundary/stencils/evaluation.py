@@ -657,6 +657,8 @@ def fill_stencils(df, point_type, max_span, lambdas, weights, dim_limit, axis):
         The functions for stencils to be evaluated
     weights : Function
         The Function containing the finite difference coefficients
+    dim_limit : int
+        The length of the dimension
     axis : str
         The axis along which these stencils are aligned
     """
