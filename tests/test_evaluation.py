@@ -380,7 +380,7 @@ class TestStencils:
 
         w = Function(name='w', dimensions=w_dims, shape=w_shape)
 
-        fill_stencils(data, 'double', max_ext_points, lambdas, w)
+        fill_stencils(data, 'double', max_ext_points, lambdas, w, 10, 'x')
 
         # Derivative stencils should be zero if evaluation offset is zero
         assert(np.all(np.abs(w.data) < np.finfo(np.float).eps))
