@@ -111,7 +111,7 @@ def tilted_shot(model, time_range, f0, tilt, qc=False, toggle_normals=False):
 
     # Create the immersed boundary surface
     surface = ImmersedBoundary('topography', infile, functions,
-                               interior_point=tuple(rec.coordinates.data[0]),
+                               interior_point=tuple(src.coordinates.data[0]),
                                qc=qc, toggle_normals=toggle_normals)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
