@@ -6,7 +6,7 @@ from devitoboundary import ImmersedBoundary, BoundaryConditions
 from examples.seismic import TimeAxis, RickerSource
 
 # Parameters
-qc = True
+qc = False
 toggle_normals = False
 
 C = 0.1  # Courant number
