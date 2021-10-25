@@ -52,8 +52,8 @@ def reference_shot(model, time_range, f0):
     time = u.grid.stepping_dim
     # Throw a free surface in here
     free_surface_0 = Eq(u[time+1, x, y, 60], 0)
-    free_surface_1 = Eq(u[time+1, x, y, 59], u[time+1, x, y, 61])
-    free_surface_2 = Eq(u[time+1, x, y, 58], u[time+1, x, y, 62])
+    free_surface_1 = Eq(u[time+1, x, y, 59], -u[time+1, x, y, 61])
+    free_surface_2 = Eq(u[time+1, x, y, 58], -u[time+1, x, y, 62])
     free_surface = [free_surface_0, free_surface_1, free_surface_2]
 
     op = Operator([stencil] + src_term + rec_term + free_surface)
