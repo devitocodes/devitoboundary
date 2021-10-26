@@ -206,13 +206,12 @@ def main(tilt, toggle_normals):
     ref = reference_shot(model, time_range, f0)
     tilted = tilted_shot(model, time_range, f0, tilt, qc=True,
                          toggle_normals=toggle_normals)
-    """
+
     plt.imshow(ref)
     plt.show()
     plt.imshow(tilted)
     plt.show()
     plt.imshow(ref-tilted)
-    """
 
 
 if __name__ == "__main__":
