@@ -319,19 +319,16 @@ def main(s_o, tilt, filepath, toggle_normals=True, qc=True):
 
     fig, (ax0, ax1, ax2) = plt.subplots(nrows=1, ncols=3, figsize=(20, 6))
 
-    im0 = ax0.imshow(ref, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0],
-                     vmin=-0.03, vmax=0.03)  # noqa: F841
+    im0 = ax0.imshow(ref, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0], vmin=-0.03, vmax=0.03)  # noqa: F841
     ax0.set_title("Reference")
     ax0.set_xlabel("Offset (m)")
     ax0.set_ylabel("Time (ms)")
 
-    im1 = ax1.imshow(tilted, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0],
-                     vmin=-0.03, vmax=0.03)  # noqa: F841
+    im1 = ax1.imshow(tilted, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0], vmin=-0.03, vmax=0.03)  # noqa: F841
     ax1.set_title("{} degree tilt".format(str(tilt)))
     ax1.set_xlabel("Offset (m)")
 
-    im2 = ax2.imshow(ref - tilted, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0],
-                     vmin=-0.03, vmax=0.03)  # noqa: F841
+    im2 = ax2.imshow(ref - tilted, aspect='auto', cmap='seismic', extent=[-500, 500, tn, t0], vmin=-0.03, vmax=0.03)  # noqa: F841
     ax2.set_title("Difference")
     ax2.set_xlabel("Offset (m)")
     fig.colorbar(im2)
