@@ -212,6 +212,7 @@ def main(tilt, toggle_normals):
     plt.imshow(tilted)
     plt.show()
     plt.imshow(ref-tilted)
+    plt.show()
 
 
 if __name__ == "__main__":
