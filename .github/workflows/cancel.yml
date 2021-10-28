@@ -12,5 +12,7 @@ jobs:
         with:
           # Ids to cancel core
           # https://api.github.com/repos/devitocodes/devitoboundary/actions/workflows
-          workflow_id: 2468423
+          workflow_id:
+            - 2468423
+            - 14634840
           access_token: ${{ github.token }}
