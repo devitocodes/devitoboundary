@@ -5,6 +5,10 @@ from devito import Grid, TimeFunction, Eq, solve, Operator, ConditionalDimension
 from devitoboundary import ImmersedBoundary, BoundaryConditions
 from examples.seismic import TimeAxis, RickerSource
 
+# Parameters
+qc = False
+toggle_normals = False
+
 C = 0.1  # Courant number
 VP = 1.2  # P wave velocity
 
@@ -22,6 +26,16 @@ tn = 4000.  # Simulation length in ms
 dt = C*grid.spacing[0]/(VP)
 
 steps = int((t0+tn)/dt)+2
+
+# Configure the source
+time_range = TimeAxis(start=t0, stop=tn, step=dt)
+f0 = 0.002  # 2Hz
+src = RickerSource(name='src', grid=grid, f0=f0,
+                   npoint=1, time_range=time_range)
+
+# First, position source centrally in x and y dimensions, then set depth
+src.coordinates.data[0, :-1] = 5400.  # Centered
+src.coordinates.data[0, -1] = -500  # 500m below sea level
 
 # Set up snapshotting
 nsnaps = 100  # Want 100 snapshots
@@ -47,17 +61,9 @@ functions = pd.DataFrame({'function': [u],
                          columns=['function', 'bcs'])
 
 # Create the immersed boundary surface
-surface = ImmersedBoundary('topography', infile, functions)
-
-# Configure the source
-time_range = TimeAxis(start=t0, stop=tn, step=dt)
-f0 = 0.002  # 2Hz
-src = RickerSource(name='src', grid=grid, f0=f0,
-                   npoint=1, time_range=time_range)
-
-# First, position source centrally in x and y dimensions, then set depth
-src.coordinates.data[0, :-1] = 5400.  # Centered
-src.coordinates.data[0, -1] = -500  # 500m below sea level
+surface = ImmersedBoundary('topography', infile, functions,
+                           interior_point=tuple(src.coordinates.data[0]),
+                           qc=qc, toggle_normals=toggle_normals)
 
 # Configure derivative needed
 derivs = pd.DataFrame({'function': [u],

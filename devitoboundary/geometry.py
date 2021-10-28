@@ -190,7 +190,7 @@ class SDFGenerator:
         Gets the bounds of the SDF from the Devito grid.
         """
         # Lower bounds are the origin
-        min_bound = np.array([value for value in self._grid.origin_map.values()])
+        min_bound = np.array([float(value) for value in self._grid.origin_map.values()])
         # Apply the offset
         min_bound += np.array(self._offset)*np.array(self._grid.spacing)
         max_bound = min_bound + np.array(self._grid.extent)

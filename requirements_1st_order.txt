@@ -1,0 +1,8 @@
+# Requirements for 1st-order acoustic examples and tests
+# Specific devito branch with bugfix required currently
+git+git://github.com/devitocodes/devito@small_custom_coefficients_fix
+pandas
+matplotlib
+vtk
+pyvista
+scikit-image

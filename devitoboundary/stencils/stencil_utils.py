@@ -3,7 +3,7 @@ import sympy as sp
 from devitoboundary.symbolics.symbols import a, n, n_max
 
 
-def standard_stencil(deriv, space_order, offset=0., as_float=True):
+def standard_stencil(deriv, space_order, offset=0., as_float=True, as_dict=False):
     """
     Generate a stencil expression with standard weightings. Offset can be
     applied to this stencil to evaluate at non-node positions.
@@ -19,6 +19,8 @@ def standard_stencil(deriv, space_order, offset=0., as_float=True):
         increments. Default is 0.
     as_float : bool
         Convert stencil to np.float32. Default is True.
+    as_dict : bool
+        Return as dictionary rather than array
 
     Returns
     -------
@@ -32,9 +34,17 @@ def standard_stencil(deriv, space_order, offset=0., as_float=True):
     base_coeffs = sp.finite_diff_weights(deriv, x_list, 0)[-1][-1]
 
     if as_float:
-        return np.array(base_coeffs, dtype=np.float32)
+        coeffs = np.array(base_coeffs, dtype=np.float32)
     else:
-        return np.array(base_coeffs, dtype=object)
+        coeffs = np.array(base_coeffs, dtype=object)
+
+    if as_dict:
+        mask = coeffs != 0
+        coeffs = coeffs[mask]
+        indices = (np.array(x_list)[mask] + offset).astype(int)
+        return dict(zip(indices, coeffs))
+    else:
+        return coeffs
 
 
 def generic_function(val, deriv=0):

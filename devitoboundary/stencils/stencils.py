@@ -6,7 +6,9 @@ from devito.logger import warning
 from devitoboundary.stencils.stencil_utils import standard_stencil
 from devitoboundary.symbolics.symbols import (a, x_b, x_a, x_t, E, eta_l, eta_r)
 
-__all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs', 'get_stencils', 'get_stencils_lambda']
+__all__ = ['taylor', 'BoundaryConditions', 'get_ext_coeffs', 'StencilSet']
+
+_feps = np.finfo(np.float32).eps  # Get the eps
 
 
 def taylor(x, order):
@@ -14,6 +16,24 @@ def taylor(x, order):
     n = sp.symbols('n')
     polynomial = sp.Sum(a[n]*(x-x_b)**n, (n, 0, order)).doit()
     return polynomial
+
+
+def get_taylor_order(pts_count, bcs):
+    """Get the maximum taylor series order given the number of bcs and points"""
+    # FIXME: Doesn't seem to work for single bcs? Should just output points_count
+    # FIXME: Probably wants a test if it doesn't have one yet
+    n_skip = pts_count
+    for i in range(bcs.order):
+        if n_skip == 0:
+            if i+1 in [*bcs.bcs]:
+                pass
+            else:
+                return i
+        elif i in [*bcs.bcs]:
+            pass
+        else:
+            n_skip -= 1
+    return bcs.order
 
 
 class BoundaryConditions:
@@ -122,11 +142,14 @@ def get_ext_coeffs(bcs, cache=None):
 
 def _get_ext_coeffs(bcs):
     """Get the extrapolation coefficients for a set of boundary conditions"""
-    n_pts = bcs.order//2  # Number of interior points
+    valid_bcs = np.array([*bcs.bcs])
+    valid_bcs = valid_bcs[valid_bcs <= bcs.order]
+
+    n_pts = 1 + bcs.order - len(valid_bcs)  # Maximum number of interior points
     coeff_dict = {}  # Master coefficient dictionary
     for points_count in range(1, n_pts+1):
-        # This -1 might want to be taken into account somewhere else
-        taylor = bcs.get_taylor(order=2*points_count - 1)
+        taylor_order = get_taylor_order(points_count, bcs)
+        taylor = bcs.get_taylor(order=taylor_order)
         lhs = sum([E[point]*taylor.subs(bcs.x, x_a[point]) for point in range(points_count)])
         rhs = taylor.subs(bcs.x, x_t)
         eqs = [sp.Eq(sp.expand(lhs).coeff(a[i], 1), sp.expand(rhs).coeff(a[i], 1)) for i in range(bcs.order+1)
@@ -136,186 +159,385 @@ def _get_ext_coeffs(bcs):
         solve_vars = [E[point] for point in range(points_count)]
         coeffs = sp.solve(eqs, solve_vars)
 
-        coeff_dict[points_count] = coeffs
+        coeff_dict[points_count] = sp.factor(sp.simplify(coeffs))
 
     return coeff_dict
 
 
-def get_stencils(deriv, offset, bcs, cache=None):
-    """
-    Get the array of stencils for a given specification
+def get_target_coeffs(coeffs, out):
+    """Get the coeffs for a particular target"""
+    target_subs = [(x_t, out)]
 
-    Parameters:
+    target_coeffs = {key: coeffs[key].subs(target_subs) for key in coeffs}
+    return target_coeffs
+
+
+def merge_stencil_dicts(short, extrapolation):
+    """Merges the shortened stencil with the extrapolations"""
+    return {key: short.get(key, 0) + extrapolation.get(key, 0)
+            for key in set(short) | set(extrapolation)}
+
+
+class StencilSet():
+    """
+    A set of stencils for a particular specification
+
+    Parameters
+    ----------
     deriv : int
-        The derivative for which stencils should be generated
+        The derivative which the stencils should approximate
     offset : float
-        The offset at which the derivative should be evaluated
+        The relative offset at which the stencils should evaluate
     bcs : BoundaryConditions
-        The boundary conditions which these stencils are for
+        The boundary conditions imposed by these stencils
     cache : str
-        Path to the extrapolation cache. Optional
-
-    Returns
-    -------
-    stencil_array : ndarray
-        The array of stencils
-
+        The path to the extrapolation coefficient cache
     """
-    def get_unusable(variant):
-        """Get the number of unusable points on a side given the variant"""
-        return min(variant, int(variant/2+1))
 
-    def get_outside(variant):
-        """Get the number of exterior points on a side given the variant"""
-        return int(np.ceil(variant/2))
+    def __init__(self, deriv, offset, bcs, cache=None):
+        # Set various parameters
+        self._deriv = deriv
+        self._offset = offset
+        self._bcs = bcs
 
-    def get_available(left_unusable, right_unusable, left_outside, right_outside, s_o):
+        # Calculate the extrapolation coefficients
+        self._ext_coeffs = get_ext_coeffs(bcs, cache=cache)
+
+        # Determine the maximum number of extrapolation points from
+        # keys in the extrapolation coefficient dictionary
+        self._max_ext_points = np.amax([*self._ext_coeffs])
+
+        # Maximum span of the stencil
+        self._max_span = self.max_ext_points
+
+        # Base stencil (used in stencil determination)
+        self._std_stencil = standard_stencil(self.deriv, self.order,
+                                             offset=self.offset, as_dict=True)
+
+        # Generate stencils
+        self._stencils = self._get_stencils()
+
+    @property
+    def max_ext_points(self):
         """
-        Get the positions of points available for the extrapolation on each side
-        given the number of unusable and exterior stencil points.
+        The maximum number of extrapolation points stencils
+        in this set use.
         """
-        # Deal with -0 = 0 when indexing from right
-        if right_unusable == 0:
-            left_available = range(-s_o//2, s_o//2+1)[left_unusable:]
-            right_available = range(-s_o//2, s_o//2+1)[left_outside:]
+        return self._max_ext_points
+
+    @property
+    def max_span(self):
+        """
+        The maximum span from the centre point that stencils in this set will
+        have.
+        """
+        return self._max_span
+
+    @property
+    def deriv(self):
+        """The derivative order these stencils approximate"""
+        return self._deriv
+
+    @property
+    def offset(self):
+        """
+        The relative offset at which these stencils evaluate
+        the derivative.
+        """
+        return self._offset
+
+    @property
+    def bcs(self):
+        """The boundary conditions enforced by these stencils"""
+        return self._bcs
+
+    @property
+    def order(self):
+        """The discretization order of the stencils"""
+        return self._bcs.order
+
+    @property
+    def stencils(self):
+        """The dictionary of all stencil variants"""
+        return self._stencils
+
+    @property
+    def lambdaify(self):
+        """
+        The stencils with coefficients in the form of functions with
+        arguments eta_l, eta_r.
+        """
+        try:
+            return self._stencils_lambda
+        except AttributeError:
+            lambdas = {}
+            for variant in self.stencils:
+                var_dict = {}
+                for ind in self.stencils[variant]:
+                    var_dict[ind] = sp.lambdify([eta_l, eta_r], self.stencils[variant][ind])
+                lambdas[variant] = var_dict
+            self._stencils_lambda = lambdas
+            return self._stencils_lambda
+
+    def _get_keys(self):
+        """Generate keys for the stencil dict"""
+        # Generate number of variants per side
+        count_l = 2*self.max_span
+        count_r = 2*self.max_span
+        if np.sign(self.offset) == 1:
+            count_l += 1
+        elif np.sign(self.offset) == -1:
+            count_r += 1
+
+        # Innermost valid eta values
+        variants_l = -self.max_span + np.arange(count_l)/2 + 0.5
+        variants_r = self.max_span - np.arange(count_r)[::-1]/2 - 0.5
+
+        # Append a NaN for where eta is too large to care about
+        variants_l = np.append(np.NaN, variants_l)
+        variants_r = np.append(variants_r, np.NaN)
+
+        # The combinations of these values
+        com_l, com_r = np.meshgrid(variants_l, variants_r)
+
+        # Flattened versions
+        com_l_flat = com_l.flatten()
+        com_r_flat = com_r.flatten()
+
+        keys = np.array((com_l_flat, com_r_flat)).T
+        return keys
+
+    def _get_empty_stencil_dict(self):
+        """Generate an empty stencil dict with the necessary keys"""
+        keys = self._get_keys()
+        key_values = [tuple(row) for row in keys]
+        nones = [None for row in keys]
+        empty_dict = dict(zip(key_values, nones))
+
+        return empty_dict
+
+    def _get_outside(self, key):
+        """
+        Get the points outside on the left and right sides.
+        """
+        eta_l, eta_r = key
+
+        base_indices = list(range(-self.order//2, 1+self.order//2))
+
+        if not np.isnan(eta_l):
+
+            # Stencil points outside on the left
+            out_l = max(0, self.order//2 + np.ceil(eta_l))
+
+            points_l = base_indices[:int(out_l)]
         else:
-            left_available = range(-s_o//2, s_o//2+1)[left_unusable:-right_outside]
-            right_available = range(-s_o//2, s_o//2+1)[left_outside:-right_unusable]
-        return left_available, right_available
+            points_l = []
 
-    def get_stencil_addition(outside, available, coeff_dict, s_o, base_stencil, side):
-        """
-        Get the additions to the base stencil introduced by the extrapolations for a side
-        """
-        if side != 'left' and side != 'right':
-            raise ValueError("Invalid side")
+        if not np.isnan(eta_r):
 
-        n_coeffs = s_o//2 if len(available) > s_o//2 else len(available) if len(available) > 0 else 1
+            # Stencil points outside on the right
+            out_r = max(0, self.order//2 - np.floor(eta_r))
 
-        if side == 'left':
-            # Force use of middle point if nomianally no points are available
-            ext_points = tuple(available[:s_o]) if len(available) > 0 else (0,)
-
-            # Build main substitutions
-            main_subs = [(x_a[i], ext_points[i]) for i in range(n_coeffs)]
-
-            # Set floor on eta if necessary
-            if len(available) > 0:
-                main_subs += [(x_b, eta_l)]
+            # Need to handle out_r = -out_r = 0 for backward indexing
+            if out_r != 0:
+                points_r = base_indices[-int(out_r):]
             else:
-                main_subs += [(x_b, -0.5)]
+                points_r = []
         else:
-            # Force use of middle point if nomianally no points are available
-            ext_points = tuple(available[-s_o:]) if len(available) > 0 else (0,)
+            points_r = []
 
-            # Build main substitutions (Index from right to left for this one)
-            main_subs = [(x_a[i], ext_points[-1-i]) for i in range(n_coeffs)]
+        # Trim points which don't have coefficients
+        points_l = list(set(points_l) & set(self._std_stencil.keys()))
+        points_r = list(set(points_r) & set(self._std_stencil.keys()))
 
-            # Set floor on eta if necessary
-            if len(available) > 0:
-                main_subs += [(x_b, eta_r)]
+        return points_l, points_r
+
+    def _get_extrapolation_points(self, key, out_l, out_r):
+        """
+        Get the points used for the extrapolation on left and right sides.
+        """
+        eta_l, eta_r = key
+
+        # Need to find the first available points to figure out where to start
+        # Eta (or max number of extrapolation points) on other side limits other bound
+        if not np.isnan(eta_l):
+            bound_l = int(np.floor(eta_l)+1)
+        else:
+            bound_l = -self.max_span
+
+        if not np.isnan(eta_r):
+            bound_r = int(np.ceil(eta_r)-1)
+        else:
+            bound_r = self.max_span
+
+        # Bounds at the other end
+        if not np.isnan(eta_r):
+            other_l = min(bound_l + self.max_ext_points - 1, int(np.floor(eta_r)))
+        else:
+            other_l = bound_l + self.max_ext_points - 1
+
+        if not np.isnan(eta_l):
+            other_r = max(bound_r - self.max_ext_points + 1, int(np.ceil(eta_l)))
+        else:
+            other_r = bound_r - self.max_ext_points + 1
+
+        base_indices = list(self._std_stencil.keys())
+
+        # Flip a bool if false (will need to apply eta floor for stability)
+        if bound_l <= other_l:
+            ext_points_l = list(range(bound_l, other_l+1))
+            left_floor = False
+        else:
+            ext_points_l = np.setdiff1d(base_indices, out_l+out_r)
+            left_floor = True
+
+        if bound_r >= other_r:
+            ext_points_r = list(range(other_r, bound_r+1))
+            right_floor = False
+        else:
+            ext_points_r = np.setdiff1d(base_indices, out_l+out_r)
+            right_floor = True
+
+        return ext_points_l, ext_points_r, left_floor, right_floor
+
+    def _build_main_subs(self, ext_l, ext_r, l_floor, r_floor):
+        """
+        Build the substitutions for each side. These substitutions
+        will be applied to the extrapolation coefficients to replace
+        everything except the target point.
+        """
+        # Left side main subs
+        subs_l = [(x_a[i], ext_l[i]) for i in range(len(ext_l))]
+        # Set floor on eta if necessary
+        if not l_floor:
+            subs_l += [(x_b, eta_l)]
+        else:
+            subs_l += [(x_b, -0.5)]
+
+        # Right side main subs
+        subs_r = [(x_a[i], ext_r[i]) for i in range(len(ext_r))]
+        # Set floor on eta if necessary
+        if not r_floor:
+            subs_r += [(x_b, eta_r)]
+        else:
+            subs_r += [(x_b, 0.5)]
+
+        return subs_l, subs_r
+
+    def _get_ext_coefficients(self, main_subs_l, main_subs_r):
+        """
+        Get the extrapolation coefficients given the points
+        available for extrapolation.
+        """
+        coeffs_base_l = self._ext_coeffs[len(main_subs_l)-1].copy()
+        coeffs_base_r = self._ext_coeffs[len(main_subs_r)-1].copy()
+
+        coeffs_l = {}
+        coeffs_r = {}
+
+        # Take each coeff and apply the main substitutions
+        for key in coeffs_base_l:
+            coeffs_l[key] = coeffs_base_l[key].subs(main_subs_l)
+
+        for key in coeffs_base_r:
+            coeffs_r[key] = coeffs_base_r[key].subs(main_subs_r)
+
+        return coeffs_l, coeffs_r
+
+    def _get_extrapolations(self, out_l, out_r, ext_l, ext_r, coeffs_l, coeffs_r):
+        """
+        Get the extrapolations required as part of the stencil
+        modification. Note that these will need adding to the
+        stencil coefficients which remain in the interior region.
+        """
+        # Dicts containing additions to the stencil
+        extrapolations_l = {}
+        extrapolations_r = {}
+
+        # Loop over target points (left)
+        for target in out_l:
+            target_coeffs_l = get_target_coeffs(coeffs_l, target)
+            # Stencil coefficient for the target point
+            target_coefficient = self._std_stencil[target]
+
+            # Loop over extrapolation points
+            for i in range(len(ext_l)):
+                try:  # Try to add, if there is nothing to add to, make a new entry
+                    extrapolations_l[ext_l[i]] += target_coefficient*target_coeffs_l[E[i]]
+                except KeyError:
+                    extrapolations_l[ext_l[i]] = target_coefficient*target_coeffs_l[E[i]]
+
+        # Loop over target points (right)
+        for target in out_r:
+            target_coeffs_r = get_target_coeffs(coeffs_r, target)
+            # Stencil coefficient for the target point
+            target_coefficient = self._std_stencil[target]
+
+            # Loop over extrapolation points
+            for i in range(len(ext_r)):
+                try:  # Try to add, if there is nothing to add to, make a new entry
+                    extrapolations_r[ext_r[i]] += target_coefficient*target_coeffs_r[E[i]]
+                except KeyError:
+                    extrapolations_r[ext_r[i]] = target_coefficient*target_coeffs_r[E[i]]
+
+        extrapolations = {key: extrapolations_l.get(key, 0) + extrapolations_r.get(key, 0)
+                          for key in set(extrapolations_l) | set(extrapolations_r)}
+
+        return extrapolations
+
+    def _get_short_stencil(self, out_l, out_r):
+        """Get the shortened version of the stencil"""
+        short_stencil = self._std_stencil.copy()
+        to_remove = out_l + out_r
+        for outside in to_remove:
+            del short_stencil[outside]
+        return short_stencil
+
+    def _get_stencils(self):
+        """
+        Generate all possible stencil variants, given the
+        specification.
+        """
+        # Initialise the empty dicts for stencils and their indices
+        stencils = self._get_empty_stencil_dict()
+
+        # Initial pass to remove keys where no points require extrapolation
+        initial_keys = list(stencils.keys())
+
+        for key in initial_keys:
+            if (key[0] - 0.5 < min(self._std_stencil.keys()) - _feps or np.isnan(key[0])) and (key[1] + 0.5 > max(self._std_stencil.keys()) + _feps or np.isnan(key[1])):
+                del stencils[key]
+
+        # Loop over each key
+        shortened_keys = list(stencils.keys())
+        for key in shortened_keys:
+            # For left and right sides
+            # Need to get points to extrapolate to
+            out_l, out_r = self._get_outside(key)
+
+            # Need to get points to extrapolate from
+            ext_l, ext_r, l_floor, r_floor = self._get_extrapolation_points(key, out_l, out_r)
+
+            if len(ext_l) > 0 and len(ext_r) > 0:
+                # Get the main substitutions for the extrapolation coefficients
+                main_subs_l, main_subs_r = self._build_main_subs(ext_l, ext_r, l_floor, r_floor)
+
+                # Get the extrapolation coefficients (sans target)
+                coeffs_l, coeffs_r = self._get_ext_coefficients(main_subs_l, main_subs_r)
+
+                extrapolations = self._get_extrapolations(out_l, out_r, ext_l,
+                                                          ext_r, coeffs_l, coeffs_r)
+
+                short_stencil = self._get_short_stencil(out_l, out_r)
+
+                # Now need to merge these two halves
+                stencil = merge_stencil_dicts(short_stencil, extrapolations)
+
+                # Add the indices and coefficients to the dict
+                stencils[key] = stencil
+
             else:
-                main_subs += [(x_b, 0.5)]
+                # If all stencil points lie outside boundary, then this entry is set to be zero
+                stencils[key] = {0: 0}
 
-        # Apply main substitutions
-        ext_coeffs = coeff_dict[n_coeffs]
-        ext_coeffs = {coeff: val.subs(main_subs) for (coeff, val) in ext_coeffs.items()}
-
-        points = tuple(range(-s_o//2, s_o//2+1))
-
-        # Array containing additions to stencil
-        additions = np.full(s_o+1, sp.Float(0))
-
-        if side == 'left':
-            for point in range(outside):
-                # Apply substitutions for x_t
-                point_coeffs = {coeff: val.subs(x_t, points[point])
-                                for (coeff, val) in ext_coeffs.items()}
-
-                # Loop over the coefficients and add them to the addition with the correct weighting
-                for position in range(n_coeffs):
-                    additions[s_o//2 + ext_points[position]] += base_stencil[point]*point_coeffs[E[position]]
-        else:
-            for point in range(outside):
-                # Apply substitutions for x_t
-                point_coeffs = {coeff: val.subs(x_t, points[-1-point])
-                                for (coeff, val) in ext_coeffs.items()}
-
-                # Loop over the coefficients and add them to the addition with the correct weighting
-                for position in range(n_coeffs):
-                    additions[s_o//2 + ext_points[-1-position]] += base_stencil[-1-point]*point_coeffs[E[position]]
-
-        return additions
-
-    def get_stencil_additions(left_outside, right_outside,
-                              left_available, right_available,
-                              coeff_dict, s_o, base_stencil):
-        """
-        Get the additions to the base stencil introduced by the extrapolations
-        """
-        left_add = get_stencil_addition(left_outside, left_available, coeff_dict,
-                                        s_o, base_stencil, 'left')
-        right_add = get_stencil_addition(right_outside, right_available, coeff_dict,
-                                         s_o, base_stencil, 'right')
-
-        truncated_stencil = base_stencil.copy()
-        truncated_stencil[:left_outside] = sp.Float(0)
-        if right_outside != 0:
-            truncated_stencil[-right_outside:] = sp.Float(0)
-        stencil = truncated_stencil + left_add + right_add
-
-        return stencil
-
-    s_o = bcs.order
-    base_stencil = standard_stencil(deriv, s_o,
-                                    offset=offset, as_float=False)
-
-    stencil_array = np.empty((s_o+1, s_o+1, s_o+1), dtype=object)
-
-    coeff_dict = get_ext_coeffs(bcs, cache=cache)
-
-    # Loop over variants
-    for left in range(s_o + 1):
-        left_unusable = get_unusable(left)
-        left_outside = get_outside(left)
-        for right in range(s_o + 1):
-            right_unusable = get_unusable(right)
-            right_outside = get_outside(right)
-            left_available, right_available = get_available(left_unusable, right_unusable,
-                                                            left_outside, right_outside, s_o)
-
-            stencil = get_stencil_additions(left_outside, right_outside,
-                                            left_available, right_available,
-                                            coeff_dict, s_o, base_stencil)
-            stencil_array[left, right] = stencil
-
-    return stencil_array
-
-
-def get_stencils_lambda(deriv, offset, bcs, cache=None):
-    """
-    Get the stencils as an array of functions which can be called on supplied values
-    of eta_l and eta_r.
-
-    Parameters:
-    deriv : int
-        The derivative for which stencils should be generated
-    offset : float
-        The offset at which the derivative should be evaluated
-    bcs : BoundaryConditions
-        The boundary conditions which these stencils are for
-    cache : str
-        Path to the extrapolation cache. Optional
-
-    Returns
-    -------
-    funcs : ndarray
-        The array of functions for each stencil coefficient. Indexed by [left variant, right variant, index].
-
-    """
-    stencils = get_stencils(deriv, offset, bcs, cache=cache)
-    funcs = np.empty(stencils.shape, dtype=object)
-    for i in range(stencils.size):
-        # Add a lambdaify in here
-        funcs.flat[i] = sp.lambdify([eta_l, eta_r], stencils.flat[i])
-    return funcs
+        return stencils
