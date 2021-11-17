@@ -117,7 +117,7 @@ def setup_srcrec(model, time_range, f0):
     return src, rec
 
 
-def compare_shots(s_o, v_refinement):
+def compare_shots(s_o, v_refinement=1.):
     """
     Compare the immersed boundary and vacuum layer for a given formulation
 
@@ -130,15 +130,27 @@ def compare_shots(s_o, v_refinement):
         boundary implementation.
     """
     # FIXME: Add the option to refine in due course
+    # FIXME: Add separate options to refine both immersed and vaccum formulations
     # Define a physical size
     shape = (101, 101, 101)  # Number of grid point (nx, ny, nz)
     spacing = (10., 10., 10.)  # Grid spacing in m. The domain size is 1x1x1km
     origin = (100., 100., 0.)  # Needs to account for damping layers
 
+    vshape = tuple([int(1+100*v_refinement) for dim in range(3)])
+    vspacing = tuple([1000/(vshape[0]-1) for dim in range(3)])
+    vorigin = tuple([10*vspacing[0] for dim in range(3)])
+
+    print("V shape", vshape)
+    print("V spacing", vspacing)
+    print("V origin", vorigin)
+
     v = 1.5
 
     model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
                   space_order=s_o, nbl=10, bcs="damp")
+
+    vmodel = Model(vp=v, origin=vorigin, shape=vshape, spacing=vspacing,
+                   space_order=s_o, nbl=10, bcs="damp")
 
     t0 = 0.  # Simulation starts a t=0
     tn = 400.  # Simulation last 0.4 seconds (400 ms)
@@ -149,27 +161,31 @@ def compare_shots(s_o, v_refinement):
     f0 = 0.015  # Source peak frequency is 15Hz (0.015 kHz)
 
     src, rec = setup_srcrec(model, time_range, f0)
+    vsrc, vrec = setup_srcrec(vmodel, time_range, f0)
 
     # Define the wavefield with the size of the model and the time dimension
     u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=s_o,
                      coefficients='symbolic')
+    vu = TimeFunction(name="u", grid=vmodel.grid, time_order=2, space_order=s_o,
+                      coefficients='symbolic')
 
-    v_shot, v_wavefield = vacuum_shot(model, u, time_range, dt, src, rec)
+    v_shot, v_wavefield = vacuum_shot(vmodel, vu, time_range, dt, vsrc, vrec)
 
-    u.data[:] = 0  # Reset the wavefield between runs
     i_shot, i_wavefield = ib_shot(model, u, time_range, dt, src, rec)
 
-    plt.imshow(v_shot, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+    # FIXME: Need to tweak the min/max on these scales to highlight difference
+    plt.imshow(v_shot/np.amax(np.abs(v_shot)), aspect='auto', cmap='seismic', vmin=-0.05, vmax=0.05)
     plt.show()
 
-    plt.imshow(v_wavefield, cmap='seismic', vmin=-0.2, vmax=0.2, origin='lower')
+    plt.imshow(v_wavefield/np.amax(np.abs(v_wavefield)), cmap='seismic', vmin=-0.05, vmax=0.05, origin='lower')
+    # FIXME: Add a line to show the boundary location
     plt.show()
 
-    plt.imshow(i_shot, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+    plt.imshow(i_shot/np.amax(np.abs(i_shot)), aspect='auto', cmap='seismic', vmin=-0.05, vmax=0.05)
     plt.show()
 
-    plt.imshow(i_wavefield, cmap='seismic', vmin=-0.2, vmax=0.2, origin='lower')
+    plt.imshow(i_wavefield/np.amax(np.abs(i_wavefield)), cmap='seismic', vmin=-0.05, vmax=0.05, origin='lower')
     plt.show()
 
 
-compare_shots(4)
+compare_shots(4, v_refinement=1.5)
