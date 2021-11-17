@@ -1,0 +1,40 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+ib_shot = np.load('data/ib_gather.npy')
+vacuum_shot_coarse = np.load('data/vacuum_gather_coarse.npy')
+vacuum_shot_fine = np.load('data/vacuum_gather_fine.npy')
+vacuum_shot_twofold = np.load('data/vacuum_gather_twofold.npy')
+vacuum_shot_fourfold = np.load('data/vacuum_gather_fourfold.npy')
+
+plt.imshow(ib_shot, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+plt.title("Immersed Boundary")
+plt.colorbar()
+plt.show()
+"""
+plt.imshow(vacuum_shot_fine*125, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+plt.colorbar()
+plt.show()
+"""
+plt.imshow(vacuum_shot_coarse, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+plt.title("Vacuum Layer")
+plt.colorbar()
+plt.show()
+plt.imshow(vacuum_shot_twofold*8, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+plt.title("Vacuum Layer (2x refinement)")
+plt.colorbar()
+plt.show()
+plt.imshow(vacuum_shot_fourfold*64, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+plt.title("Vacuum Layer (4x refinement)")
+plt.colorbar()
+plt.show()
+
+plt.imshow(vacuum_shot_fourfold*64-vacuum_shot_coarse, aspect='auto', cmap='seismic', vmin=-0.7, vmax=0.7)
+plt.colorbar()
+plt.show()
+plt.imshow(vacuum_shot_fourfold*64-vacuum_shot_twofold*8, aspect='auto', cmap='seismic', vmin=-0.7, vmax=0.7)
+plt.colorbar()
+plt.show()
+plt.imshow(vacuum_shot_fourfold*64-ib_shot, aspect='auto', cmap='seismic', vmin=-0.7, vmax=0.7)
+plt.colorbar()
+plt.show()
