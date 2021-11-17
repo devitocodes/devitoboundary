@@ -13,39 +13,12 @@ from devitoboundary.segmentation import get_interior
 from examples.seismic import TimeAxis, RickerSource, Model, Receiver
 
 
-def vacuum_shot(model, time_range, f0):
+def vacuum_shot(model, u, time_range, dt, src, rec):
     """
     Produce a shot with a vacuum layer
     """
-    # FIXME: want to pull dt from time_range
-    # FIXME: want to be able to provide an order
 
-    src = RickerSource(name='src', grid=model.grid, f0=f0,
-                       npoint=1, time_range=time_range)
-
-    # First, position source, then set depth
-    src.coordinates.data[0, 0] = 600.
-    src.coordinates.data[0, 1] = 600.
-    # Remember that 0, 0, 0 is top left corner
-    # Depth is 100m from free-surface boundary
-    src.coordinates.data[0, 2] = 900.
-
-    # Create symbol for 101 receivers
-    rec = Receiver(name='rec', grid=model.grid, npoint=101,
-                   time_range=time_range)
-
-    # FIXME: could pull this outside the functions
-    # Prescribe even spacing for receivers along the x-axis
-    rec.coordinates.data[:, 0] = np.linspace(100, 1100, num=101)
-    rec.coordinates.data[:, 1] = 600.  # Centered on y axis
-    # Receivers track the surface at 20m depth
-    rec.coordinates.data[:, 2] = 480 + 480*(np.sin(np.pi*np.linspace(0, 1000, num=101)/1000)) - 20
-
-    # Define the wavefield with the size of the model and the time dimension
-    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=4,
-                     coefficients='symbolic')
-
-    infile = 'test_sinusoid_hi_res.ply'
+    infile = 'topography/test_sinusoid_lo_res.ply'
 
     sdf = SignedDistanceFunction(u, infile,
                                  toggle_normals=True)
@@ -68,43 +41,15 @@ def vacuum_shot(model, time_range, f0):
     op = Operator([stencil] + src_term + rec_term)
     op(time=time_range.num-1, dt=dt)
 
-    return rec.data, u.data[-1, :, 50, :].T
+    return rec.data.copy(), u.data[-1, :, 50, :].T.copy()
 
 
-def ib_shot(model, time_range, f0):
+def ib_shot(model, u, time_range, dt, src, rec):
     """
     Produce a shot with an immersed boundary
     """
-    # FIXME: want to pull dt from time_range
-    # FIXME: want to be able to provide an order
 
-    v = 1.5
-
-    src = RickerSource(name='src', grid=model.grid, f0=f0,
-                       npoint=1, time_range=time_range)
-
-    # First, position source, then set depth
-    src.coordinates.data[0, 0] = 600.
-    src.coordinates.data[0, 1] = 600.
-    # Remember that 0, 0, 0 is top left corner
-    # Depth is 100m from free-surface boundary
-    src.coordinates.data[0, 2] = 900.
-
-    # Create symbol for 101 receivers
-    rec = Receiver(name='rec', grid=model.grid, npoint=101,
-                   time_range=time_range)
-
-    # Prescribe even spacing for receivers along the x-axis
-    rec.coordinates.data[:, 0] = np.linspace(100, 1100, num=101)
-    rec.coordinates.data[:, 1] = 600.  # Centered on y axis
-    # Receivers track the surface at 20m depth
-    rec.coordinates.data[:, 2] = 480 + 480*(np.sin(np.pi*np.linspace(0, 1000, num=101)/1000)) - 20
-
-    # Define the wavefield with the size of the model and the time dimension
-    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=4,
-                     coefficients='symbolic')
-
-    infile = 'test_sinusoid_lo_res.ply'
+    infile = 'topography/test_sinusoid_lo_res.ply'
 
     # Zero even derivatives on the boundary
     spec = {2*i: 0 for i in range(u.space_order)}
@@ -127,6 +72,8 @@ def ib_shot(model, time_range, f0):
                           columns=['function', 'derivative', 'eval_offset'])
     coeffs = surface.subs(derivs)
 
+    v = 1.5
+
     # We can now write the PDE
     stencil = Eq(u.forward,
                  2*u - u.backward + dt**2*v**2*u.laplace - model.damp * u.dt,
@@ -142,4 +89,87 @@ def ib_shot(model, time_range, f0):
     op = Operator([stencil] + src_term + rec_term)
     op(time=time_range.num-1, dt=dt)
 
-    return rec.data, u.data[-1, :, 50, :].T
+    return rec.data.copy(), u.data[-1, :, 50, :].T.copy()
+
+
+def setup_srcrec(model, time_range, f0):
+    """Return a ricker source and receivers"""
+    src = RickerSource(name='src', grid=model.grid, f0=f0,
+                       npoint=1, time_range=time_range)
+
+    # First, position source, then set depth
+    src.coordinates.data[0, 0] = 600.
+    src.coordinates.data[0, 1] = 600.
+    # Remember that 0, 0, 0 is top left corner
+    # Depth is 100m from free-surface boundary
+    src.coordinates.data[0, 2] = 900.
+
+    # Create symbol for 101 receivers
+    rec = Receiver(name='rec', grid=model.grid, npoint=101,
+                   time_range=time_range)
+
+    # Prescribe even spacing for receivers along the x-axis
+    rec.coordinates.data[:, 0] = np.linspace(100, 1100, num=101)
+    rec.coordinates.data[:, 1] = 600.  # Centered on y axis
+    # Receivers track the surface at 20m depth
+    rec.coordinates.data[:, 2] = 480 + 480*(np.sin(np.pi*np.linspace(0, 1000, num=101)/1000)) - 20
+
+    return src, rec
+
+
+def compare_shots(s_o, v_refinement):
+    """
+    Compare the immersed boundary and vacuum layer for a given formulation
+
+    Parameters
+    ----------
+    s_o : int
+        The space order of the functions.
+    v_refinement : float
+        Refinement of the vacuum implementation relative to the immersed
+        boundary implementation.
+    """
+    # FIXME: Add the option to refine in due course
+    # Define a physical size
+    shape = (101, 101, 101)  # Number of grid point (nx, ny, nz)
+    spacing = (10., 10., 10.)  # Grid spacing in m. The domain size is 1x1x1km
+    origin = (100., 100., 0.)  # Needs to account for damping layers
+
+    v = 1.5
+
+    model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
+                  space_order=s_o, nbl=10, bcs="damp")
+
+    t0 = 0.  # Simulation starts a t=0
+    tn = 400.  # Simulation last 0.4 seconds (400 ms)
+    dt = 0.6038  # Hardcoded timestep to keep stable
+
+    time_range = TimeAxis(start=t0, stop=tn, step=dt)
+
+    f0 = 0.015  # Source peak frequency is 15Hz (0.015 kHz)
+
+    src, rec = setup_srcrec(model, time_range, f0)
+
+    # Define the wavefield with the size of the model and the time dimension
+    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=s_o,
+                     coefficients='symbolic')
+
+    v_shot, v_wavefield = vacuum_shot(model, u, time_range, dt, src, rec)
+
+    u.data[:] = 0  # Reset the wavefield between runs
+    i_shot, i_wavefield = ib_shot(model, u, time_range, dt, src, rec)
+
+    plt.imshow(v_shot, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+    plt.show()
+
+    plt.imshow(v_wavefield, cmap='seismic', vmin=-0.2, vmax=0.2, origin='lower')
+    plt.show()
+
+    plt.imshow(i_shot, aspect='auto', cmap='seismic', vmin=-0.2, vmax=0.2)
+    plt.show()
+
+    plt.imshow(i_wavefield, cmap='seismic', vmin=-0.2, vmax=0.2, origin='lower')
+    plt.show()
+
+
+compare_shots(4)
