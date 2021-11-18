@@ -1,6 +1,7 @@
 # An example showing the accuracy improvements of immersed boundary methods
 # vs a conventional staircased vacuum formulation
 
+import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,7 +23,7 @@ def vacuum_shot(model, u, time_range, dt, src, rec):
 
     sdf = SignedDistanceFunction(u, infile,
                                  toggle_normals=True)
-    interior = get_interior(sdf.sdf, (500, 500, 20), qc=True)
+    interior = get_interior(sdf.sdf, tuple(src.coordinates.data[0]), qc=True)
 
     v = Function(name='v', grid=model.grid)
     v.data[interior == 1] = 1.5
@@ -41,7 +42,9 @@ def vacuum_shot(model, u, time_range, dt, src, rec):
     op = Operator([stencil] + src_term + rec_term)
     op(time=time_range.num-1, dt=dt)
 
-    return rec.data.copy(), u.data[-1, :, 50, :].T.copy()
+    midpoint = model.grid.shape[1]//2
+
+    return rec.data.copy(), u.data[-1, 10:-10, midpoint, 10:-10].T.copy()
 
 
 def ib_shot(model, u, time_range, dt, src, rec):
@@ -63,7 +66,7 @@ def ib_shot(model, u, time_range, dt, src, rec):
 
     # Create the immersed boundary surface
     surface = ImmersedBoundary('topography', infile, functions,
-                               interior_point=(500, 500, 20),
+                               interior_point=tuple(src.coordinates.data[0]),
                                qc=True, toggle_normals=True)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
@@ -89,7 +92,9 @@ def ib_shot(model, u, time_range, dt, src, rec):
     op = Operator([stencil] + src_term + rec_term)
     op(time=time_range.num-1, dt=dt)
 
-    return rec.data.copy(), u.data[-1, :, 50, :].T.copy()
+    midpoint = model.grid.shape[1]//2
+
+    return rec.data.copy(), u.data[-1, 10:-10, midpoint, 10:-10].T.copy()
 
 
 def setup_srcrec(model, time_range, f0):
@@ -112,12 +117,12 @@ def setup_srcrec(model, time_range, f0):
     rec.coordinates.data[:, 0] = np.linspace(100, 1100, num=101)
     rec.coordinates.data[:, 1] = 600.  # Centered on y axis
     # Receivers track the surface at 20m depth
-    rec.coordinates.data[:, 2] = 480 + 480*(np.sin(np.pi*np.linspace(0, 1000, num=101)/1000)) - 20
+    rec.coordinates.data[:, 2] = 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=101)/1200)) - 20
 
     return src, rec
 
 
-def compare_shots(s_o, v_refinement=1.):
+def compare_shots(s_o, v_refinement=1., i_refinement=1.):
     """
     Compare the immersed boundary and vacuum layer for a given formulation
 
@@ -126,66 +131,129 @@ def compare_shots(s_o, v_refinement=1.):
     s_o : int
         The space order of the functions.
     v_refinement : float
-        Refinement of the vacuum implementation relative to the immersed
-        boundary implementation.
+        Refinement of the vacuum implementation relative to the baseline.
+    i_refinement : float
+        Refinement of the immersed boundary implementation relative to the
+        baseline.
     """
-    # FIXME: Add the option to refine in due course
-    # FIXME: Add separate options to refine both immersed and vaccum formulations
-    # Define a physical size
-    shape = (101, 101, 101)  # Number of grid point (nx, ny, nz)
-    spacing = (10., 10., 10.)  # Grid spacing in m. The domain size is 1x1x1km
-    origin = (100., 100., 0.)  # Needs to account for damping layers
-
+    # Number of grid point (nx, ny, nz)
     vshape = tuple([int(1+100*v_refinement) for dim in range(3)])
+    # Grid spacing in m. The domain size is 1x1x1km
     vspacing = tuple([1000/(vshape[0]-1) for dim in range(3)])
-    vorigin = tuple([10*vspacing[0] for dim in range(3)])
+    # Needs to account for damping layers
+    # FIXME: There must be a cleaner way to do this
+    vorigin = tuple([v_refinement*10*vspacing[0] for dim in range(2)] + [0.])
 
-    print("V shape", vshape)
-    print("V spacing", vspacing)
-    print("V origin", vorigin)
+    ishape = tuple([int(1+100*i_refinement) for dim in range(3)])
+    ispacing = tuple([1000/(ishape[0]-1) for dim in range(3)])
+    iorigin = tuple([i_refinement*10*ispacing[0] for dim in range(2)] + [0.])
 
     v = 1.5
 
-    model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
-                  space_order=s_o, nbl=10, bcs="damp")
+    imodel = Model(vp=v, origin=iorigin, shape=ishape, spacing=ispacing,
+                   space_order=s_o, nbl=10, bcs="damp")
 
     vmodel = Model(vp=v, origin=vorigin, shape=vshape, spacing=vspacing,
                    space_order=s_o, nbl=10, bcs="damp")
 
-    t0 = 0.  # Simulation starts a t=0
-    tn = 400.  # Simulation last 0.4 seconds (400 ms)
+    t0 = 0.  # Simulation starts at t=0
+    tn = 450.  # Simulation last 0.45 seconds (450 ms)
     dt = 0.6038  # Hardcoded timestep to keep stable
 
     time_range = TimeAxis(start=t0, stop=tn, step=dt)
 
     f0 = 0.015  # Source peak frequency is 15Hz (0.015 kHz)
 
-    src, rec = setup_srcrec(model, time_range, f0)
+    src, rec = setup_srcrec(imodel, time_range, f0)
     vsrc, vrec = setup_srcrec(vmodel, time_range, f0)
 
     # Define the wavefield with the size of the model and the time dimension
-    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=s_o,
-                     coefficients='symbolic')
+    iu = TimeFunction(name="u", grid=imodel.grid, time_order=2, space_order=s_o,
+                      coefficients='symbolic')
     vu = TimeFunction(name="u", grid=vmodel.grid, time_order=2, space_order=s_o,
                       coefficients='symbolic')
 
     v_shot, v_wavefield = vacuum_shot(vmodel, vu, time_range, dt, vsrc, vrec)
 
-    i_shot, i_wavefield = ib_shot(model, u, time_range, dt, src, rec)
+    i_shot, i_wavefield = ib_shot(imodel, iu, time_range, dt, src, rec)
 
-    # FIXME: Need to tweak the min/max on these scales to highlight difference
-    plt.imshow(v_shot/np.amax(np.abs(v_shot)), aspect='auto', cmap='seismic', vmin=-0.05, vmax=0.05)
+    return v_shot, v_wavefield, i_shot, i_wavefield
+
+
+def plot_comparison(s_o, v_refinement=1., i_refinement=1.):
+    """
+    Plot a comparison of immersed boundary and vacuum shots.
+    """
+
+    v_shot, v_wavefield, i_shot, i_wavefield = compare_shots(s_o,
+                                                             v_refinement=v_refinement,
+                                                             i_refinement=i_refinement)
+
+    # Normalization factors
+    norm_v_shot = np.amax(np.abs(v_shot))
+    norm_i_shot = np.amax(np.abs(i_shot))
+    norm_v_wavefield = np.amax(np.abs(v_wavefield))
+    norm_i_wavefield = np.amax(np.abs(i_wavefield))
+
+    gather_extent = (0, 100, 450, 0)
+    wavefield_extent = (0, 1000, 0, 1000)
+
+    fig = plt.figure(constrained_layout=True, figsize=(9, 10))
+    subfigs = fig.subfigures(2, 1, wspace=0.07)
+    axsUp = subfigs[0].subplots(1, 2, sharey=True)
+    subfigs[0].set_facecolor('0.75')
+    axsUp[0].imshow(v_shot/norm_v_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-0.01, vmax=0.01)
+    axsUp[0].set_title('Vacuum layer')
+    axsUp[0].set_xlabel('Receiver number')
+    axsUp[0].set_ylabel('Time (ms)')
+    axsUp[1].imshow(i_shot/norm_i_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-0.01, vmax=0.01)
+    axsUp[1].set_title('Immersed boundary')
+    axsUp[1].set_xlabel('Receiver number')
+    subfigs[0].suptitle('Shot gathers', fontsize='x-large')
+
+    axsDwn = subfigs[1].subplots(1, 2, sharey=True)
+    subfigs[1].set_facecolor('0.75')
+    axsDwn[0].imshow(v_wavefield/norm_v_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-0.15, vmax=0.15)
+    axsDwn[0].plot(np.linspace(0, 1000, num=101), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=101)/1200)), color='k')
+    axsDwn[0].scatter([500], [900], color='r')
+    axsDwn[0].scatter(np.linspace(0, 1000, num=11), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=11)/1200)) - 20, color='b')
+    axsDwn[0].set_title('Vacuum layer')
+    axsDwn[0].set_xlabel('x (m)')
+    axsDwn[0].set_ylabel('z (m)')
+    axsDwn[1].imshow(i_wavefield/norm_i_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-0.15, vmax=0.15)
+    axsDwn[1].plot(np.linspace(0, 1000, num=101), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=101)/1200)), color='k')
+    axsDwn[1].scatter([500], [900], color='r')
+    axsDwn[1].scatter(np.linspace(0, 1000, num=11), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=11)/1200)) - 20, color='b')
+    axsDwn[1].set_title('Immersed boundary')
+    axsDwn[1].set_xlabel('x (m)')
+    subfigs[1].suptitle('Wavefields', fontsize='x-large')
+
+    fig.suptitle('Comparing topography implementations', fontsize='xx-large')
+
     plt.show()
 
-    plt.imshow(v_wavefield/np.amax(np.abs(v_wavefield)), cmap='seismic', vmin=-0.05, vmax=0.05, origin='lower')
-    # FIXME: Add a line to show the boundary location
-    plt.show()
 
-    plt.imshow(i_shot/np.amax(np.abs(i_shot)), aspect='auto', cmap='seismic', vmin=-0.05, vmax=0.05)
-    plt.show()
-
-    plt.imshow(i_wavefield/np.amax(np.abs(i_wavefield)), cmap='seismic', vmin=-0.05, vmax=0.05, origin='lower')
-    plt.show()
+def plot_convergence(s_o):
+    """
+    Compare convergence tests for vacuum layer and immersed boundary
+    implementations.
+    """
+    raise NotImplementedError
 
 
-compare_shots(4, v_refinement=1.5)
+def main(kwargs):
+    mode = kwargs.get('mode', 'compare')
+    s_o = int(kwargs.get('s_o', 4))
+
+    if mode == 'compare':
+        v_refinement = float(kwargs.get('v_ref', 1))
+        i_refinement = float(kwargs.get('i_ref', 1))
+        plot_comparison(s_o, v_refinement=v_refinement, i_refinement=i_refinement)
+    elif mode == 'converge':
+        plot_convergence(s_o)
+    else:
+        raise ValueError("Invalid mode set: {}".format(mode))
+
+
+if __name__ == '__main__':
+    main(dict(arg.split('=') for arg in sys.argv[1:]))  # Get kwargs
