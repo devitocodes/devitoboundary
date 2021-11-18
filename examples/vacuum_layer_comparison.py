@@ -10,7 +10,7 @@ mode : str
     If 'compare' then a plot comparing the wavefield and gathers for vacuum
     layer and immersed boundary topography is produced. The grids of each can
     be refined by passing parameters 'v_ref' and 'i_ref' as kwargs, where a
-    value of 1 corresponds to the default resolution. 
+    value of 1 corresponds to the default resolution.
 """
 
 import sys
