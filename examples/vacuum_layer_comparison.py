@@ -1,13 +1,23 @@
-# An example showing the accuracy improvements of immersed boundary methods
-# vs a conventional staircased vacuum formulation
+"""
+An example showing the accuracy improvements of immersed boundary methods
+vs a conventional staircased vacuum formulation.
+
+Takes keyword arguments at the command line to configure.
+
+Parameters
+----------
+mode : str
+    If 'compare' then a plot comparing the wavefield and gathers for vacuum
+    layer and immersed boundary topography is produced. The grids of each can
+    be refined by passing parameters 'v_ref' and 'i_ref' as kwargs, where a
+    value of 1 corresponds to the default resolution. 
+"""
 
 import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import sympy as sp
-from devito import Grid, TimeFunction, NODE, Eq, Operator, \
-    Function, Coefficient, Substitutions, ConditionalDimension, Le
+from devito import TimeFunction, Eq, Operator, Function
 from devitoboundary import ImmersedBoundary, BoundaryConditions, \
     SignedDistanceFunction
 from devitoboundary.segmentation import get_interior
