@@ -11,6 +11,8 @@ mode : str
     layer and immersed boundary topography is produced. The grids of each can
     be refined by passing parameters 'v_ref' and 'i_ref' as kwargs, where a
     value of 1 corresponds to the default resolution.
+    If 'converge' then convergence testing is carried out for immersed boundary
+    and vacuum layer implementations.
 """
 
 import sys
@@ -243,13 +245,96 @@ def plot_comparison(s_o, v_refinement=1., i_refinement=1.):
     plt.show()
 
 
-def plot_convergence(s_o):
+def ib_ref():
+    """Generate a high-accuracy immersed-boundary reference"""
+    # Number of grid point (nx, ny, nz)
+    shape = (201, 201, 201)
+    # Grid spacing in m. The domain size is 1x1x1km
+    spacing = (5., 5., 5.)
+    # Needs to account for damping layers
+    origin = (100., 100., 0.)
+
+    v = 1.5
+
+    model = Model(vp=v, origin=origin, shape=shape, spacing=spacing,
+                  space_order=8, nbl=10, bcs="damp")
+
+    t0 = 0.  # Simulation starts at t=0
+    tn = 450.  # Simulation last 0.45 seconds (450 ms)
+    dt = 0.6038  # Hardcoded timestep to keep stable
+
+    time_range = TimeAxis(start=t0, stop=tn, step=dt)
+
+    f0 = 0.015  # Source peak frequency is 15Hz (0.015 kHz)
+
+    src, rec = setup_srcrec(model, time_range, f0)
+
+    # Define the wavefield with the size of the model and the time dimension
+    u = TimeFunction(name="u", grid=model.grid, time_order=2, space_order=8,
+                     coefficients='symbolic')
+
+    shot, wavefield = ib_shot(model, u, time_range, dt, src, rec)
+    
+    return shot, wavefield
+
+
+def eval_convergence(s_o):
     """
-    Compare convergence tests for vacuum layer and immersed boundary
+    Generate convergence data for vacuum layer and immersed boundary
     implementations.
     """
-    raise NotImplementedError
+    # FIXME: Reduce to 4 refinements for testing
+    # Reference shot (only need gathers)
+    ref_shot, _ = ib_ref()
 
+    # Arrays for the errors
+    i_err = np.zeros(10, dtype=float)
+    v_err = np.zeros(10, dtype=float)
+    spacing = 10/(1 + np.arange(10, dtype=float)/10)
+
+    # Loop over grid spacings
+    for i in range(10):
+        v_shot, _, i_shot, _ = compare_shots(s_o,
+                                             v_refinement=1+i/10,
+                                             i_refinement=1+i/10)
+
+        # Normalise the shots
+        norm_v_shot = np.amax(np.abs(v_shot))
+        norm_i_shot = np.amax(np.abs(i_shot))
+
+        v_shot /= norm_v_shot
+        i_shot /= norm_i_shot
+
+        # Calculate the norm
+        l2_i = np.linalg.norm(ref_shot-i_shot)
+        l2_v = np.linalg.norm(ref_shot-v_shot)
+
+        # Add the norms to the arrays
+        i_err[i] = l2_i
+        v_err[i] = l2_v
+
+    return spacing, i_err, v_err
+
+
+def plot_convergence(s_o):
+    spacing, i_err, v_err = eval_convergence(s_o)
+
+    # Calculate the slope of the convergence
+    i_grad = np.polyfit(np.log10(spacing), np.log10(i_err), 1)[0]
+    v_grad = np.polyfit(np.log10(spacing), np.log10(v_err), 1)[0]
+
+    # Plot the convergence
+    fig = plt.figure(constrained_layout=True, figsize=(10, 10))
+    plt.loglog(spacing, v_err, label='Vacuum, gradient={:.3f}'.format(v_grad))
+    plt.loglog(spacing, i_err, label='Immersed, gradient={:.3f}'.format(i_grad))
+    plt.legend()
+    plt.title('Convergence comparison')
+    # FIXME: Maybe I want max here instead of L2?
+    plt.xlabel('Grid spacing')
+    plt.ylabel('L2 error')
+    plt.show()
+
+    
 
 def main(kwargs):
     mode = kwargs.get('mode', 'compare')
