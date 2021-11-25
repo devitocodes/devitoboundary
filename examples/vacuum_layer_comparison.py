@@ -24,6 +24,10 @@ from devitoboundary import ImmersedBoundary, BoundaryConditions, \
     SignedDistanceFunction
 from devitoboundary.segmentation import get_interior
 from examples.seismic import TimeAxis, RickerSource, Model, Receiver
+from scipy.interpolate import RectBivariateSpline
+
+
+QC = False  # Global QC switch
 
 
 def vacuum_shot(model, u, time_range, dt, src, rec):
@@ -35,7 +39,7 @@ def vacuum_shot(model, u, time_range, dt, src, rec):
 
     sdf = SignedDistanceFunction(u, infile,
                                  toggle_normals=True)
-    interior = get_interior(sdf.sdf, tuple(src.coordinates.data[0]), qc=True)
+    interior = get_interior(sdf.sdf, tuple(src.coordinates.data[0]), qc=QC)
 
     v = Function(name='v', grid=model.grid)
     v.data[interior == 1] = 1.5
@@ -79,7 +83,7 @@ def ib_shot(model, u, time_range, dt, src, rec):
     # Create the immersed boundary surface
     surface = ImmersedBoundary('topography', infile, functions,
                                interior_point=tuple(src.coordinates.data[0]),
-                               qc=True, toggle_normals=True)
+                               qc=QC, toggle_normals=True)
     # Configure derivative needed
     derivs = pd.DataFrame({'function': [u],
                            'derivative': [2],
@@ -153,7 +157,6 @@ def compare_shots(s_o, v_refinement=1., i_refinement=1.):
     # Grid spacing in m. The domain size is 1x1x1km
     vspacing = tuple([1000/(vshape[0]-1) for dim in range(3)])
     # Needs to account for damping layers
-    # FIXME: There must be a cleaner way to do this
     vorigin = tuple([v_refinement*10*vspacing[0] for dim in range(2)] + [0.])
 
     ishape = tuple([int(1+100*i_refinement) for dim in range(3)])
@@ -287,9 +290,22 @@ def eval_convergence(s_o):
     Generate convergence data for vacuum layer and immersed boundary
     implementations.
     """
-    # FIXME: Reduce to 4 refinements for testing
     # Reference shot (only need gathers)
-    ref_shot, _ = ib_ref()
+    _, ref_wave = ib_ref()
+
+    # Downsample the reference wavefield
+    ref_x = np.linspace(0., 1000., ref_wave.shape[1])
+    ref_y = np.linspace(0., 1000., ref_wave.shape[0])
+
+    ref_spline = RectBivariateSpline(ref_x, ref_y, ref_wave,
+                                     kx=s_o+1, ky=s_o+1)
+
+    xx_lo, yy_lo = np.meshgrid(np.linspace(0., 1000., 101),
+                               np.linspace(0., 1000., 101))
+
+    ref_resampled = np.reshape(ref_spline(yy_lo.flatten(), xx_lo.flatten(), grid=False), (101, 101))
+    norm_r = np.amax(np.abs(ref_resampled))
+    ref_resampled /= norm_r
 
     # Arrays for the errors
     i_err = np.zeros(10, dtype=float)
@@ -298,20 +314,35 @@ def eval_convergence(s_o):
 
     # Loop over grid spacings
     for i in range(10):
-        v_shot, _, i_shot, _ = compare_shots(s_o,
+        _, v_wave, _, i_wave = compare_shots(s_o,
                                              v_refinement=1+i/10,
                                              i_refinement=1+i/10)
 
-        # Normalise the shots
-        norm_v_shot = np.amax(np.abs(v_shot))
-        norm_i_shot = np.amax(np.abs(i_shot))
+        # Downsample the wavefields
+        vac_x = np.linspace(0., 1000., v_wave.shape[1])
+        vac_y = np.linspace(0., 1000., v_wave.shape[0])
 
-        v_shot /= norm_v_shot
-        i_shot /= norm_i_shot
+        im_x = np.linspace(0., 1000., i_wave.shape[1])
+        im_y = np.linspace(0., 1000., i_wave.shape[0])
+
+        vac_spline = RectBivariateSpline(vac_x, vac_y, v_wave,
+                                         kx=s_o+1, ky=s_o+1)
+        im_spline = RectBivariateSpline(im_x, im_y, i_wave,
+                                        kx=s_o+1, ky=s_o+1)
+
+        vac_resampled = np.reshape(vac_spline(yy_lo.flatten(), xx_lo.flatten(), grid=False), (101, 101))
+        im_resampled = np.reshape(im_spline(yy_lo.flatten(), xx_lo.flatten(), grid=False), (101, 101))
+
+        # Normalise the shots
+        norm_v = np.amax(np.abs(vac_resampled))
+        norm_i = np.amax(np.abs(im_resampled))
+
+        vac_resampled /= norm_v
+        im_resampled /= norm_i
 
         # Calculate the norm
-        l2_i = np.linalg.norm(ref_shot-i_shot)
-        l2_v = np.linalg.norm(ref_shot-v_shot)
+        l2_i = np.linalg.norm(ref_resampled-im_resampled)
+        l2_v = np.linalg.norm(ref_resampled-vac_resampled)
 
         # Add the norms to the arrays
         i_err[i] = l2_i
@@ -328,12 +359,12 @@ def plot_convergence(s_o):
     v_grad = np.polyfit(np.log10(spacing), np.log10(v_err), 1)[0]
 
     # Plot the convergence
-    fig = plt.figure(constrained_layout=True, figsize=(10, 10))
+    plt.figure(constrained_layout=True, figsize=(10, 10))
     plt.loglog(spacing, v_err, label='Vacuum, gradient={:.3f}'.format(v_grad))
     plt.loglog(spacing, i_err, label='Immersed, gradient={:.3f}'.format(i_grad))
     plt.legend()
     plt.title('Convergence comparison')
-    # FIXME: Maybe I want max here instead of L2?
+    # Probably? Or something else? Looks a bit odd rn
     plt.xlabel('Grid spacing')
     plt.ylabel('L2 error')
     plt.show()
