@@ -207,6 +207,10 @@ def plot_comparison(s_o, v_refinement=1., i_refinement=1.):
     norm_v_wavefield = np.amax(np.abs(v_wavefield))
     norm_i_wavefield = np.amax(np.abs(i_wavefield))
 
+    # Clipping Parameters
+    w_clip = 0.15  # Clipping for wavefield
+    s_clip = 0.01  # Clipping for shot records
+
     gather_extent = (0, 100, 450, 0)
     wavefield_extent = (0, 1000, 0, 1000)
 
@@ -214,31 +218,31 @@ def plot_comparison(s_o, v_refinement=1., i_refinement=1.):
     subfigs = fig.subfigures(2, 1, wspace=0.07)
     axsUp = subfigs[0].subplots(1, 2, sharey=True)
     subfigs[0].set_facecolor('0.75')
-    axsUp[0].imshow(v_shot/norm_v_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-0.01, vmax=0.01)
+    axsUp[0].imshow(v_shot/norm_v_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-s_clip, vmax=s_clip)
     axsUp[0].set_title('Vacuum layer')
     axsUp[0].set_xlabel('Receiver number')
     axsUp[0].set_ylabel('Time (ms)')
-    axsUp[1].imshow(i_shot/norm_i_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-0.01, vmax=0.01)
+    axsUp[1].imshow(i_shot/norm_i_shot, extent=gather_extent, aspect='auto', cmap='seismic', vmin=-s_clip, vmax=s_clip)
     axsUp[1].set_title('Immersed boundary')
     axsUp[1].set_xlabel('Receiver number')
-    subfigs[0].suptitle('Shot gathers', fontsize='x-large')
+    subfigs[0].suptitle('Shot gathers, clip={:.0f}%'.format(100*s_clip), fontsize='x-large')
 
     axsDwn = subfigs[1].subplots(1, 2, sharey=True)
     subfigs[1].set_facecolor('0.75')
-    axsDwn[0].imshow(v_wavefield/norm_v_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-0.15, vmax=0.15)
+    axsDwn[0].imshow(v_wavefield/norm_v_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-w_clip, vmax=w_clip)
     axsDwn[0].plot(np.linspace(0, 1000, num=101), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=101)/1200)), color='k')
     axsDwn[0].scatter([500], [900], color='r')
     axsDwn[0].scatter(np.linspace(0, 1000, num=11), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=11)/1200)) - 20, color='b')
     axsDwn[0].set_title('Vacuum layer')
     axsDwn[0].set_xlabel('x (m)')
     axsDwn[0].set_ylabel('z (m)')
-    axsDwn[1].imshow(i_wavefield/norm_i_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-0.15, vmax=0.15)
+    axsDwn[1].imshow(i_wavefield/norm_i_wavefield, origin='lower', extent=wavefield_extent, cmap='seismic', vmin=-w_clip, vmax=w_clip)
     axsDwn[1].plot(np.linspace(0, 1000, num=101), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=101)/1200)), color='k')
     axsDwn[1].scatter([500], [900], color='r')
     axsDwn[1].scatter(np.linspace(0, 1000, num=11), 480 + 480*(np.sin(np.pi*np.linspace(100, 1100, num=11)/1200)) - 20, color='b')
     axsDwn[1].set_title('Immersed boundary')
     axsDwn[1].set_xlabel('x (m)')
-    subfigs[1].suptitle('Wavefields', fontsize='x-large')
+    subfigs[1].suptitle('Wavefields, clip={:.0f}%'.format(100*w_clip), fontsize='x-large')
 
     fig.suptitle('Comparing topography implementations', fontsize='xx-large')
 
@@ -274,7 +278,7 @@ def ib_ref():
                      coefficients='symbolic')
 
     shot, wavefield = ib_shot(model, u, time_range, dt, src, rec)
-    
+
     return shot, wavefield
 
 
@@ -334,7 +338,6 @@ def plot_convergence(s_o):
     plt.ylabel('L2 error')
     plt.show()
 
-    
 
 def main(kwargs):
     mode = kwargs.get('mode', 'compare')
