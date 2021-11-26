@@ -35,7 +35,7 @@ def vacuum_shot(model, u, time_range, dt, src, rec):
     Produce a shot with a vacuum layer
     """
 
-    infile = 'topography/test_sinusoid_lo_res.ply'
+    infile = 'topography/test_sinusoid.ply'
 
     sdf = SignedDistanceFunction(u, infile,
                                  toggle_normals=True)
@@ -68,7 +68,7 @@ def ib_shot(model, u, time_range, dt, src, rec):
     Produce a shot with an immersed boundary
     """
 
-    infile = 'topography/test_sinusoid_lo_res.ply'
+    infile = 'topography/test_sinusoid.ply'
 
     # Zero even derivatives on the boundary
     spec = {2*i: 0 for i in range(u.space_order)}
@@ -364,7 +364,6 @@ def plot_convergence(s_o):
     plt.loglog(spacing, i_err, label='Immersed, gradient={:.3f}'.format(i_grad))
     plt.legend()
     plt.title('Convergence comparison')
-    # Probably? Or something else? Looks a bit odd rn
     plt.xlabel('Grid spacing')
     plt.ylabel('L2 error')
     plt.show()
