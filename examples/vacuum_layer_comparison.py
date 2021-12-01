@@ -360,11 +360,11 @@ def plot_convergence(s_o):
 
     # Plot the convergence
     plt.figure(constrained_layout=True, figsize=(10, 10))
-    plt.loglog(spacing, v_err, label='Vacuum, gradient={:.3f}'.format(v_grad))
-    plt.loglog(spacing, i_err, label='Immersed, gradient={:.3f}'.format(i_grad))
+    plt.loglog(spacing, v_err, label='Vacuum, convergence order={:.3f}'.format(v_grad), color='b')
+    plt.loglog(spacing, i_err, label='Immersed, convergence order={:.3f}'.format(i_grad), color='r')
     plt.legend()
-    plt.title('Convergence comparison')
-    plt.xlabel('Grid spacing')
+    plt.title('Convergence testing')
+    plt.xlabel('Grid spacing (m)')
     plt.ylabel('L2 error')
     plt.show()
 
