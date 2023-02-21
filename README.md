@@ -6,7 +6,7 @@
 
 ```diff
 Note: this repo has been superseded by [Schism](https://github.com/EdCaunt/schism).
-\```
+```
 
 Devitoboundary is a set of utilities used for the implementation of
 immersed boundaries in Devito. The intention is to build useful
