@@ -4,6 +4,8 @@
 
 [![CI-1st-Order](https://github.com/devitocodes/devitoboundary/actions/workflows/pytest_1st_order.yml/badge.svg)](https://github.com/devitocodes/devitoboundary/actions/workflows/pytest_1st_order.yml)
 
+Note: this repo has been superseded by [Schism](https://github.com/EdCaunt/schism).
+
 Devitoboundary is a set of utilities used for the implementation of
 immersed boundaries in Devito. The intention is to build useful
 abstractions to simplify the process of imposing boundary conditions
